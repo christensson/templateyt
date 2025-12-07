@@ -1,0 +1,22 @@
+{
+  "name": "templateyt",
+  "title": "Ticket Templates",
+  "description": "Add template to tickets.",
+  "$schema": "https://json.schemastore.org/youtrack-app.json",
+  "vendor": {
+    "name": "Marcus Christensson",
+    "url": "https://github.com/christensson/templateyt"
+  },
+  "icon": "icon.svg",
+  "widgets": [
+
+    {
+      "key": "templateyt-project-config",
+      "name": "Ticket Templates Config",
+      "indexPath": "templateyt-project-config/index.html",
+      "extensionPoint": "PROJECT_SETTINGS",
+      "iconPath": "templateyt-project-config/widget-icon.svg",
+      "description": "Configure ticket templates for project."
+    }
+  ]
+}
