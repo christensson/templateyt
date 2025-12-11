@@ -1,0 +1,13 @@
+{
+  "entityTypeExtensions": [
+    {
+      "entityType": "Project",
+      "properties": {
+        "templates": {
+          "type": "string",
+          "multi": false
+        }
+      }
+    }
+  ]
+}

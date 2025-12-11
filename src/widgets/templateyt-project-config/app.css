@@ -4,3 +4,24 @@
   gap: calc(var(--ring-unit) * 2);
   margin: calc(var(--ring-unit) / 2);
 }
+
+.template-config-panel {
+  margin-left: calc(var(--ring-unit) / 2) !important;
+  margin-right: calc(var(--ring-unit) / 2) !important;
+}
+
+.template-list-panel {
+  border-right: 1px solid var(--ring-line-color);
+}
+
+.template-edit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit) * 2);
+  margin: calc(var(--ring-unit) / 2);
+}
+
+.template-edit-actions {
+  display: flex;
+  gap: calc(var(--ring-unit) / 2);
+}
