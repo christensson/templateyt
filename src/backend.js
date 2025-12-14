@@ -73,6 +73,32 @@ exports.httpHandler = {
         props.templates = JSON.stringify(updatedTemplates);
         ctx.response.json({ success: true });
       }
+    },
+    {
+      scope: "project",
+      method: 'GET',
+      path: 'getProjectInfo',
+      handle: function handle(ctx) {
+        const project = ctx.project;
+        const stateFields = project.fields.map((x) => x).filter((x) => x.typeName === 'state[1]');
+        const enumFields = project.fields.map((x) => x).filter((x) => x.typeName === 'enum[1]');
+        const stateFieldInfo = stateFields.map((x) => ({
+          name: x.name,
+          values: x.values.map((v) => ({
+            name: v.name,
+            presentation: v.presentation,
+          }))
+        }));
+        const enumFieldInfo = enumFields.map((x) => ({
+          name: x.name,
+          values: x.values.map((v) => ({
+            name: v.name,
+            presentation: v.presentation,
+          }))
+        }));
+
+        ctx.response.json({ stateFields: stateFieldInfo, enumFields: enumFieldInfo });
+      }
     }
   ]
 };

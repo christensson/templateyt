@@ -4,7 +4,9 @@ import { Col, Grid, Row } from "@jetbrains/ring-ui-built/components/grid/grid";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import type { ProjectFieldInfo } from "../../../@types/project-fields";
 import type { Template } from "../../../@types/template";
+import FieldConditionInput from "./field-condition";
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
 
@@ -12,8 +14,8 @@ const createEmptyTemplate = (): Template => ({
   id: crypto.randomUUID(),
   name: "",
   articleId: "",
-  addOnSave: false,
-  forTicketTypes: [],
+  validCondition: null,
+  addCondition: null,
 });
 
 const AppComponent: React.FunctionComponent = () => {
@@ -21,6 +23,7 @@ const AppComponent: React.FunctionComponent = () => {
   const [template, setTemplate] = useState<Template>(createEmptyTemplate());
   const [isDraft, setIsDraft] = useState<boolean>(true);
   const [failMessage, setFailMessage] = useState<string>("");
+  const [projectFields, setProjectFields] = useState<Array<ProjectFieldInfo>>([]);
 
   useEffect(() => {
     host
@@ -32,6 +35,20 @@ const AppComponent: React.FunctionComponent = () => {
         // eslint-disable-next-line no-console
         console.log("Result", result);
         setTemplates(result.templates);
+      });
+    host
+      .fetchApp<{ stateFields: Array<ProjectFieldInfo>; enumFields: Array<ProjectFieldInfo> }>(
+        "backend/getProjectInfo",
+        {
+          scope: true,
+          method: "GET",
+        }
+      )
+      .then((result) => {
+        // eslint-disable-next-line no-console
+        console.log("Project fields", result);
+        const fields = [...result.enumFields, ...result.stateFields];
+        setProjectFields(fields);
       });
   }, [host]);
 
@@ -120,6 +137,18 @@ const AppComponent: React.FunctionComponent = () => {
                   setTemplate((prev) => ({ ...prev, articleId: e.target.value.toUpperCase() }))
                 }
                 size={Size.L}
+              />
+              <FieldConditionInput
+                fields={projectFields}
+                conditionType="valid"
+                template={template}
+                setTemplate={setTemplate}
+              />
+              <FieldConditionInput
+                fields={projectFields}
+                conditionType="add"
+                template={template}
+                setTemplate={setTemplate}
               />
               {failMessage && (
                 <Banner mode="error" title="Failed to store template" withIcon>
