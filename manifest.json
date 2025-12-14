@@ -19,5 +19,13 @@
       "iconPath": "templateyt-project-config/widget-icon.svg",
       "description": "Configure ticket templates for project."
     }
-  ]
+  ],
+  "modules": {
+    "workflows": [
+      {
+        "name": "Add template to ticket",
+        "script": "add-issue-template-wf.js"
+      }
+    ]
+  }
 }
