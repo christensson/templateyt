@@ -1,12 +1,13 @@
 {
+  "$schema": "https://json.schemastore.org/youtrack-app.json",
   "name": "templateyt",
   "title": "Ticket Templates",
   "description": "Add template to tickets.",
-  "$schema": "https://json.schemastore.org/youtrack-app.json",
   "vendor": {
     "name": "Marcus Christensson",
     "url": "https://github.com/christensson/templateyt"
   },
+  "minYouTrackVersion": "2024.3.0",
   "icon": "icon.svg",
   "widgets": [
 
