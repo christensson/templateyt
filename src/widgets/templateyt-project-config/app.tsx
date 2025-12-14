@@ -8,7 +8,7 @@ import Select from "@jetbrains/ring-ui-built/components/select/select";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { ProjectFieldInfo } from "../../../@types/project-fields";
 import type { Template } from "../../../@types/template";
-import FieldConditionInput from "./field-condition";
+import FieldConditionInput from "./field-condition-input";
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
 
