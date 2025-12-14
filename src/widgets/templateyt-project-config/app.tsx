@@ -3,6 +3,8 @@ import Button from "@jetbrains/ring-ui-built/components/button/button";
 import { Col, Grid, Row } from "@jetbrains/ring-ui-built/components/grid/grid";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
+import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
+import Select from "@jetbrains/ring-ui-built/components/select/select";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { ProjectFieldInfo } from "../../../@types/project-fields";
 import type { Template } from "../../../@types/template";
@@ -107,12 +109,18 @@ const AppComponent: React.FunctionComponent = () => {
   };
 
   const listItems = useMemo(() => getListItems(templates), [templates]);
+  const selectActionData = [
+    { key: "none", label: "Not added automatically" },
+    { key: "field_becomes", label: "Add when field is set" },
+    /* { key: "tag_added", label: "Add when tag is added" }, */
+  ];
 
   return (
     <div className="widget">
       <Grid className="template-config-panel">
         <Row>
           <Col xs={12} sm={4} md={4} lg={4} className="template-list-panel">
+            {!isDraft && <Button onClick={() => createNewTemplate()}>Add new template</Button>}
             <List
               data={listItems}
               activeIndex={listItems.findIndex((item) => item.templateItem.id === template?.id)}
@@ -144,12 +152,43 @@ const AppComponent: React.FunctionComponent = () => {
                 template={template}
                 setTemplate={setTemplate}
               />
-              <FieldConditionInput
-                fields={projectFields}
-                conditionType="add"
-                template={template}
-                setTemplate={setTemplate}
+              <Select
+                clear
+                data={selectActionData}
+                selected={selectActionData.find(
+                  (item) => item.key === (template?.addCondition?.when || "none")
+                )}
+                onChange={(selected: SelectItem | null) => {
+                  if (selected === null || selected.key === "none") {
+                    setTemplate((prev) => ({ ...prev, addCondition: null }));
+                  } else if (selected.key === "field_becomes") {
+                    setTemplate((prev) => ({
+                      ...prev,
+                      addCondition: {
+                        when: "field_becomes",
+                        fieldName: "",
+                        fieldValue: "",
+                      },
+                    }));
+                  } else if (selected.key === "tag_added") {
+                    setTemplate((prev) => ({
+                      ...prev,
+                      addCondition: {
+                        when: "tag_added",
+                        tagName: "",
+                      },
+                    }));
+                  }
+                }}
               />
+              {template !== null && template?.addCondition?.when === "field_becomes" && (
+                <FieldConditionInput
+                  fields={projectFields}
+                  conditionType="add"
+                  template={template}
+                  setTemplate={setTemplate}
+                />
+              )}
               {failMessage && (
                 <Banner mode="error" title="Failed to store template" withIcon>
                   {failMessage}
@@ -159,7 +198,6 @@ const AppComponent: React.FunctionComponent = () => {
                 <Button onClick={() => addOrUpdateTemplate(template)}>
                   {isDraft ? "Add Template" : "Save Template"}
                 </Button>
-                {!isDraft && <Button onClick={() => createNewTemplate()}>Add template</Button>}
               </div>
             </div>
           </Col>

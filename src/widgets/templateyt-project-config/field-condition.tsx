@@ -7,6 +7,7 @@ import type { FieldActionCondition, FieldStateCondition, Template } from "../../
 
 interface FieldConditionInputProps {
   fields: Array<ProjectFieldInfo>;
+  whenTitle?: string;
   conditionType: "valid" | "add";
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
@@ -14,6 +15,7 @@ interface FieldConditionInputProps {
 
 const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = ({
   fields,
+  whenTitle,
   conditionType,
   template,
   setTemplate,
@@ -125,18 +127,28 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
   return (
     <div>
       <Text size={Text.Size.M} info>
-        {conditionType === "add" ? "Add when field " : "Valid when field "}
+        {(whenTitle ?? (conditionType === "add" ? "Add when field" : "Valid when field")) + " "}
       </Text>
-      <Select clear data={selectFieldItems} onSelect={onSelectField} selected={selectedFieldItem} />
+      <Select
+        clear
+        type={Select.Type.INLINE}
+        size={Select.Size.AUTO}
+        data={selectFieldItems}
+        onSelect={onSelectField}
+        selected={selectedFieldItem}
+      />
       <Text size={Text.Size.M} info>
         {conditionType === "add" ? " becomes " : " is "}
       </Text>
       <Select
         clear
+        type={Select.Type.INLINE}
+        size={Select.Size.AUTO}
         data={selectFieldValueItems}
         selected={selectedFieldValueItem}
         onSelect={onSelectFieldValue}
       />
+      .
     </div>
   );
 };
