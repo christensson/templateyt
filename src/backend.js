@@ -27,6 +27,107 @@ exports.httpHandler = {
           return;
         }
 
+        if (newTemplate.hasOwnProperty("validCondition") === false) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Template must have a valid validCondition.",
+          });
+          return;
+        }
+
+        if (newTemplate.hasOwnProperty("addCondition") === false) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Template must have a valid addCondition.",
+          });
+          return;
+        }
+
+        if (newTemplate.validCondition !== null) {
+          const cond = newTemplate.validCondition;
+          if (cond.hasOwnProperty("when") === false) {
+            ctx.response.status = 400;
+            ctx.response.json({
+              success: false,
+              message: 'Inconsistent validCondition, missing "when" property.',
+            });
+            return;
+          }
+          if (cond.when === "field_is") {
+            if (
+              cond.hasOwnProperty("fieldName") === false ||
+              cond.hasOwnProperty("fieldValue") === false
+            ) {
+              ctx.response.status = 400;
+              ctx.response.json({
+                success: false,
+                message:
+                  'Inconsistent validCondition, missing "fieldName" or "fieldValue" property.',
+              });
+              return;
+            }
+          } else if (cond.when === "tag_is") {
+            if (cond.hasOwnProperty("tagName") === false) {
+              ctx.response.status = 400;
+              ctx.response.json({
+                success: false,
+                message: 'Inconsistent validCondition, missing "tagName" property.',
+              });
+              return;
+            }
+          } else {
+            ctx.response.status = 400;
+            ctx.response.json({
+              success: false,
+              message: `Inconsistent validCondition, unknown when value: ${cond.when}`,
+            });
+            return;
+          }
+        }
+
+        if (newTemplate.addCondition !== null) {
+          const cond = newTemplate.addCondition;
+          if (cond.hasOwnProperty("when") === false) {
+            ctx.response.status = 400;
+            ctx.response.json({
+              success: false,
+              message: 'Inconsistent addCondition, missing "when" property.',
+            });
+            return;
+          }
+          if (cond.when === "field_becomes") {
+            if (
+              cond.hasOwnProperty("fieldName") === false ||
+              cond.hasOwnProperty("fieldValue") === false
+            ) {
+              ctx.response.status = 400;
+              ctx.response.json({
+                success: false,
+                message: 'Inconsistent addCondition, missing "fieldName" or "fieldValue" property.',
+              });
+              return;
+            }
+          } else if (cond.when === "tag_added" || cond.when === "tag_removed") {
+            if (cond.hasOwnProperty("tagName") === false) {
+              ctx.response.status = 400;
+              ctx.response.json({
+                success: false,
+                message: 'Inconsistent addCondition, missing "tagName" property.',
+              });
+              return;
+            }
+          } else {
+            ctx.response.status = 400;
+            ctx.response.json({
+              success: false,
+              message: `Inconsistent addCondition, unknown when value: ${cond.when}`,
+            });
+            return;
+          }
+        }
+
         const articleId = newTemplate?.articleId;
         if (articleId === undefined || articleId === "") {
           ctx.response.status = 400;
