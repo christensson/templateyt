@@ -18,6 +18,18 @@
       "extensionPoint": "PROJECT_SETTINGS",
       "iconPath": "templateyt-project-config/widget-icon.svg",
       "description": "Configure ticket templates for project."
+    },
+    {
+      "key": "templateyt-article-menu",
+      "name": "Configure as Ticket Template",
+      "indexPath": "templateyt-article-menu/index.html",
+      "extensionPoint": "ARTICLE_OPTIONS_MENU_ITEM",
+      "iconPath": "templateyt-article-menu/widget-icon.svg",
+      "description": "Configure article as ticket template.",
+      "expectedDimensions": {
+        "height": 300,
+        "width": 480
+      }
     }
   ],
   "modules": {

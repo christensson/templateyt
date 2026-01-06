@@ -8,6 +8,7 @@ import Select from "@jetbrains/ring-ui-built/components/select/select";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { ProjectFieldInfo } from "../../../@types/project-fields";
 import type { Template } from "../../../@types/template";
+import type { TemplateArticle } from "../../../@types/template-article";
 import FieldConditionInput from "./field-condition-input";
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
@@ -26,6 +27,7 @@ const AppComponent: React.FunctionComponent = () => {
   const [isDraft, setIsDraft] = useState<boolean>(true);
   const [failMessage, setFailMessage] = useState<string>("");
   const [projectFields, setProjectFields] = useState<Array<ProjectFieldInfo>>([]);
+  const [templateArticles, setTemplateArticles] = useState<TemplateArticle[]>([]);
 
   useEffect(() => {
     host
@@ -51,6 +53,16 @@ const AppComponent: React.FunctionComponent = () => {
         console.log("Project fields", result);
         const fields = [...result.enumFields, ...result.stateFields];
         setProjectFields(fields);
+      });
+    host
+      .fetchApp<Array<TemplateArticle>>("backend/getTemplateArticles", {
+        scope: true,
+        method: "GET",
+      })
+      .then((result) => {
+        // eslint-disable-next-line no-console
+        console.log("Template articles", result);
+        setTemplateArticles(result);
       });
   }, [host]);
 
@@ -83,13 +95,35 @@ const AppComponent: React.FunctionComponent = () => {
     }
   };
 
-  const getListItems = (data: Array<Template>): Array<ListDataItem<{ templateItem: Template }>> => {
+  const getTemplateArticleSelectItems = (
+    data: Array<TemplateArticle>
+  ): Array<SelectItem<{ templateArticleItem: TemplateArticle }>> => {
+    const items: Array<SelectItem<{ templateArticleItem: TemplateArticle }>> = data.map(
+      (templateArticle: TemplateArticle) => ({
+        key: templateArticle.articleId,
+        rgItemType: 2,
+        label: `${templateArticle.articleId}: ${templateArticle.summary}`,
+        templateArticleItem: templateArticle,
+      })
+    );
+    return items;
+  };
+
+  const getListItems = (
+    data: Array<Template>,
+    templateArticles: Array<TemplateArticle>
+  ): Array<ListDataItem<{ templateItem: Template }>> => {
+    const articlesMap: Record<string, TemplateArticle> = Object.fromEntries(
+      templateArticles.map((article) => [article.articleId, article])
+    );
     const items: Array<ListDataItem<{ templateItem: Template }>> = data.map(
       (template: Template) => ({
         key: template.id,
         rgItemType: 2,
         label: template.name,
-        details: `Article ID: ${template.articleId}`,
+        details: `Article: ${template.articleId}: ${
+          articlesMap?.[template.articleId]?.summary || ""
+        }`,
         templateItem: template,
       })
     );
@@ -108,7 +142,14 @@ const AppComponent: React.FunctionComponent = () => {
     setFailMessage("");
   };
 
-  const listItems = useMemo(() => getListItems(templates), [templates]);
+  const listItems = useMemo(
+    () => getListItems(templates, templateArticles),
+    [templates, templateArticles]
+  );
+  const templateArticleSelectItems = useMemo(
+    () => getTemplateArticleSelectItems(templateArticles),
+    [templateArticles]
+  );
   const selectActionData = [
     { key: "none", label: "Not added automatically" },
     { key: "field_becomes", label: "Add when field is set" },
@@ -138,14 +179,32 @@ const AppComponent: React.FunctionComponent = () => {
                 onChange={(e) => setTemplate((prev) => ({ ...prev, name: e.target.value }))}
                 size={Size.L}
               />
-              <Input
-                label="Article ID"
-                value={template.articleId}
-                onChange={(e) =>
-                  setTemplate((prev) => ({ ...prev, articleId: e.target.value.toUpperCase() }))
-                }
-                size={Size.L}
-              />
+              <div className="template-edit-panel-article-select">
+                <Select
+                  clear
+                  selectedLabel="Template article"
+                  label="Select template article..."
+                  data={templateArticleSelectItems}
+                  selected={templateArticleSelectItems.find(
+                    (item) => item.templateArticleItem.articleId === template?.articleId
+                  )}
+                  onChange={(
+                    selected: SelectItem<{ templateArticleItem: TemplateArticle }> | null
+                  ) => {
+                    if (selected != null) {
+                      setTemplate((prev) => ({
+                        ...prev,
+                        articleId: selected.templateArticleItem.articleId,
+                      }));
+                    }
+                  }}
+                />
+                {template !== null && template?.articleId && (
+                  <Button href={`/articles/${template.articleId}`} target="_blank">
+                    Open {template.articleId}
+                  </Button>
+                )}
+              </div>
               <FieldConditionInput
                 fields={projectFields}
                 conditionType="valid"

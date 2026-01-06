@@ -204,5 +204,77 @@ exports.httpHandler = {
         ctx.response.json({ stateFields: stateFieldInfo, enumFields: enumFieldInfo });
       },
     },
+    {
+      scope: "project",
+      method: "GET",
+      path: "getTemplateArticles",
+      handle: function handle(ctx) {
+        const templateArticles = entities.Article.findByExtensionProperties({
+          isTemplate: true,
+        });
+        const articles = templateArticles.map((x) => ({
+          articleId: x.id,
+          summary: x.summary,
+          url: x.url,
+        }));
+
+        ctx.response.json(articles);
+      },
+    },
+    {
+      scope: "article",
+      method: "GET",
+      path: "getArticleInfo",
+      handle: function handle(ctx) {
+        const article = ctx.article;
+        const props = article.extensionProperties;
+        const isTemplate = props?.isTemplate || false;
+        ctx.response.json({
+          articleId: article.id,
+          isTemplate: isTemplate,
+        });
+      },
+    },
+    {
+      scope: "article",
+      method: "POST",
+      path: "setArticleInfo",
+      handle: function handle(ctx) {
+        const article = ctx.article;
+        const props = article.extensionProperties;
+        const articleInfo = JSON.parse(ctx.request.body);
+        if (articleInfo.hasOwnProperty("articleId") === false || articleInfo.articleId === "") {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Article info must have a valid articleId.",
+          });
+          return;
+        }
+
+        if (articleInfo.hasOwnProperty("isTemplate") === false) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Article info must have an isTemplate field.",
+          });
+          return;
+        }
+        if (articleInfo.articleId !== article.id) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Request article ID doesn't match context article ID.",
+          });
+          return;
+        }
+
+        article.extensionProperties.isTemplate = articleInfo.isTemplate || false;
+
+        ctx.response.json({
+          success: true,
+        });
+      },
+    },
   ],
 };

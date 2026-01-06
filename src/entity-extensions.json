@@ -8,6 +8,15 @@
           "multi": false
         }
       }
+    },
+    {
+      "entityType": "Article",
+      "properties": {
+        "isTemplate": {
+          "type": "boolean",
+          "multi": false
+        }
+      }
     }
   ]
 }
