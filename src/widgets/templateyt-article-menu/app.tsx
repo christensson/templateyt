@@ -1,6 +1,6 @@
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Checkbox from "@jetbrains/ring-ui-built/components/checkbox/checkbox";
-import Loarder from "@jetbrains/ring-ui-built/components/loader/loader";
+import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
 import React, { memo, useCallback, useEffect, useState } from "react";
 import type { ArticleInfo, TemplateArticle } from "../../../@types/template-article";
@@ -35,7 +35,7 @@ const AppComponent: React.FunctionComponent = () => {
 
   return (
     <div className="widget">
-      {!articleInfo && <Loarder message="Loading article info..." />}
+      {!articleInfo && <Loader message="Loading article info..." />}
       {articleInfo && (
         <div className="article-template-config">
           <Checkbox
