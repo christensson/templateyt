@@ -43,7 +43,7 @@ const getValidTemplates = (ctx, issue) => {
 };
 
 exports.rule = entities.Issue.onChange({
-  title: "Replace issue text according to configuration",
+  title: "Apply ticket template",
   guard: function (ctx) {
     const issue = ctx.issue;
     const validTemplates = getValidTemplates(ctx, issue);
@@ -74,9 +74,10 @@ exports.rule = entities.Issue.onChange({
   },
   action: function (ctx) {
     const issue = ctx.issue;
+    const usedTemplateIds = JSON.parse(issue.extensionProperties.usedTemplateIds) || [];
     const templates = getValidTemplates(ctx, issue);
     log(`Issue ${issue.id}${issue.isNew ? " (new)" : ""} templates: ${JSON.stringify(templates)}`);
-    const actionTemplates = templates
+    const newTemplates = templates
       .filter((t) => (t?.addCondition ? t?.addCondition?.when === "field_becomes" : false))
       .filter((t) => {
         const cond = t.addCondition;
@@ -93,12 +94,20 @@ exports.rule = entities.Issue.onChange({
         const cond = t.addCondition;
         return issue.isChanged(cond.fieldName) && issue.was(cond.fieldName, cond.fieldValue);
       });
-    log(`Ticket ${issue.id}: Templates to apply: ${JSON.stringify(actionTemplates)}`);
+
+    // Also remove any of the new templates that are already used.
+    oldTemplates.push(
+      ...newTemplates
+        .filter((t) => usedTemplateIds.includes(t.id))
+        .filter((t) => !oldTemplates.find((ot) => ot.id === t.id))
+    );
+
+    log(`Ticket ${issue.id}: Templates to apply: ${JSON.stringify(newTemplates)}`);
     log(`Ticket ${issue.id}: Templates to potentially remove: ${JSON.stringify(oldTemplates)}`);
 
     // Load articles.
     const articles = {};
-    for (const t of [...actionTemplates, ...oldTemplates]) {
+    for (const t of [...newTemplates, ...oldTemplates]) {
       const articleId = t.articleId;
       if (articles[articleId]) {
         continue;
@@ -110,7 +119,7 @@ exports.rule = entities.Issue.onChange({
     }
     let newDescription = issue.description ? issue.description.trim() : "";
 
-    // Remove any old templates.
+    // Remove any old (or new) non-modified templates.
     for (const template of oldTemplates) {
       const article = articles[template.articleId];
       const templateContent = article.content.trim();
@@ -124,10 +133,14 @@ exports.rule = entities.Issue.onChange({
           );
         }
       }
+      if (usedTemplateIds.includes(template.id)) {
+        const index = usedTemplateIds.indexOf(template.id);
+        usedTemplateIds.splice(index, 1);
+      }
     }
 
     // Apply new templates.
-    for (const template of actionTemplates) {
+    for (const template of newTemplates) {
       const article = articles[template.articleId];
       const templateContent = article.content.trim();
       if (templateContent) {
@@ -135,6 +148,9 @@ exports.rule = entities.Issue.onChange({
           newDescription += "\n\n";
         }
         newDescription += templateContent;
+        if (!usedTemplateIds.includes(template.id)) {
+          usedTemplateIds.push(template.id);
+        }
         log(
           `Ticket ${issue.id}: Applied template "${template.name}" (${template.id}) from article ${template.articleId}`
         );
@@ -143,6 +159,7 @@ exports.rule = entities.Issue.onChange({
     if (newDescription) {
       issue.description = newDescription;
     }
+    issue.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
   },
   requirements: {},
 });

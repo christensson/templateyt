@@ -17,6 +17,15 @@
           "multi": false
         }
       }
+    },
+    {
+      "entityType": "Issue",
+      "properties": {
+        "usedTemplateIds": {
+          "type": "string",
+          "multi": false
+        }
+      }
     }
   ]
 }
