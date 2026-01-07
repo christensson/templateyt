@@ -276,5 +276,34 @@ exports.httpHandler = {
         });
       },
     },
+    {
+      scope: "issue",
+      method: "GET",
+      path: "templates",
+      handle: function handle(ctx) {
+        const issue = ctx.issue;
+        const issueProps = issue.extensionProperties;
+        const projectProps = ctx.project.extensionProperties;
+        const usedTemplateIds = JSON.parse(issueProps.usedTemplateIds) || [];
+        const templates = JSON.parse(projectProps.templates) || [];
+
+        const validTemplateIds = templates
+          .filter((t) => {
+            if (t.validCondition == null) {
+              return true;
+            }
+            if (t.validCondition.when === "field_is") {
+              return issue.is(t.validCondition.fieldName, t.validCondition.fieldValue);
+            }
+            return false;
+          })
+          .map((t) => t.id);
+        ctx.response.json({
+          usedTemplateIds: usedTemplateIds,
+          templates: templates,
+          validTemplateIds: validTemplateIds,
+        });
+      },
+    },
   ],
 };

@@ -1,0 +1,22 @@
+.widget {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit) * 2);
+  margin: calc(var(--ring-unit) / 2);
+  height: 380px;
+}
+
+.issue-template-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.issue-template-used-templates-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.issue-template-config-bottom-panel {
+  padding: calc(var(--ring-unit) * 2) 0 0 0;
+  margin-top: auto;
+}

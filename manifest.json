@@ -30,6 +30,18 @@
         "height": 300,
         "width": 480
       }
+    },
+    {
+      "key": "templateyt-issue-menu",
+      "name": "Apply ticket template",
+      "indexPath": "templateyt-issue-menu/index.html",
+      "extensionPoint": "ISSUE_OPTIONS_MENU_ITEM",
+      "iconPath": "templateyt-issue-menu/widget-icon.svg",
+      "description": "Apply a ticket template to the current ticket.",
+      "expectedDimensions": {
+        "height": 400,
+        "width": 480
+      }
     }
   ],
   "modules": {

@@ -1,7 +1,7 @@
-import {resolve} from 'node:path';
-import {defineConfig} from 'vite';
-import {viteStaticCopy} from 'vite-plugin-static-copy';
-import react from '@vitejs/plugin-react';
+import { resolve } from "node:path";
+import { defineConfig } from "vite";
+import { viteStaticCopy } from "vite-plugin-static-copy";
+import react from "@vitejs/plugin-react";
 
 /*
       See https://vitejs.dev/config/
@@ -13,47 +13,51 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         {
-          src: '../manifest.json',
-          dest: '.'
+          src: "../manifest.json",
+          dest: ".",
         },
         {
-          src: '*.*',
-          dest: '.'
+          src: "*.*",
+          dest: ".",
         },
         {
-          src: '../public/*.*',
-          dest: '.'
-        }
-      ]
+          src: "../public/*.*",
+          dest: ".",
+        },
+      ],
     }),
     viteStaticCopy({
       targets: [
         // Widget icons and configurations
         {
-          src: 'widgets/**/*.{svg,png,jpg,json}',
-          dest: '.'
-        }
+          src: "widgets/**/*.{svg,png,jpg,json}",
+          dest: ".",
+        },
       ],
-      structured: true
-    })
+      structured: true,
+    }),
   ],
-  root: './src',
-  base: '',
-  publicDir: 'public',
+  root: "./src",
+  base: "",
+  publicDir: "public",
   build: {
-    outDir: '../dist',
+    outDir: "../dist",
     emptyOutDir: true,
     copyPublicDir: false,
-    target: ['es2022'],
-    assetsDir: 'widgets/assets',
+    target: ["es2022"],
+    assetsDir: "widgets/assets",
     rollupOptions: {
       input: {
         // List every widget entry point here
-        templateytArticleMenu: resolve(__dirname, 'src/widgets/templateyt-article-menu/index.html'),
+        templateytIssueMenu: resolve(__dirname, "src/widgets/templateyt-issue-menu/index.html"),
 
-        templateytProjectConfig: resolve(__dirname, 'src/widgets/templateyt-project-config/index.html'),
+        templateytArticleMenu: resolve(__dirname, "src/widgets/templateyt-article-menu/index.html"),
 
-      }
-    }
-  }
+        templateytProjectConfig: resolve(
+          __dirname,
+          "src/widgets/templateyt-project-config/index.html"
+        ),
+      },
+    },
+  },
 });
