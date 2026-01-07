@@ -68,11 +68,11 @@ const AppComponent: React.FunctionComponent = () => {
 
   const addOrUpdateTemplate = async (template: Template) => {
     if (template.name.trim() === "") {
-      console.log("Template name is required");
+      setFailMessage("Template name is required.");
       return;
     }
     if (template.articleId.trim() === "") {
-      console.log("Article ID is required");
+      setFailMessage("Article ID is required.");
       return;
     }
     const result = await host.fetchApp<{
