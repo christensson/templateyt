@@ -1,3 +1,4 @@
+import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
@@ -18,6 +19,7 @@ type IssueTemplateInfo = {
 const AppComponent: React.FunctionComponent = () => {
   const [issueTemplateInfo, setIssueTemplateInfo] = useState<IssueTemplateInfo | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [failMessage, setFailMessage] = useState<string>("");
 
   useEffect(() => {
     host
@@ -31,6 +33,102 @@ const AppComponent: React.FunctionComponent = () => {
         setIssueTemplateInfo(result);
       });
   }, [host]);
+
+  const addTemplateToIssue = useCallback(
+    async (templateId: string | null) => {
+      if (templateId === null) {
+        setFailMessage("Failed to add template, no template selected.");
+        return;
+      }
+      if (issueTemplateInfo === null) {
+        setFailMessage("Failed to add template, no template info loaded.");
+        return;
+      }
+      if (!issueTemplateInfo.templates.map((t) => t.id).includes(templateId)) {
+        setFailMessage(`Template ${templateId} not found in loaded templates.`);
+        return;
+      }
+      const result = await host.fetchApp<{
+        success: Boolean;
+        message?: string;
+        usedTemplateIds?: Array<string>;
+      }>("backend/addTemplate", {
+        scope: true,
+        method: "POST",
+        body: { templateId: templateId },
+      });
+      // eslint-disable-next-line no-console
+      console.log(`Add template ${templateId} result`, result);
+      if (!result.success) {
+        setFailMessage(result.message || `Failed to add template ${templateId}.`);
+        return;
+      }
+      if (result?.usedTemplateIds == undefined) {
+        setFailMessage("Got no template IDs from server after add.");
+        return;
+      }
+
+      setFailMessage("");
+      setIssueTemplateInfo((prev) => {
+        if (prev === null) {
+          return prev;
+        }
+        return {
+          ...prev,
+          usedTemplateIds: result.usedTemplateIds as Array<string>,
+        };
+      });
+    },
+    [host, issueTemplateInfo]
+  );
+
+  const removeTemplateFromIssue = useCallback(
+    async (templateId: string | null) => {
+      if (templateId === null) {
+        setFailMessage("Failed to remove template, no template selected.");
+        return;
+      }
+      if (issueTemplateInfo === null) {
+        setFailMessage("Failed to remove template, no template info loaded.");
+        return;
+      }
+      if (!issueTemplateInfo.templates.map((t) => t.id).includes(templateId)) {
+        setFailMessage(`Template ${templateId} not found in loaded templates.`);
+        return;
+      }
+      const result = await host.fetchApp<{
+        success: Boolean;
+        message?: string;
+        usedTemplateIds?: Array<string>;
+      }>("backend/removeTemplate", {
+        scope: true,
+        method: "DELETE",
+        body: { templateId: templateId },
+      });
+      // eslint-disable-next-line no-console
+      console.log(`Remove template ${templateId} result`, result);
+      if (!result.success) {
+        setFailMessage(result.message || `Failed to remove template ${templateId}.`);
+        return;
+      }
+      if (result?.usedTemplateIds == undefined) {
+        setFailMessage("Got no template IDs from server after removal.");
+        return;
+      }
+
+      setFailMessage("");
+      setIssueTemplateInfo((prev) => {
+        if (prev === null) {
+          return prev;
+        }
+        return {
+          ...prev,
+          usedTemplateIds: result.usedTemplateIds as Array<string>,
+        };
+      });
+    },
+    [host, issueTemplateInfo]
+  );
 
   const getListItems = (
     data: IssueTemplateInfo | null
@@ -102,6 +200,11 @@ const AppComponent: React.FunctionComponent = () => {
           />
         </div>
       )}
+      {failMessage && (
+        <Banner mode="error" title="Failed to update ticket templates" withIcon>
+          {failMessage}
+        </Banner>
+      )}
       <Panel className="issue-template-config-bottom-panel">
         <Button
           primary
@@ -109,6 +212,7 @@ const AppComponent: React.FunctionComponent = () => {
             selectedTemplateId === null ||
             issueTemplateInfo?.usedTemplateIds.includes(selectedTemplateId)
           }
+          onClick={() => addTemplateToIssue(selectedTemplateId)}
         >
           {"Add template"}
         </Button>
@@ -118,6 +222,7 @@ const AppComponent: React.FunctionComponent = () => {
             selectedTemplateId === null ||
             !issueTemplateInfo?.usedTemplateIds.includes(selectedTemplateId)
           }
+          onClick={() => removeTemplateFromIssue(selectedTemplateId)}
         >
           {"Remove template"}
         </Button>

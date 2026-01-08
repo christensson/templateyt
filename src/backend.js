@@ -1,5 +1,15 @@
 var entities = require("@jetbrains/youtrack-scripting-api/entities");
 
+const isTemplateValidForIssue = (issue, template) => {
+  if (template.validCondition == null) {
+    return true;
+  }
+  if (template.validCondition.when === "field_is") {
+    return issue.is(template.validCondition.fieldName, template.validCondition.fieldValue);
+  }
+  return false;
+};
+
 exports.httpHandler = {
   endpoints: [
     {
@@ -288,20 +298,160 @@ exports.httpHandler = {
         const templates = JSON.parse(projectProps.templates) || [];
 
         const validTemplateIds = templates
-          .filter((t) => {
-            if (t.validCondition == null) {
-              return true;
-            }
-            if (t.validCondition.when === "field_is") {
-              return issue.is(t.validCondition.fieldName, t.validCondition.fieldValue);
-            }
-            return false;
-          })
+          .filter((t) => isTemplateValidForIssue(issue, t))
           .map((t) => t.id);
         ctx.response.json({
           usedTemplateIds: usedTemplateIds,
           templates: templates,
           validTemplateIds: validTemplateIds,
+        });
+      },
+    },
+    {
+      scope: "issue",
+      method: "POST",
+      path: "addTemplate",
+      handle: function handle(ctx) {
+        const issue = ctx.issue;
+        const issueProps = issue.extensionProperties;
+        const projectProps = ctx.project.extensionProperties;
+        const usedTemplateIds = JSON.parse(issueProps.usedTemplateIds) || [];
+        const templates = JSON.parse(projectProps.templates) || [];
+
+        const body = JSON.parse(ctx.request.body);
+        if (body.hasOwnProperty("templateId") === false || body.templateId === "") {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Failed to add template, no templateId.",
+          });
+          return;
+        }
+
+        const templateId = body.templateId;
+        const template = templates.find((t) => t.id === templateId);
+        if (!template) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to add template, template ${templateId} doesn't exist.`,
+          });
+          return;
+        }
+
+        const isValidTemplate = isTemplateValidForIssue(issue, template);
+        if (!isValidTemplate) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to add template, template ${templateId} is not valid for this issue.`,
+          });
+          return;
+        }
+
+        const templateArticle = entities.Article.findById(template.articleId);
+        if (templateArticle == null) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to add template, template ${templateId} article ${template.articleId} not found.`,
+          });
+          return;
+        }
+        const templateContent = templateArticle.content;
+        if (!templateContent || templateContent.trim() === "") {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to add template, template ${templateId} article ${template.articleId} has no content.`,
+          });
+          return;
+        }
+
+        // Add template to ticket description.
+        let newDescription = issue.description ? issue.description.trim() : "";
+        if (newDescription.length > 0) {
+          newDescription += "\n\n";
+        }
+        newDescription += templateContent.trim();
+        issue.description = newDescription;
+
+        // Add template to used templates.
+        usedTemplateIds.push(templateId);
+        issue.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
+
+        ctx.response.json({
+          success: true,
+          usedTemplateIds: usedTemplateIds,
+        });
+      },
+    },
+    {
+      scope: "issue",
+      method: "DELETE",
+      path: "removeTemplate",
+      handle: function handle(ctx) {
+        const issue = ctx.issue;
+        const issueProps = issue.extensionProperties;
+        const projectProps = ctx.project.extensionProperties;
+        const usedTemplateIds = JSON.parse(issueProps.usedTemplateIds) || [];
+        const templates = JSON.parse(projectProps.templates) || [];
+
+        const body = JSON.parse(ctx.request.body);
+        if (body.hasOwnProperty("templateId") === false || body.templateId === "") {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Failed to remove template, no templateId.",
+          });
+          return;
+        }
+
+        const templateId = body.templateId;
+        const template = templates.find((t) => t.id === templateId);
+        if (!template) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to remove template, template ${templateId} doesn't exist.`,
+          });
+          return;
+        }
+
+        // Don't check if template is valid for ticket, allow removal anyway.
+
+        const templateArticle = entities.Article.findById(template.articleId);
+        if (templateArticle == null) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to remove template, template ${templateId} article ${template.articleId} not found.`,
+          });
+          return;
+        }
+        const templateContent = templateArticle.content;
+
+        // Remove template from ticket description.
+        let newDescription = issue.description ? issue.description : "";
+        if (templateContent && templateContent.trim().length > 0) {
+          const lenBefore = newDescription.length;
+          newDescription = newDescription.replace(templateContent.trim(), "");
+          const charsRemoved = lenBefore - newDescription.length;
+          if (charsRemoved > 0) {
+            issue.description = newDescription;
+          }
+        }
+
+        // Remove template from used templates.
+        const index = usedTemplateIds.indexOf(templateId);
+        if (index > -1) {
+          usedTemplateIds.splice(index, 1);
+        }
+        issue.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
+
+        ctx.response.json({
+          success: true,
+          usedTemplateIds: usedTemplateIds,
         });
       },
     },
