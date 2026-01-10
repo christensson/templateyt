@@ -19,25 +19,42 @@ const getValidTemplates = (ctx, issue) => {
   const templates = getTemplates(ctx);
   log(`Issue ${issue.id}: All templates: ${JSON.stringify(templates)}`);
   return templates
-    .filter((t) => (t?.validCondition ? t?.validCondition?.when === "field_is" : false))
+    .filter((t) =>
+      t?.validCondition ? ["field_is", "tag_is"].includes(t?.validCondition?.when) : false
+    )
     .filter((t) => {
       const cond = t.validCondition;
-      // Valid templates currently matches the condition...
-      if (issue.is(cond.fieldName, cond.fieldValue)) {
-        return true;
+      if (cond.when === "field_is") {
+        // Valid templates currently matches the condition...
+        if (issue.is(cond.fieldName, cond.fieldValue)) {
+          return true;
+        }
+        // ...or was matching the condition before change...
+        if (issue.was(cond.fieldName, cond.fieldValue)) {
+          return true;
+        }
+        // ...or will match the condition on change.
+        if (
+          issue.isChanged(cond.fieldName) &&
+          issue.fields.becomes(cond.fieldName, cond.fieldValue)
+        ) {
+          return true;
+        }
+      } else if (cond.when === "tag_is") {
+        const tagName = cond.tagName;
+        // Valid templates currently matches the condition...
+        if (issue.hasTag(tagName)) {
+          return true;
+        }
+        // ...or was matching the condition before change...
+        if (issue.tags.removed.find((t) => t.name === tagName)) {
+          return true;
+        }
+        // ...or will match the condition on change.
+        if (issue.tags.added.find((t) => t.name === tagName)) {
+          return true;
+        }
       }
-      // ...or was matching the condition before change...
-      if (issue.was(cond.fieldName, cond.fieldValue)) {
-        return true;
-      }
-      // ...or will match the condition on change.
-      if (
-        issue.isChanged(cond.fieldName) &&
-        issue.fields.becomes(cond.fieldName, cond.fieldValue)
-      ) {
-        return true;
-      }
-
       return false;
     });
 };
@@ -48,7 +65,7 @@ exports.rule = entities.Issue.onChange({
     const issue = ctx.issue;
     const validTemplates = getValidTemplates(ctx, issue);
 
-    log("Issue " + issue.id + " valid fields for issue: " + JSON.stringify(validTemplates));
+    log("Issue " + issue.id + " valid templates issue: " + JSON.stringify(validTemplates));
     if (validTemplates.length == 0) {
       return false;
     }
@@ -70,7 +87,29 @@ exports.rule = entities.Issue.onChange({
     log(
       "Issue " + issue.id + " (new) fields matched issue: " + JSON.stringify(matchedActionFields)
     );
-    return matchedActionFields.length > 0;
+    if (matchedActionFields.length > 0) {
+      return true;
+    }
+
+    const validActionTags = validTemplates
+      .filter((t) => (t?.addCondition ? t?.addCondition?.when === "tag_added" : false))
+      .map((t) => ({
+        tagName: t.addCondition.tagName,
+      }));
+    let matchedActionTags = [];
+    if (issue.isNew) {
+      matchedActionTags = validActionTags.filter((t) =>
+        issue.tags.find((tag) => tag.name === t.tagName)
+      );
+    } else {
+      matchedActionTags = validActionTags.filter(
+        (t) =>
+          issue.tags.added.find((tag) => tag.name === t.tagName) ||
+          issue.tags.removed.find((tag) => tag.name === t.tagName)
+      );
+    }
+    log("Issue " + issue.id + " (new) tags matched issue: " + JSON.stringify(matchedActionTags));
+    return matchedActionTags.length > 0;
   },
   action: function (ctx) {
     const issue = ctx.issue;
@@ -78,21 +117,41 @@ exports.rule = entities.Issue.onChange({
     const templates = getValidTemplates(ctx, issue);
     log(`Issue ${issue.id}${issue.isNew ? " (new)" : ""} templates: ${JSON.stringify(templates)}`);
     const newTemplates = templates
-      .filter((t) => (t?.addCondition ? t?.addCondition?.when === "field_becomes" : false))
+      .filter((t) =>
+        t?.addCondition ? ["field_becomes", "tag_added"].includes(t?.addCondition?.when) : false
+      )
       .filter((t) => {
         const cond = t.addCondition;
         if (issue.isNew) {
-          return issue.is(cond.fieldName, cond.fieldValue);
+          if (cond.when === "field_becomes") {
+            return issue.is(cond.fieldName, cond.fieldValue);
+          } else if (cond.when === "tag_added") {
+            return issue.hasTag(cond.tagName);
+          }
+          return false;
         }
-        return (
-          issue.isChanged(cond.fieldName) && issue.fields.becomes(cond.fieldName, cond.fieldValue)
-        );
+
+        if (cond.when === "field_becomes") {
+          return (
+            issue.isChanged(cond.fieldName) && issue.fields.becomes(cond.fieldName, cond.fieldValue)
+          );
+        } else if (cond.when === "tag_added") {
+          return issue.tags.added.find((t) => t.name === cond.tagName);
+        }
+        return false;
       });
     const oldTemplates = templates
-      .filter((t) => (t?.addCondition ? t?.addCondition?.when === "field_becomes" : false))
+      .filter((t) =>
+        t?.addCondition ? ["field_becomes", "tag_added"].includes(t?.addCondition?.when) : false
+      )
       .filter((t) => {
         const cond = t.addCondition;
-        return issue.isChanged(cond.fieldName) && issue.was(cond.fieldName, cond.fieldValue);
+        if (cond.when === "field_becomes") {
+          return issue.isChanged(cond.fieldName) && issue.was(cond.fieldName, cond.fieldValue);
+        } else if (cond.when === "tag_added") {
+          return issue.tags.removed.find((t) => t.name === cond.tagName);
+        }
+        return false;
       });
 
     // Also remove any of the new templates that are already used.

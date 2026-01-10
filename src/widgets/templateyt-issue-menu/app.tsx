@@ -3,7 +3,6 @@ import Button from "@jetbrains/ring-ui-built/components/button/button";
 import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
-import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { Template } from "../../../@types/template";
 
