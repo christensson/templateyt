@@ -33,7 +33,7 @@
     },
     {
       "key": "templateyt-issue-menu",
-      "name": "Apply ticket template",
+      "name": "Apply template",
       "indexPath": "templateyt-issue-menu/index.html",
       "extensionPoint": "ISSUE_OPTIONS_MENU_ITEM",
       "iconPath": "templateyt-issue-menu/widget-icon.svg",
