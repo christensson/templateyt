@@ -6,10 +6,11 @@ import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/lis
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { ProjectFieldInfo } from "../../../@types/project-fields";
+import type { ProjectFieldInfo, TagInfo } from "../../../@types/project-info";
 import type { Template } from "../../../@types/template";
 import type { TemplateArticle } from "../../../@types/template-article";
 import FieldConditionInput from "./field-condition-input";
+import TagConditionInput from "./tag-condition-input";
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
 
@@ -27,6 +28,7 @@ const AppComponent: React.FunctionComponent = () => {
   const [isDraft, setIsDraft] = useState<boolean>(true);
   const [failMessage, setFailMessage] = useState<string>("");
   const [projectFields, setProjectFields] = useState<Array<ProjectFieldInfo>>([]);
+  const [projectTags, setProjectTags] = useState<Array<TagInfo>>([]);
   const [templateArticles, setTemplateArticles] = useState<TemplateArticle[]>([]);
 
   useEffect(() => {
@@ -41,16 +43,16 @@ const AppComponent: React.FunctionComponent = () => {
         setTemplates(result.templates);
       });
     host
-      .fetchApp<{ stateFields: Array<ProjectFieldInfo>; enumFields: Array<ProjectFieldInfo> }>(
-        "backend/getProjectInfo",
-        {
-          scope: true,
-          method: "GET",
-        }
-      )
+      .fetchApp<{
+        stateFields: Array<ProjectFieldInfo>;
+        enumFields: Array<ProjectFieldInfo>;
+      }>("backend/getProjectInfo", {
+        scope: true,
+        method: "GET",
+      })
       .then((result) => {
         // eslint-disable-next-line no-console
-        console.log("Project fields", result);
+        console.log("Project info", result);
         const fields = [...result.enumFields, ...result.stateFields];
         setProjectFields(fields);
       });
@@ -64,6 +66,20 @@ const AppComponent: React.FunctionComponent = () => {
         console.log("Template articles", result);
         setTemplateArticles(result);
       });
+    host
+      .fetchYouTrack<Array<{ name: string }>>(`tags`, {
+        query: {
+          fields: "name",
+        },
+      })
+      .then((result) => {
+        // eslint-disable-next-line no-console
+        console.log("Tags", result);
+        const tags: Array<TagInfo> = result.map((tag) => ({
+          name: tag.name,
+        }));
+        setProjectTags(tags);
+      });
   }, [host]);
 
   const addOrUpdateTemplate = async (template: Template) => {
@@ -72,9 +88,14 @@ const AppComponent: React.FunctionComponent = () => {
       return;
     }
     if (template.articleId.trim() === "") {
-      setFailMessage("Article ID is required.");
+      setFailMessage("Template article is required.");
       return;
     }
+    if (template.validCondition === null) {
+      setFailMessage("Template is not valid for any issues, please defined when valid.");
+      return;
+    }
+
     const result = await host.fetchApp<{
       success: Boolean;
       message?: string;
@@ -153,7 +174,7 @@ const AppComponent: React.FunctionComponent = () => {
   const selectActionData = [
     { key: "none", label: "Not added automatically" },
     { key: "field_becomes", label: "Add when field is set" },
-    /* { key: "tag_added", label: "Add when tag is added" }, */
+    { key: "tag_added", label: "Add when tag is added" },
   ];
 
   return (
@@ -211,6 +232,12 @@ const AppComponent: React.FunctionComponent = () => {
                 template={template}
                 setTemplate={setTemplate}
               />
+              <TagConditionInput
+                tags={projectTags}
+                conditionType="valid"
+                template={template}
+                setTemplate={setTemplate}
+              />
               <Select
                 clear
                 data={selectActionData}
@@ -243,6 +270,14 @@ const AppComponent: React.FunctionComponent = () => {
               {template !== null && template?.addCondition?.when === "field_becomes" && (
                 <FieldConditionInput
                   fields={projectFields}
+                  conditionType="add"
+                  template={template}
+                  setTemplate={setTemplate}
+                />
+              )}
+              {template !== null && template?.addCondition?.when === "tag_added" && (
+                <TagConditionInput
+                  tags={projectTags}
                   conditionType="add"
                   template={template}
                   setTemplate={setTemplate}

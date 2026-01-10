@@ -13,7 +13,7 @@ export type FieldActionCondition = {
   fieldValue: string;
 };
 export type TagActionCondition = {
-  when: "tag_added" | "tag_removed";
+  when: "tag_added";
   tagName: string;
 };
 export type Template = {

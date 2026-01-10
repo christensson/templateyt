@@ -2,7 +2,7 @@ import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/sele
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useCallback, useMemo, useState } from "react";
-import type { ProjectFieldInfo } from "../../../@types/project-fields";
+import type { ProjectFieldInfo } from "../../../@types/project-info";
 import type { FieldActionCondition, FieldStateCondition, Template } from "../../../@types/template";
 
 interface FieldConditionInputProps {
