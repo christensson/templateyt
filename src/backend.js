@@ -1,14 +1,5 @@
 var entities = require("@jetbrains/youtrack-scripting-api/entities");
-
-const isTemplateValidForIssue = (issue, template) => {
-  if (template.validCondition == null) {
-    return true;
-  }
-  if (template.validCondition.when === "field_is") {
-    return issue.is(template.validCondition.fieldName, template.validCondition.fieldValue);
-  }
-  return false;
-};
+var utils = require("./template-utils");
 
 exports.httpHandler = {
   endpoints: [
@@ -298,7 +289,7 @@ exports.httpHandler = {
         const templates = JSON.parse(projectProps.templates) || [];
 
         const validTemplateIds = templates
-          .filter((t) => isTemplateValidForIssue(issue, t))
+          .filter((t) => utils.isTemplateValidForIssue(issue, t))
           .map((t) => t.id);
         ctx.response.json({
           usedTemplateIds: usedTemplateIds,
@@ -339,7 +330,7 @@ exports.httpHandler = {
           return;
         }
 
-        const isValidTemplate = isTemplateValidForIssue(issue, template);
+        const isValidTemplate = utils.isTemplateValidForIssue(issue, template);
         if (!isValidTemplate) {
           ctx.response.status = 400;
           ctx.response.json({
