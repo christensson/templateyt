@@ -17,7 +17,10 @@
       "indexPath": "templateyt-project-config/index.html",
       "extensionPoint": "PROJECT_SETTINGS",
       "iconPath": "templateyt-project-config/widget-icon.svg",
-      "description": "Configure ticket templates for project."
+      "description": "Configure ticket templates for project.",
+      "permissions": [
+        "UPDATE_PROJECT"
+      ]
     },
     {
       "key": "templateyt-article-menu",
@@ -29,7 +32,10 @@
       "expectedDimensions": {
         "height": 300,
         "width": 480
-      }
+      },
+      "permissions": [
+        "UPDATE_PROJECT"
+      ]
     },
     {
       "key": "templateyt-issue-menu",
