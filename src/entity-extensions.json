@@ -15,6 +15,10 @@
         "isTemplate": {
           "type": "boolean",
           "multi": false
+        },
+        "usedTemplateIds": {
+          "type": "string",
+          "multi": false
         }
       }
     },

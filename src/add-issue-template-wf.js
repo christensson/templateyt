@@ -1,5 +1,6 @@
 /* YouTrack Workflow API example */
 var entities = require("@jetbrains/youtrack-scripting-api/entities");
+var utils = require("./template-utils.js");
 
 const loggingEnabled = true;
 const log = (msg) => {
@@ -8,23 +9,20 @@ const log = (msg) => {
   }
 };
 
-const getTemplates = (ctx) => {
-  const templatesJson = ctx.project.extensionProperties.templates;
-  const templates = templatesJson ? JSON.parse(templatesJson) : [];
-  // Filter incomplete templates.
-  return templates.filter((t) => t.id && t.articleId);
-};
-
 const getValidTemplates = (ctx, issue) => {
-  const templates = getTemplates(ctx);
+  const templates = utils.getTemplates(ctx);
   log(`Issue ${issue.id}: All templates: ${JSON.stringify(templates)}`);
   return templates
     .filter((t) =>
-      t?.validCondition ? ["field_is", "tag_is"].includes(t?.validCondition?.when) : false
+      t?.validCondition
+        ? ["entity_is", "field_is", "tag_is"].includes(t?.validCondition?.when)
+        : false
     )
     .filter((t) => {
       const cond = t.validCondition;
-      if (cond.when === "field_is") {
+      if (cond.when === "entity_is") {
+        return cond.entityType === "issue";
+      } else if (cond.when === "field_is") {
         // Valid templates currently matches the condition...
         if (issue.is(cond.fieldName, cond.fieldValue)) {
           return true;

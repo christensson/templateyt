@@ -78,6 +78,15 @@ exports.httpHandler = {
               });
               return;
             }
+          } else if (cond.when === "entity_is") {
+            if (cond.hasOwnProperty("entityType") === false) {
+              ctx.response.status = 400;
+              ctx.response.json({
+                success: false,
+                message: 'Inconsistent validCondition, missing "entityType" property.',
+              });
+              return;
+            }
           } else {
             ctx.response.status = 400;
             ctx.response.json({
@@ -439,6 +448,193 @@ exports.httpHandler = {
           usedTemplateIds.splice(index, 1);
         }
         issue.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
+
+        ctx.response.json({
+          success: true,
+          usedTemplateIds: usedTemplateIds,
+        });
+      },
+    },
+    {
+      scope: "article",
+      method: "GET",
+      path: "templates",
+      handle: function handle(ctx) {
+        const article = ctx.article;
+        const articleProps = article.extensionProperties;
+        const projectProps = ctx.project.extensionProperties;
+        const usedTemplateIds = JSON.parse(articleProps.usedTemplateIds) || [];
+        const templates = JSON.parse(projectProps.templates) || [];
+
+        const validTemplateIds = templates
+          .filter((t) => utils.isTemplateValidForArticle(article, t))
+          .map((t) => t.id);
+        ctx.response.json({
+          usedTemplateIds: usedTemplateIds,
+          templates: templates,
+          validTemplateIds: validTemplateIds,
+        });
+      },
+    },
+    {
+      scope: "article",
+      method: "POST",
+      path: "addTemplate",
+      handle: function handle(ctx) {
+        const article = ctx.article;
+        const articleProps = article.extensionProperties;
+        const projectProps = ctx.project.extensionProperties;
+        const usedTemplateIds = JSON.parse(articleProps.usedTemplateIds) || [];
+        const templates = JSON.parse(projectProps.templates) || [];
+
+        if (articleProps?.isTemplate === true) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Failed to add template, cannot add to a template article.",
+          });
+          return;
+        }
+
+        const body = JSON.parse(ctx.request.body);
+        if (body.hasOwnProperty("templateId") === false || body.templateId === "") {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Failed to add template, no templateId.",
+          });
+          return;
+        }
+
+        const templateId = body.templateId;
+        const template = templates.find((t) => t.id === templateId);
+        if (!template) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to add template, template ${templateId} doesn't exist.`,
+          });
+          return;
+        }
+
+        const isValidTemplate = utils.isTemplateValidForArticle(article, template);
+        if (!isValidTemplate) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to add template, template ${templateId} is not valid for this article.`,
+          });
+          return;
+        }
+
+        const templateArticle = entities.Article.findById(template.articleId);
+        if (templateArticle == null) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to add template, template ${templateId} article ${template.articleId} not found.`,
+          });
+          return;
+        }
+        const templateContent = templateArticle.content;
+        if (!templateContent || templateContent.trim() === "") {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to add template, template ${templateId} article ${template.articleId} has no content.`,
+          });
+          return;
+        }
+
+        // Add template to article content.
+        let newDescription = article.content ? article.content.trim() : "";
+        if (newDescription.length > 0) {
+          newDescription += "\n\n";
+        }
+        newDescription += templateContent.trim();
+        article.content = newDescription;
+
+        // Add template to used templates.
+        usedTemplateIds.push(templateId);
+        article.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
+
+        ctx.response.json({
+          success: true,
+          usedTemplateIds: usedTemplateIds,
+        });
+      },
+    },
+    {
+      scope: "article",
+      method: "DELETE",
+      path: "removeTemplate",
+      handle: function handle(ctx) {
+        const article = ctx.article;
+        const articleProps = article.extensionProperties;
+        const projectProps = ctx.project.extensionProperties;
+        const usedTemplateIds = JSON.parse(articleProps.usedTemplateIds) || [];
+        const templates = JSON.parse(projectProps.templates) || [];
+
+        if (articleProps?.isTemplate === true) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Failed to remove template, cannot remove from a template article.",
+          });
+          return;
+        }
+
+        const body = JSON.parse(ctx.request.body);
+        if (body.hasOwnProperty("templateId") === false || body.templateId === "") {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Failed to remove template, no templateId.",
+          });
+          return;
+        }
+
+        const templateId = body.templateId;
+        const template = templates.find((t) => t.id === templateId);
+        if (!template) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to remove template, template ${templateId} doesn't exist.`,
+          });
+          return;
+        }
+
+        // Don't check if template is valid for article, allow removal anyway.
+
+        const templateArticle = entities.Article.findById(template.articleId);
+        if (templateArticle == null) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: `Failed to remove template, template ${templateId} article ${template.articleId} not found.`,
+          });
+          return;
+        }
+        const templateContent = templateArticle.content;
+
+        // Remove template from article content.
+        let newDescription = article.content ? article.content : "";
+        if (templateContent && templateContent.trim().length > 0) {
+          const lenBefore = newDescription.length;
+          newDescription = newDescription.replace(templateContent.trim(), "");
+          const charsRemoved = lenBefore - newDescription.length;
+          if (charsRemoved > 0) {
+            article.content = newDescription;
+          }
+        }
+
+        // Remove template from used templates.
+        const index = usedTemplateIds.indexOf(templateId);
+        if (index > -1) {
+          usedTemplateIds.splice(index, 1);
+        }
+        article.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
 
         ctx.response.json({
           success: true,

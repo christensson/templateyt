@@ -9,6 +9,7 @@ import type { Template } from "../../@types/template";
 import type { TemplateArticle } from "../../@types/template-article";
 import FieldConditionInput from "./field-condition-input";
 import TagConditionInput from "./tag-condition-input";
+import EntityTypeConditionInput from "./entity-type-condition-input";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
@@ -172,6 +173,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           </Button>
         )}
       </div>
+      <EntityTypeConditionInput
+        conditionType="valid"
+        template={template}
+        setTemplate={setTemplate}
+      />
       <FieldConditionInput
         fields={projectFields}
         conditionType="valid"

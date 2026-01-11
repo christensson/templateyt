@@ -49,6 +49,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         // List every widget entry point here
+        templateytArticleApplyTemplateMenu: resolve(__dirname, 'src/widgets/templateyt-article-apply-template-menu/index.html'),
+
         templateytIssueMenu: resolve(__dirname, "src/widgets/templateyt-issue-menu/index.html"),
 
         templateytArticleMenu: resolve(__dirname, "src/widgets/templateyt-article-menu/index.html"),

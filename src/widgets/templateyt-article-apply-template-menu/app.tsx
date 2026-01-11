@@ -1,0 +1,238 @@
+import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
+import Button from "@jetbrains/ring-ui-built/components/button/button";
+import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
+import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
+import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import type { Template } from "../../../@types/template";
+
+// Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
+const host = await YTApp.register();
+
+type ArticleTemplateInfo = {
+  usedTemplateIds: Array<string>;
+  templates: Array<Template>;
+  validTemplateIds: Array<string>;
+};
+
+const AppComponent: React.FunctionComponent = () => {
+  const [articleTemplateInfo, setArticleTemplateInfo] = useState<ArticleTemplateInfo | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [failMessage, setFailMessage] = useState<string>("");
+
+  useEffect(() => {
+    host
+      .fetchApp<ArticleTemplateInfo>("backend/templates", {
+        scope: true,
+        method: "GET",
+      })
+      .then((result) => {
+        // eslint-disable-next-line no-console
+        console.log("getUsedTemplates result", result);
+        setArticleTemplateInfo(result);
+      });
+  }, [host]);
+
+  const addTemplateToArticle = useCallback(
+    async (templateId: string | null) => {
+      if (templateId === null) {
+        setFailMessage("Failed to add template, no template selected.");
+        return;
+      }
+      if (articleTemplateInfo === null) {
+        setFailMessage("Failed to add template, no template info loaded.");
+        return;
+      }
+      if (!articleTemplateInfo.templates.map((t) => t.id).includes(templateId)) {
+        setFailMessage(`Template ${templateId} not found in loaded templates.`);
+        return;
+      }
+      const result = await host.fetchApp<{
+        success: Boolean;
+        message?: string;
+        usedTemplateIds?: Array<string>;
+      }>("backend/addTemplate", {
+        scope: true,
+        method: "POST",
+        body: { templateId: templateId },
+      });
+      // eslint-disable-next-line no-console
+      console.log(`Add template ${templateId} result`, result);
+      if (!result.success) {
+        setFailMessage(result.message || `Failed to add template ${templateId}.`);
+        return;
+      }
+      if (result?.usedTemplateIds == undefined) {
+        setFailMessage("Got no template IDs from server after add.");
+        return;
+      }
+
+      setFailMessage("");
+      setArticleTemplateInfo((prev) => {
+        if (prev === null) {
+          return prev;
+        }
+        return {
+          ...prev,
+          usedTemplateIds: result.usedTemplateIds as Array<string>,
+        };
+      });
+    },
+    [host, articleTemplateInfo]
+  );
+
+  const removeTemplateFromArticle = useCallback(
+    async (templateId: string | null) => {
+      if (templateId === null) {
+        setFailMessage("Failed to remove template, no template selected.");
+        return;
+      }
+      if (articleTemplateInfo === null) {
+        setFailMessage("Failed to remove template, no template info loaded.");
+        return;
+      }
+      if (!articleTemplateInfo.templates.map((t) => t.id).includes(templateId)) {
+        setFailMessage(`Template ${templateId} not found in loaded templates.`);
+        return;
+      }
+      const result = await host.fetchApp<{
+        success: Boolean;
+        message?: string;
+        usedTemplateIds?: Array<string>;
+      }>("backend/removeTemplate", {
+        scope: true,
+        method: "DELETE",
+        body: { templateId: templateId },
+      });
+      // eslint-disable-next-line no-console
+      console.log(`Remove template ${templateId} result`, result);
+      if (!result.success) {
+        setFailMessage(result.message || `Failed to remove template ${templateId}.`);
+        return;
+      }
+      if (result?.usedTemplateIds == undefined) {
+        setFailMessage("Got no template IDs from server after removal.");
+        return;
+      }
+
+      setFailMessage("");
+      setArticleTemplateInfo((prev) => {
+        if (prev === null) {
+          return prev;
+        }
+        return {
+          ...prev,
+          usedTemplateIds: result.usedTemplateIds as Array<string>,
+        };
+      });
+    },
+    [host, articleTemplateInfo]
+  );
+
+  const getListItems = (
+    data: ArticleTemplateInfo | null
+  ): Array<ListDataItem<{ templateItem?: Template }>> => {
+    if (data === null) {
+      return [];
+    }
+    const usedTemplates = data.templates.filter((t) => data.usedTemplateIds.includes(t.id));
+    const unusedTemplates = data.templates
+      .filter((t) => !data.usedTemplateIds.includes(t.id))
+      .filter((t) => data.validTemplateIds.includes(t.id));
+    const items: Array<ListDataItem<{ templateItem?: Template }>> = [];
+    items.push({
+      rgItemType: 5,
+      label: "Used templates",
+    });
+    items.push(
+      ...usedTemplates.map((t: Template) => ({
+        key: t.id,
+        rgItemType: 2,
+        label: t.name,
+        details: `From article: ${t.articleId}`,
+        templateItem: t,
+      }))
+    );
+    items.push({
+      rgItemType: 5,
+      label: "Unused templates",
+    });
+    items.push(
+      ...unusedTemplates.map((t: Template) => ({
+        key: t.id,
+        rgItemType: 2,
+        label: t.name,
+        details: `From article: ${t.articleId}`,
+        templateItem: t,
+      }))
+    );
+    return items;
+  };
+
+  const listItems = useMemo(() => getListItems(articleTemplateInfo), [articleTemplateInfo]);
+  const selectedTemplate = useMemo(() => {
+    if (articleTemplateInfo === null || selectedTemplateId === null) {
+      return null;
+    }
+    return articleTemplateInfo.templates.find((t) => t.id === selectedTemplateId) || null;
+  }, [articleTemplateInfo, selectedTemplateId]);
+
+  return (
+    <div className="widget">
+      {articleTemplateInfo === null && <Loader message="Loading used templates..." />}
+      {articleTemplateInfo !== null && (
+        <div className="article-template-row">
+          <List
+            data={listItems}
+            activeIndex={
+              setSelectedTemplateId !== null
+                ? listItems.findIndex((item) => item.key === selectedTemplateId)
+                : -1
+            }
+            onSelect={(item: ListDataItem<{ templateItem?: Template }>) => {
+              if (item.templateItem) {
+                setSelectedTemplateId(item.templateItem.id);
+              }
+            }}
+            activateSingleItem
+            className="article-template-used-templates-list"
+          />
+        </div>
+      )}
+      {failMessage && (
+        <Banner mode="error" title="Failed to update article templates" withIcon>
+          {failMessage}
+        </Banner>
+      )}
+      <Panel className="article-template-config-bottom-panel">
+        <Button
+          primary
+          disabled={
+            selectedTemplateId === null ||
+            articleTemplateInfo?.usedTemplateIds.includes(selectedTemplateId)
+          }
+          onClick={() => addTemplateToArticle(selectedTemplateId)}
+        >
+          {"Add template"}
+        </Button>
+        <Button
+          primary
+          disabled={
+            selectedTemplateId === null ||
+            !articleTemplateInfo?.usedTemplateIds.includes(selectedTemplateId)
+          }
+          onClick={() => removeTemplateFromArticle(selectedTemplateId)}
+        >
+          {"Remove template"}
+        </Button>
+        {selectedTemplate !== null && (
+          <Button secondary href={`/articles/${selectedTemplate?.articleId}`}>
+            {`Open article ${selectedTemplate?.articleId}`}
+          </Button>
+        )}
+      </Panel>
+    </div>
+  );
+};
+
+export const App = memo(AppComponent);

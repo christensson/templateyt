@@ -48,6 +48,19 @@
         "height": 400,
         "width": 480
       }
+    },
+    {
+      "key": "templateyt-article-apply-template-menu",
+      "name": "Apply template",
+      "indexPath": "templateyt-article-apply-template-menu/index.html",
+      "extensionPoint": "ARTICLE_OPTIONS_MENU_ITEM",
+      "iconPath": "templateyt-article-apply-template-menu/widget-icon.svg",
+      "description": "Apply a template to the current article.",
+      "guard": "({entity}) => entity.extensionProperties?.isTemplate !== true",
+      "expectedDimensions": {
+        "width": 480,
+        "height": 400
+      }
     }
   ],
   "modules": {
@@ -55,6 +68,10 @@
       {
         "name": "Add template to ticket",
         "script": "add-issue-template-wf.js"
+      },
+      {
+        "name": "Add template to article",
+        "script": "add-article-template-wf.js"
       }
     ]
   }
