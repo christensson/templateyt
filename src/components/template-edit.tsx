@@ -150,6 +150,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       <div className="template-edit-panel-article-select">
         <Select
           clear
+          filter
           selectedLabel="Template article"
           label="Select template article..."
           data={templateArticleSelectItems}
