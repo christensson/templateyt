@@ -124,12 +124,6 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     return items;
   };
 
-  const createNewTemplate = () => {
-    setTemplate(createEmptyTemplate());
-    setIsDraft(true);
-    setFailMessage("");
-  };
-
   const templateArticleSelectItems = useMemo(
     () => getTemplateArticleSelectItems(templateArticles),
     [templateArticles]
