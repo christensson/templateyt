@@ -26,16 +26,6 @@ export default defineConfig({
         },
       ],
     }),
-    viteStaticCopy({
-      targets: [
-        // Widget icons and configurations
-        {
-          src: "widgets/**/*.{svg,png,jpg,json}",
-          dest: ".",
-        },
-      ],
-      structured: true,
-    }),
   ],
   root: "./src",
   base: "",
