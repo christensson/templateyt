@@ -47,7 +47,10 @@
       "expectedDimensions": {
         "height": 400,
         "width": 480
-      }
+      },
+      "permissions": [
+        "UPDATE_ISSUE"
+      ]
     },
     {
       "key": "templateyt-article-apply-template-menu",
@@ -60,7 +63,10 @@
       "expectedDimensions": {
         "width": 480,
         "height": 400
-      }
+      },
+      "permissions": [
+        "UPDATE_ARTICLE"
+      ]
     }
   ],
   "modules": {
