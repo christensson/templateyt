@@ -136,7 +136,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   );
   const selectActionData = [
     { key: "none", label: "Not added automatically" },
-    { key: "field_becomes", label: "Add when field is set" },
+    { key: "field_becomes", label: "Add when ticket field is set" },
     { key: "tag_added", label: "Add when tag is added" },
   ];
 

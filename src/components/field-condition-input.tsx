@@ -132,6 +132,7 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
       </Text>
       <Select
         clear
+        label="..."
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}
         data={selectFieldItems}
@@ -143,6 +144,8 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
       </Text>
       <Select
         clear
+        label="..."
+        disabled={selectedFieldItem == undefined}
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}
         data={selectFieldValueItems}

@@ -74,6 +74,7 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
       <Select
         clear
         filter
+        label="..."
         filterIcon={SearchIcon}
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}

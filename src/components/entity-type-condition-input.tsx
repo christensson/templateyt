@@ -39,7 +39,7 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
   );
 
   const selectItems = [
-    { key: "issue", label: "Issue" },
+    { key: "issue", label: "Ticket" },
     { key: "article", label: "Article" },
   ];
 
@@ -61,6 +61,7 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
       </Text>
       <Select
         clear
+        label="..."
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}
         data={selectItems}
