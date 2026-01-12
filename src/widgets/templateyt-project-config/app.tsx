@@ -64,7 +64,6 @@ const AppComponent: React.FunctionComponent = () => {
             {!isDraft && <Button onClick={() => createNewTemplate()}>Add new template</Button>}
             <TemplateList
               templates={templates}
-              templateArticles={templateArticles}
               selectedTemplate={template}
               setSelectedTemplate={selectTemplate}
             />

@@ -7,24 +7,16 @@ import type { TemplateArticle } from "../../@types/template-article";
 
 interface TemplateListProps {
   templates: Array<Template>;
-  templateArticles: Array<TemplateArticle>;
   selectedTemplate: Template;
   setSelectedTemplate: (selectedTemplate: Template) => void;
 }
 
 const TemplateList: React.FunctionComponent<TemplateListProps> = ({
   templates,
-  templateArticles,
   selectedTemplate,
   setSelectedTemplate,
 }) => {
-  const getListItems = (
-    data: Array<Template>,
-    templateArticles: Array<TemplateArticle>
-  ): Array<ListDataItem<{ templateItem: Template }>> => {
-    const articlesMap: Record<string, TemplateArticle> = Object.fromEntries(
-      templateArticles.map((article) => [article.articleId, article])
-    );
+  const getListItems = (data: Array<Template>): Array<ListDataItem<{ templateItem: Template }>> => {
     const getDetails = (template: Template): [string, boolean] => {
       if (!template?.validCondition) {
         return ["Incomplete configuration! No validity condition set.", true];
@@ -72,10 +64,7 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
     return items;
   };
 
-  const listItems = useMemo(
-    () => getListItems(templates, templateArticles),
-    [templates, templateArticles]
-  );
+  const listItems = useMemo(() => getListItems(templates), [templates]);
 
   return (
     <List
