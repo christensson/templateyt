@@ -127,7 +127,8 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
   return (
     <div>
       <Text size={Text.Size.M} info>
-        {(whenTitle ?? (conditionType === "add" ? "Add when field" : "Valid when field")) + " "}
+        {(whenTitle ??
+          (conditionType === "add" ? "Add when ticket field" : "Valid when ticket field")) + " "}
       </Text>
       <Select
         clear
