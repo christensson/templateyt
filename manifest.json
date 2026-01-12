@@ -8,7 +8,7 @@
     "url": "https://github.com/christensson/templateyt"
   },
   "minYouTrackVersion": "2024.3.0",
-  "icon": "icon.svg",
+  "icon": "icon-small.svg",
   "widgets": [
 
     {
@@ -16,7 +16,7 @@
       "name": "Ticket Templates Config",
       "indexPath": "templateyt-project-config/index.html",
       "extensionPoint": "PROJECT_SETTINGS",
-      "iconPath": "templateyt-project-config/widget-icon.svg",
+      "iconPath": "icon-small.svg",
       "description": "Configure ticket templates for project.",
       "permissions": [
         "UPDATE_PROJECT"
@@ -27,7 +27,7 @@
       "name": "Configure as Ticket Template",
       "indexPath": "templateyt-article-menu/index.html",
       "extensionPoint": "ARTICLE_OPTIONS_MENU_ITEM",
-      "iconPath": "templateyt-article-menu/widget-icon.svg",
+      "iconPath": "icon-small.svg",
       "description": "Configure article as ticket template.",
       "expectedDimensions": {
         "height": 300,
@@ -42,7 +42,7 @@
       "name": "Apply template",
       "indexPath": "templateyt-issue-menu/index.html",
       "extensionPoint": "ISSUE_OPTIONS_MENU_ITEM",
-      "iconPath": "templateyt-issue-menu/widget-icon.svg",
+      "iconPath": "icon-small.svg",
       "description": "Apply a ticket template to the current ticket.",
       "expectedDimensions": {
         "height": 400,
@@ -57,7 +57,7 @@
       "name": "Apply template",
       "indexPath": "templateyt-article-apply-template-menu/index.html",
       "extensionPoint": "ARTICLE_OPTIONS_MENU_ITEM",
-      "iconPath": "templateyt-article-apply-template-menu/widget-icon.svg",
+      "iconPath": "icon-small.svg",
       "description": "Apply a template to the current article.",
       "guard": "({entity}) => entity.extensionProperties?.isTemplate !== true",
       "expectedDimensions": {
