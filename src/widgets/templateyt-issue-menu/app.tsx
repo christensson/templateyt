@@ -5,6 +5,7 @@ import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { Template } from "../../../@types/template";
+import TemplateList from "../../components/template-list";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
@@ -17,7 +18,7 @@ type IssueTemplateInfo = {
 
 const AppComponent: React.FunctionComponent = () => {
   const [issueTemplateInfo, setIssueTemplateInfo] = useState<IssueTemplateInfo | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [failMessage, setFailMessage] = useState<string>("");
 
   useEffect(() => {
@@ -34,8 +35,8 @@ const AppComponent: React.FunctionComponent = () => {
   }, [host]);
 
   const addTemplateToIssue = useCallback(
-    async (templateId: string | null) => {
-      if (templateId === null) {
+    async (template: Template | null) => {
+      if (template === null || template.id === null) {
         setFailMessage("Failed to add template, no template selected.");
         return;
       }
@@ -43,6 +44,7 @@ const AppComponent: React.FunctionComponent = () => {
         setFailMessage("Failed to add template, no template info loaded.");
         return;
       }
+      const templateId = template.id;
       if (!issueTemplateInfo.templates.map((t) => t.id).includes(templateId)) {
         setFailMessage(`Template ${templateId} not found in loaded templates.`);
         return;
@@ -82,8 +84,8 @@ const AppComponent: React.FunctionComponent = () => {
   );
 
   const removeTemplateFromIssue = useCallback(
-    async (templateId: string | null) => {
-      if (templateId === null) {
+    async (template: Template | null) => {
+      if (template === null || template.id === null) {
         setFailMessage("Failed to remove template, no template selected.");
         return;
       }
@@ -91,6 +93,7 @@ const AppComponent: React.FunctionComponent = () => {
         setFailMessage("Failed to remove template, no template info loaded.");
         return;
       }
+      const templateId = template.id;
       if (!issueTemplateInfo.templates.map((t) => t.id).includes(templateId)) {
         setFailMessage(`Template ${templateId} not found in loaded templates.`);
         return;
@@ -129,72 +132,44 @@ const AppComponent: React.FunctionComponent = () => {
     [host, issueTemplateInfo]
   );
 
-  const getListItems = (
-    data: IssueTemplateInfo | null
-  ): Array<ListDataItem<{ templateItem?: Template }>> => {
+  const getTemplateIdGroupMap = (data: IssueTemplateInfo | null): { [key: string]: string } => {
     if (data === null) {
-      return [];
+      return {};
     }
-    const usedTemplates = data.templates.filter((t) => data.usedTemplateIds.includes(t.id));
-    const unusedTemplates = data.templates
-      .filter((t) => !data.usedTemplateIds.includes(t.id))
-      .filter((t) => data.validTemplateIds.includes(t.id));
-    const items: Array<ListDataItem<{ templateItem?: Template }>> = [];
-    items.push({
-      rgItemType: 5,
-      label: "Used templates",
-    });
-    items.push(
-      ...usedTemplates.map((t: Template) => ({
-        key: t.id,
-        rgItemType: 2,
-        label: t.name,
-        details: `From article: ${t.articleId}`,
-        templateItem: t,
-      }))
-    );
-    items.push({
-      rgItemType: 5,
-      label: "Unused templates",
-    });
-    items.push(
-      ...unusedTemplates.map((t: Template) => ({
-        key: t.id,
-        rgItemType: 2,
-        label: t.name,
-        details: `From article: ${t.articleId}`,
-        templateItem: t,
-      }))
-    );
-    return items;
+    const usedTemplateIds = data.templates
+      .map((t) => t.id)
+      .filter((tid) => data.usedTemplateIds.includes(tid));
+    const unusedTemplateIds = data.templates
+      .map((t) => t.id)
+      .filter((tid) => !data.usedTemplateIds.includes(tid))
+      .filter((tid) => data.validTemplateIds.includes(tid));
+
+    const templateIdGroupMap: { [key: string]: string } = {};
+    for (const tid of usedTemplateIds) {
+      templateIdGroupMap[tid] = "Used templates";
+    }
+    for (const tid of unusedTemplateIds) {
+      templateIdGroupMap[tid] = "Unused templates";
+    }
+    return templateIdGroupMap;
   };
 
-  const listItems = useMemo(() => getListItems(issueTemplateInfo), [issueTemplateInfo]);
-  const selectedTemplate = useMemo(() => {
-    if (issueTemplateInfo === null || selectedTemplateId === null) {
-      return null;
-    }
-    return issueTemplateInfo.templates.find((t) => t.id === selectedTemplateId) || null;
-  }, [issueTemplateInfo, selectedTemplateId]);
+  const templateIdGroupMap = useMemo(() => {
+    return getTemplateIdGroupMap(issueTemplateInfo);
+  }, [issueTemplateInfo]);
 
   return (
     <div className="widget">
       {issueTemplateInfo === null && <Loader message="Loading used templates..." />}
       {issueTemplateInfo !== null && (
         <div className="issue-template-row">
-          <List
-            data={listItems}
-            activeIndex={
-              setSelectedTemplateId !== null
-                ? listItems.findIndex((item) => item.key === selectedTemplateId)
-                : -1
-            }
-            onSelect={(item: ListDataItem<{ templateItem?: Template }>) => {
-              if (item.templateItem) {
-                setSelectedTemplateId(item.templateItem.id);
-              }
-            }}
-            activateSingleItem
+          <TemplateList
+            templates={issueTemplateInfo.templates}
+            selectedTemplate={selectedTemplate}
+            setSelectedTemplate={setSelectedTemplate}
+            templateIdGroupMap={templateIdGroupMap}
+            groupOrder={["Used templates", "Unused templates"]}
+            onlyShowGrouped
             className="issue-template-used-templates-list"
           />
         </div>
@@ -208,20 +183,20 @@ const AppComponent: React.FunctionComponent = () => {
         <Button
           primary
           disabled={
-            selectedTemplateId === null ||
-            issueTemplateInfo?.usedTemplateIds.includes(selectedTemplateId)
+            selectedTemplate === null ||
+            issueTemplateInfo?.usedTemplateIds.includes(selectedTemplate.id)
           }
-          onClick={() => addTemplateToIssue(selectedTemplateId)}
+          onClick={() => addTemplateToIssue(selectedTemplate)}
         >
           {"Add template"}
         </Button>
         <Button
           primary
           disabled={
-            selectedTemplateId === null ||
-            !issueTemplateInfo?.usedTemplateIds.includes(selectedTemplateId)
+            selectedTemplate === null ||
+            !issueTemplateInfo?.usedTemplateIds.includes(selectedTemplate.id)
           }
-          onClick={() => removeTemplateFromIssue(selectedTemplateId)}
+          onClick={() => removeTemplateFromIssue(selectedTemplate)}
         >
           {"Remove template"}
         </Button>
