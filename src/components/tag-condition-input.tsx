@@ -12,6 +12,7 @@ interface TagConditionInputProps {
   conditionType: "valid" | "add";
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
+  disabled?: boolean;
 }
 
 const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
@@ -20,6 +21,7 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
   conditionType,
   template,
   setTemplate,
+  disabled,
 }) => {
   const onSelectTag = useCallback(
     (selected: SelectItem | null) => {
@@ -74,6 +76,7 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
       <Select
         clear
         filter
+        disabled={disabled}
         label="..."
         filterIcon={SearchIcon}
         type={Select.Type.INLINE}

@@ -11,6 +11,7 @@ interface FieldConditionInputProps {
   conditionType: "valid" | "add";
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
+  disabled?: boolean;
 }
 
 const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = ({
@@ -19,6 +20,7 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
   conditionType,
   template,
   setTemplate,
+  disabled,
 }) => {
   const onSelectField = useCallback(
     (selected: SelectItem | null) => {
@@ -132,6 +134,7 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
       </Text>
       <Select
         clear
+        disabled={disabled}
         label="..."
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}
@@ -145,7 +148,7 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
       <Select
         clear
         label="..."
-        disabled={selectedFieldItem == undefined}
+        disabled={disabled || selectedFieldItem == undefined}
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}
         data={selectFieldValueItems}

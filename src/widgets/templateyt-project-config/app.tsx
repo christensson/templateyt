@@ -1,5 +1,6 @@
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import { Col, Grid, Row } from "@jetbrains/ring-ui-built/components/grid/grid";
+import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { memo, useEffect, useMemo, useState } from "react";
 import type { Template } from "../../../@types/template";
 import type { TemplateArticle } from "../../../@types/template-article";
@@ -17,10 +18,19 @@ const createEmptyTemplate = (): Template => ({
   addCondition: null,
 });
 
+const createNullTemplate = (): Template => ({
+  id: "", // Indicate null template with empty id.
+  name: "",
+  articleId: "",
+  validCondition: null,
+  addCondition: null,
+});
+
 const AppComponent: React.FunctionComponent = () => {
-  const [isDraft, setIsDraft] = useState<boolean>(true);
+  const [isDraft, setIsDraft] = useState<boolean>(false);
+  const [isNew, setIsNew] = useState<boolean>(false);
   const [templates, setTemplates] = useState<Array<Template>>([]);
-  const [template, setTemplate] = useState<Template>(createEmptyTemplate());
+  const [template, setTemplate] = useState<Template>(createNullTemplate());
   const [templateArticles, setTemplateArticles] = useState<TemplateArticle[]>([]);
 
   useEffect(() => {
@@ -49,11 +59,13 @@ const AppComponent: React.FunctionComponent = () => {
   const selectTemplate = (selectedTemplate: Template) => {
     setTemplate(selectedTemplate);
     setIsDraft(false);
+    setIsNew(false);
   };
 
   const createNewTemplate = () => {
     setTemplate(createEmptyTemplate());
     setIsDraft(true);
+    setIsNew(true);
   };
 
   return (
@@ -61,7 +73,9 @@ const AppComponent: React.FunctionComponent = () => {
       <Grid className="template-config-panel">
         <Row>
           <Col xs={12} sm={6} md={6} lg={7} className="template-list-panel">
-            {!isDraft && <Button onClick={() => createNewTemplate()}>Add new template</Button>}
+            <Button disabled={isDraft} onClick={() => createNewTemplate()}>
+              Add new template
+            </Button>
             <TemplateList
               templates={templates}
               selectedTemplate={template}
@@ -69,14 +83,22 @@ const AppComponent: React.FunctionComponent = () => {
             />
           </Col>
           <Col xs={12} sm={6} md={6} lg={5}>
-            <TemplateEdit
-              isDraft={isDraft}
-              setIsDraft={setIsDraft}
-              templateArticles={templateArticles}
-              template={template}
-              setTemplate={setTemplate}
-              setTemplates={setTemplates}
-            />
+            {template.id === "" && (
+              <Text size={Text.Size.M}>
+                No template selected, please select a template from the list or add a new template.
+              </Text>
+            )}
+            {template.id !== "" && (
+              <TemplateEdit
+                isDraft={isDraft}
+                setIsDraft={setIsDraft}
+                templateArticles={templateArticles}
+                template={template}
+                setTemplate={setTemplate}
+                setTemplates={setTemplates}
+                isNew={isNew}
+              />
+            )}
           </Col>
         </Row>
       </Grid>

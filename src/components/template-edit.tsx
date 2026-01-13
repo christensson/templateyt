@@ -3,24 +3,16 @@ import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { ProjectFieldInfo, TagInfo } from "../../@types/project-info";
 import type { Template } from "../../@types/template";
 import type { TemplateArticle } from "../../@types/template-article";
+import EntityTypeConditionInput from "./entity-type-condition-input";
 import FieldConditionInput from "./field-condition-input";
 import TagConditionInput from "./tag-condition-input";
-import EntityTypeConditionInput from "./entity-type-condition-input";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
-
-const createEmptyTemplate = (): Template => ({
-  id: crypto.randomUUID(),
-  name: "",
-  articleId: "",
-  validCondition: null,
-  addCondition: null,
-});
 
 interface TemplateEditProps {
   isDraft: boolean;
@@ -29,6 +21,7 @@ interface TemplateEditProps {
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
   setTemplates?: React.Dispatch<React.SetStateAction<Array<Template>>>;
+  isNew: boolean;
 }
 
 const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
@@ -38,10 +31,15 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   template,
   setTemplate,
   setTemplates,
+  isNew,
 }) => {
   const [projectFields, setProjectFields] = useState<Array<ProjectFieldInfo>>([]);
   const [projectTags, setProjectTags] = useState<Array<TagInfo>>([]);
-  const [failMessage, setFailMessage] = useState<string>("");
+  const [failMessage, setFailMessage] = useState<{
+    mode: "info" | "error" | "success" | "warning" | "purple" | "grey";
+    message: string;
+  } | null>(null);
+  const [editing, setEditing] = useState<boolean>(isNew);
 
   useEffect(() => {
     host
@@ -76,15 +74,18 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
 
   const addOrUpdateTemplate = async (template: Template) => {
     if (template.name.trim() === "") {
-      setFailMessage("Template name is required.");
+      setFailMessage({ mode: "error", message: "Template name is required." });
       return;
     }
     if (template.articleId.trim() === "") {
-      setFailMessage("Template article is required.");
+      setFailMessage({ mode: "error", message: "Template article is required." });
       return;
     }
     if (template.validCondition === null) {
-      setFailMessage("Template is not valid for any issues, please defined when valid.");
+      setFailMessage({
+        mode: "error",
+        message: "Template is not valid for any issues, please defined when valid.",
+      });
       return;
     }
 
@@ -100,15 +101,42 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     // eslint-disable-next-line no-console
     console.log("Add template result", result);
     if (result.success) {
-      setFailMessage("");
+      setFailMessage({ mode: "success", message: "Template stored successfully." });
       setIsDraft(false);
+      setEditing(false);
       if (setTemplates) {
         setTemplates(result.templates || []);
       }
     } else {
-      setFailMessage(result.message || "Failed to add or update template.");
+      setFailMessage({
+        mode: "error",
+        message: result.message || "Failed to add or update template.",
+      });
     }
   };
+
+  const cancelEdit = (isDraft: boolean) => {
+    if (isDraft) {
+      setTemplate({
+        id: "",
+        name: "",
+        articleId: "",
+        validCondition: null,
+        addCondition: null,
+      });
+      setIsDraft(false);
+    }
+
+    setEditing(false);
+    setFailMessage(null);
+  };
+
+  // Ensure that we enter editing mode if this is a new template.
+  useEffect(() => {
+    if (isNew) {
+      setEditing(isNew);
+    }
+  }, [isNew]);
 
   const getTemplateArticleSelectItems = (
     data: Array<TemplateArticle>
@@ -138,6 +166,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     <div className="template-edit-panel">
       <Input
         label="Name"
+        disabled={!editing}
         value={template.name}
         onChange={(e) => setTemplate((prev) => ({ ...prev, name: e.target.value }))}
         size={Size.L}
@@ -145,6 +174,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       <div className="template-edit-panel-article-select">
         <Select
           clear
+          disabled={!editing}
           filter
           selectedLabel="Template article"
           label="Select template article..."
@@ -168,17 +198,20 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         )}
       </div>
       <EntityTypeConditionInput
+        disabled={!editing}
         conditionType="valid"
         template={template}
         setTemplate={setTemplate}
       />
       <FieldConditionInput
+        disabled={!editing}
         fields={projectFields}
         conditionType="valid"
         template={template}
         setTemplate={setTemplate}
       />
       <TagConditionInput
+        disabled={!editing}
         tags={projectTags}
         conditionType="valid"
         template={template}
@@ -186,6 +219,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       />
       <Select
         clear
+        disabled={!editing}
         data={selectActionData}
         selected={selectActionData.find(
           (item) => item.key === (template?.addCondition?.when || "none")
@@ -215,6 +249,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       />
       {template !== null && template?.addCondition?.when === "field_becomes" && (
         <FieldConditionInput
+          disabled={!editing}
           fields={projectFields}
           conditionType="add"
           template={template}
@@ -223,21 +258,35 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       )}
       {template !== null && template?.addCondition?.when === "tag_added" && (
         <TagConditionInput
+          disabled={!editing}
           tags={projectTags}
           conditionType="add"
           template={template}
           setTemplate={setTemplate}
         />
       )}
-      {failMessage && (
-        <Banner mode="error" title="Failed to store template" withIcon>
-          {failMessage}
+      {failMessage !== null && (
+        <Banner
+          mode={failMessage.mode}
+          title={
+            failMessage.mode === "success"
+              ? "Template stored successfully"
+              : "Failed to store template"
+          }
+          withIcon
+          onClose={() => setFailMessage(null)}
+        >
+          {failMessage.message}
         </Banner>
       )}
       <div className="template-edit-actions">
-        <Button onClick={() => addOrUpdateTemplate(template)}>
-          {isDraft ? "Add Template" : "Save Template"}
-        </Button>
+        {editing && (
+          <Button onClick={() => addOrUpdateTemplate(template)} primary>
+            {isDraft ? "Add Template" : "Save Template"}
+          </Button>
+        )}
+        {editing && <Button onClick={() => cancelEdit(isDraft)}>Cancel edit</Button>}
+        {!editing && <Button onClick={() => setEditing(true)}>Edit template</Button>}
       </div>
     </div>
   );

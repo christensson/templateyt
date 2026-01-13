@@ -9,6 +9,7 @@ interface EntityTypeConditionInputProps {
   conditionType: "valid";
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
+  disabled?: boolean;
 }
 
 const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInputProps> = ({
@@ -16,6 +17,7 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
   conditionType,
   template,
   setTemplate,
+  disabled,
 }) => {
   const onSelectEntityType = useCallback(
     (selected: SelectItem | null) => {
@@ -61,6 +63,7 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
       </Text>
       <Select
         clear
+        disabled={disabled}
         label="..."
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}
