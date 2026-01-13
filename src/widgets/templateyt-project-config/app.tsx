@@ -60,7 +60,7 @@ const AppComponent: React.FunctionComponent = () => {
     <div className="widget">
       <Grid className="template-config-panel">
         <Row>
-          <Col xs={12} sm={4} md={4} lg={4} className="template-list-panel">
+          <Col xs={12} sm={6} md={6} lg={7} className="template-list-panel">
             {!isDraft && <Button onClick={() => createNewTemplate()}>Add new template</Button>}
             <TemplateList
               templates={templates}
@@ -68,7 +68,7 @@ const AppComponent: React.FunctionComponent = () => {
               setSelectedTemplate={selectTemplate}
             />
           </Col>
-          <Col xs={12} sm={8} md={8} lg={8}>
+          <Col xs={12} sm={6} md={6} lg={5}>
             <TemplateEdit
               isDraft={isDraft}
               setIsDraft={setIsDraft}
