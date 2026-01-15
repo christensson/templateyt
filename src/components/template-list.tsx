@@ -1,7 +1,11 @@
 import WarningIcon from "@jetbrains/icons/warning-empty";
 import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import React, { useMemo } from "react";
-import type { Template } from "../../@types/template";
+import {
+  Template,
+  formatTemplateAddCondition,
+  formatTemplateValidCondition,
+} from "../../@types/template";
 
 interface TemplateListProps {
   templates: Array<Template>;
@@ -34,27 +38,10 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
       }
       const validCond = template.validCondition;
 
-      let description = "";
-      if (validCond.when === "entity_is") {
-        description +=
-          validCond.entityType === "issue" ? "Valid when ticket" : "Valid when article";
-      } else if (validCond.when === "field_is") {
-        description += `Valid when ticket field ${validCond.fieldName} is ${validCond.fieldValue}`;
-      } else if (validCond.when === "tag_is") {
-        description += `Valid when tagged with ${validCond.tagName}`;
-      }
+      let description = formatTemplateValidCondition(template);
 
-      if (template.addCondition === null) {
-        description += ".";
-      } else {
-        const addCond = template.addCondition;
-        description += ", ";
-        if (addCond.when === "field_becomes") {
-          description += `added when ticket field ${addCond.fieldName} becomes ${addCond.fieldValue}`;
-        } else if (addCond.when === "tag_added") {
-          description += `added when tagged with ${addCond.tagName}`;
-        }
-        description += ".";
+      if (template.addCondition !== null) {
+        description += " " + formatTemplateAddCondition(template);
       }
       return [description, false];
     };
