@@ -1,11 +1,17 @@
+import ArticleIcon from "@jetbrains/icons/article";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
+import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useEffect, useMemo, useState } from "react";
 import type { ProjectFieldInfo, TagInfo } from "../../@types/project-info";
-import type { Template } from "../../@types/template";
+import {
+  formatTemplateAddCondition,
+  formatTemplateValidCondition,
+  type Template,
+} from "../../@types/template";
 import type { TemplateArticle } from "../../@types/template-article";
 import EntityTypeConditionInput from "./entity-type-condition-input";
 import FieldConditionInput from "./field-condition-input";
@@ -40,6 +46,14 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     message: string;
   } | null>(null);
   const [editing, setEditing] = useState<boolean>(isNew);
+  const [templateSnapshot, setTemplateSnapshot] = useState<Template>(template);
+
+  // Keep a fresh snapshot when parent `template` changes and we're not editing.
+  useEffect(() => {
+    if (!editing) {
+      setTemplateSnapshot(template);
+    }
+  }, [template, editing]);
 
   useEffect(() => {
     host
@@ -104,6 +118,8 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       setFailMessage({ mode: "success", message: "Template stored successfully." });
       setIsDraft(false);
       setEditing(false);
+      // Saved, store snapshot.
+      setTemplateSnapshot(template);
       if (setTemplates) {
         setTemplates(result.templates || []);
       }
@@ -125,6 +141,9 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         addCondition: null,
       });
       setIsDraft(false);
+    } else {
+      // Revert to initial template state.
+      setTemplate(templateSnapshot);
     }
 
     setEditing(false);
@@ -156,114 +175,200 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     () => getTemplateArticleSelectItems(templateArticles),
     [templateArticles]
   );
+
+  const selectValidCondition = [
+    { key: "none", label: "No valid condition set" },
+    { key: "entity_is", label: "Valid when ticket or article" },
+    { key: "field_is", label: "Valid when ticket field has a specific value" },
+    { key: "tag_is", label: "Valid when ticket or article has a specific tag" },
+  ];
+
   const selectActionData = [
     { key: "none", label: "Not added automatically" },
-    { key: "field_becomes", label: "Add when ticket field is set" },
-    { key: "tag_added", label: "Add when tag is added" },
+    { key: "field_becomes", label: "Added when ticket field becomes a specific value" },
+    { key: "tag_added", label: "Added when ticket or article tagged with a specific tag" },
   ];
 
   return (
     <div className="template-edit-panel">
-      <Input
-        label="Name"
-        disabled={!editing}
-        value={template.name}
-        onChange={(e) => setTemplate((prev) => ({ ...prev, name: e.target.value }))}
-        size={Size.L}
-      />
-      <div className="template-edit-panel-article-select">
-        <Select
-          clear
-          disabled={!editing}
-          filter
-          selectedLabel="Template article"
-          label="Select template article..."
-          data={templateArticleSelectItems}
-          selected={templateArticleSelectItems.find(
-            (item) => item.templateArticleItem.articleId === template?.articleId
-          )}
-          onChange={(selected: SelectItem<{ templateArticleItem: TemplateArticle }> | null) => {
-            if (selected != null) {
-              setTemplate((prev) => ({
-                ...prev,
-                articleId: selected.templateArticleItem.articleId,
-              }));
-            }
-          }}
+      {editing && (
+        <Input
+          label="Name"
+          value={template.name}
+          onChange={(e) => setTemplate((prev) => ({ ...prev, name: e.target.value }))}
+          size={Size.M}
         />
+      )}
+      {!editing && (
+        <div className="template-edit-field-panel">
+          <Text size={Text.Size.S} info>
+            Name
+          </Text>
+          <Text size={Text.Size.M}>{template.name}</Text>
+        </div>
+      )}
+      <div className="template-edit-field-panel">
+        {editing && (
+          <Select
+            clear
+            filter
+            selectedLabel="Template article"
+            label="Select template article..."
+            data={templateArticleSelectItems}
+            selected={templateArticleSelectItems.find(
+              (item) => item.templateArticleItem.articleId === template?.articleId
+            )}
+            onChange={(selected: SelectItem<{ templateArticleItem: TemplateArticle }> | null) => {
+              if (selected != null) {
+                setTemplate((prev) => ({
+                  ...prev,
+                  articleId: selected.templateArticleItem.articleId,
+                }));
+              }
+            }}
+          />
+        )}
+        {!editing && (
+          <div className="template-edit-field-panel">
+            <Text size={Text.Size.S} info>
+              Template article
+            </Text>
+            <Text size={Text.Size.M}>
+              {templateArticleSelectItems.find((item) => item.key === template?.articleId)?.label ||
+                "Not set..."}
+            </Text>
+          </div>
+        )}
         {template !== null && template?.articleId && (
-          <Button href={`/articles/${template.articleId}`} target="_blank">
+          <Button href={`/articles/${template.articleId}`} target="_blank" icon={ArticleIcon}>
             Open {template.articleId}
           </Button>
         )}
       </div>
-      <EntityTypeConditionInput
-        disabled={!editing}
-        conditionType="valid"
-        template={template}
-        setTemplate={setTemplate}
-      />
-      <FieldConditionInput
-        disabled={!editing}
-        fields={projectFields}
-        conditionType="valid"
-        template={template}
-        setTemplate={setTemplate}
-      />
-      <TagConditionInput
-        disabled={!editing}
-        tags={projectTags}
-        conditionType="valid"
-        template={template}
-        setTemplate={setTemplate}
-      />
-      <Select
-        clear
-        disabled={!editing}
-        data={selectActionData}
-        selected={selectActionData.find(
-          (item) => item.key === (template?.addCondition?.when || "none")
-        )}
-        onChange={(selected: SelectItem | null) => {
-          if (selected === null || selected.key === "none") {
-            setTemplate((prev) => ({ ...prev, addCondition: null }));
-          } else if (selected.key === "field_becomes") {
-            setTemplate((prev) => ({
-              ...prev,
-              addCondition: {
-                when: "field_becomes",
-                fieldName: "",
-                fieldValue: "",
-              },
-            }));
-          } else if (selected.key === "tag_added") {
-            setTemplate((prev) => ({
-              ...prev,
-              addCondition: {
-                when: "tag_added",
-                tagName: "",
-              },
-            }));
-          }
-        }}
-      />
-      {template !== null && template?.addCondition?.when === "field_becomes" && (
-        <FieldConditionInput
-          disabled={!editing}
-          fields={projectFields}
-          conditionType="add"
-          template={template}
-          setTemplate={setTemplate}
-        />
+      {editing && (
+        <div className="template-edit-field-panel">
+          <Select
+            clear
+            selectedLabel={"Condition when template is valid"}
+            size={Size.L}
+            data={selectValidCondition}
+            selected={selectValidCondition.find(
+              (item) => item.key === (template?.validCondition?.when || "none")
+            )}
+            onChange={(selected: SelectItem | null) => {
+              if (selected === null || selected.key === "none") {
+                setTemplate((prev) => ({ ...prev, validCondition: null }));
+              } else if (selected.key === "field_is") {
+                setTemplate((prev) => ({
+                  ...prev,
+                  validCondition: {
+                    when: "field_is",
+                    fieldName: "",
+                    fieldValue: "",
+                  },
+                }));
+              } else if (selected.key === "tag_is") {
+                setTemplate((prev) => ({
+                  ...prev,
+                  validCondition: {
+                    when: "tag_is",
+                    tagName: "",
+                  },
+                }));
+              }
+            }}
+          />
+          {template !== null && template?.validCondition?.when === "entity_is" && (
+            <EntityTypeConditionInput
+              conditionType="valid"
+              template={template}
+              setTemplate={setTemplate}
+            />
+          )}
+          {template !== null && template?.validCondition?.when === "field_is" && (
+            <FieldConditionInput
+              fields={projectFields}
+              conditionType="valid"
+              template={template}
+              setTemplate={setTemplate}
+            />
+          )}
+          {template !== null && template?.validCondition?.when === "tag_is" && (
+            <TagConditionInput
+              tags={projectTags}
+              conditionType="valid"
+              template={template}
+              setTemplate={setTemplate}
+            />
+          )}
+        </div>
       )}
-      {template !== null && template?.addCondition?.when === "tag_added" && (
-        <TagConditionInput
-          disabled={!editing}
-          tags={projectTags}
-          conditionType="add"
-          template={template}
-          setTemplate={setTemplate}
-        />
+      {!editing && (
+        <div className="template-edit-field-panel">
+          <Text size={Text.Size.S} info>
+            Condition when template is valid
+          </Text>
+          <Text size={Text.Size.M}>{formatTemplateValidCondition(template)}</Text>
+        </div>
+      )}
+      {editing && (
+        <div className="template-edit-field-panel">
+          <Select
+            clear
+            selectedLabel={"Condition when template is added automatically"}
+            size={Size.L}
+            data={selectActionData}
+            selected={selectActionData.find(
+              (item) => item.key === (template?.addCondition?.when || "none")
+            )}
+            onChange={(selected: SelectItem | null) => {
+              if (selected === null || selected.key === "none") {
+                setTemplate((prev) => ({ ...prev, addCondition: null }));
+              } else if (selected.key === "field_becomes") {
+                setTemplate((prev) => ({
+                  ...prev,
+                  addCondition: {
+                    when: "field_becomes",
+                    fieldName: "",
+                    fieldValue: "",
+                  },
+                }));
+              } else if (selected.key === "tag_added") {
+                setTemplate((prev) => ({
+                  ...prev,
+                  addCondition: {
+                    when: "tag_added",
+                    tagName: "",
+                  },
+                }));
+              }
+            }}
+          />
+          {template !== null && template?.addCondition?.when === "field_becomes" && (
+            <FieldConditionInput
+              fields={projectFields}
+              conditionType="add"
+              template={template}
+              setTemplate={setTemplate}
+            />
+          )}
+          {template !== null && template?.addCondition?.when === "tag_added" && (
+            <TagConditionInput
+              tags={projectTags}
+              conditionType="add"
+              template={template}
+              setTemplate={setTemplate}
+            />
+          )}
+        </div>
+      )}
+      {!editing && (
+        <div className="template-edit-field-panel">
+          <Text size={Text.Size.S} info>
+            Condition when template is added automatically
+          </Text>
+          <Text size={Text.Size.M}>{formatTemplateAddCondition(template)}</Text>
+        </div>
       )}
       {failMessage !== null && (
         <Banner
@@ -286,7 +391,17 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           </Button>
         )}
         {editing && <Button onClick={() => cancelEdit(isDraft)}>Cancel edit</Button>}
-        {!editing && <Button onClick={() => setEditing(true)}>Edit template</Button>}
+        {!editing && (
+          <Button
+            onClick={() => {
+              // Capture current state as snapshot before entering edit mode.
+              setTemplateSnapshot(template);
+              setEditing(true);
+            }}
+          >
+            Edit template
+          </Button>
+        )}
       </div>
     </div>
   );

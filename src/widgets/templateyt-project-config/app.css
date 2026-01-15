@@ -21,6 +21,12 @@
   margin: calc(var(--ring-unit) / 2);
 }
 
+.template-edit-field-panel {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit) / 2);
+}
+
 .template-edit-panel-article-select {
   display: flex;
   flex-direction: row;
@@ -32,4 +38,8 @@
 .template-edit-actions {
   display: flex;
   gap: calc(var(--ring-unit) / 2);
+}
+
+.align-right {
+  margin-left: auto;
 }
