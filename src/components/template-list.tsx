@@ -15,6 +15,7 @@ interface TemplateListProps {
   groupOrder?: Array<string>;
   onlyShowGrouped?: boolean;
   className?: string;
+  disabled?: boolean;
 }
 
 const TemplateList: React.FunctionComponent<TemplateListProps> = ({
@@ -25,12 +26,15 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
   groupOrder,
   onlyShowGrouped,
   className,
+  disabled,
 }) => {
   const getListItems = (
     data: Array<Template>,
     templateIdGroupMap?: { [key: string]: string },
     groupOrder?: Array<string>,
-    onlyShowGrouped?: boolean
+    onlyShowGrouped?: boolean,
+    disabled?: boolean,
+    selectedTemplate: Template | null = null
   ): Array<ListDataItem<{ templateItem?: Template }>> => {
     const getDetails = (template: Template): [string, boolean] => {
       if (!template?.validCondition) {
@@ -49,6 +53,7 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
     const makeListItem = (template: Template): ListDataItem<{ templateItem?: Template }> => {
       const [details, hasWarning] = getDetails(template);
       return {
+        disabled: template.id === selectedTemplate?.id ? false : disabled,
         key: template.id,
         rgItemType: 2,
         label: template.name,
@@ -106,8 +111,16 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
   };
 
   const listItems = useMemo(
-    () => getListItems(templates, templateIdGroupMap, groupOrder, onlyShowGrouped),
-    [templates, templateIdGroupMap, groupOrder, onlyShowGrouped]
+    () =>
+      getListItems(
+        templates,
+        templateIdGroupMap,
+        groupOrder,
+        onlyShowGrouped,
+        disabled,
+        selectedTemplate
+      ),
+    [templates, templateIdGroupMap, groupOrder, onlyShowGrouped, disabled, selectedTemplate]
   );
 
   return (

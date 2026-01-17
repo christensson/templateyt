@@ -1,11 +1,12 @@
 import ArticleIcon from "@jetbrains/icons/article";
+import EditIcon from "@jetbrains/icons/pencil";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProjectFieldInfo, TagInfo } from "../../@types/project-info";
 import {
   formatTemplateAddCondition,
@@ -23,29 +24,30 @@ const host = await YTApp.register();
 interface TemplateEditProps {
   isDraft: boolean;
   setIsDraft: React.Dispatch<React.SetStateAction<boolean>>;
+  editing: boolean;
+  setEditing: React.Dispatch<React.SetStateAction<boolean>>;
   templateArticles: Array<TemplateArticle>;
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
   setTemplates?: React.Dispatch<React.SetStateAction<Array<Template>>>;
-  isNew: boolean;
 }
 
 const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   isDraft,
   setIsDraft,
+  editing,
+  setEditing,
   templateArticles,
   template,
   setTemplate,
   setTemplates,
-  isNew,
 }) => {
   const [projectFields, setProjectFields] = useState<Array<ProjectFieldInfo>>([]);
   const [projectTags, setProjectTags] = useState<Array<TagInfo>>([]);
-  const [failMessage, setFailMessage] = useState<{
+  const [editFailMessage, setEditFailMessage] = useState<{
     mode: "info" | "error" | "success" | "warning" | "purple" | "grey";
     message: string;
   } | null>(null);
-  const [editing, setEditing] = useState<boolean>(isNew);
   const [templateSnapshot, setTemplateSnapshot] = useState<Template>(template);
 
   // Keep a fresh snapshot when parent `template` changes and we're not editing.
@@ -88,15 +90,15 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
 
   const addOrUpdateTemplate = async (template: Template) => {
     if (template.name.trim() === "") {
-      setFailMessage({ mode: "error", message: "Template name is required." });
+      setEditFailMessage({ mode: "error", message: "Template name is required." });
       return;
     }
     if (template.articleId.trim() === "") {
-      setFailMessage({ mode: "error", message: "Template article is required." });
+      setEditFailMessage({ mode: "error", message: "Template article is required." });
       return;
     }
     if (template.validCondition === null) {
-      setFailMessage({
+      setEditFailMessage({
         mode: "error",
         message: "Template is not valid for any issues, please defined when valid.",
       });
@@ -115,7 +117,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     // eslint-disable-next-line no-console
     console.log("Add template result", result);
     if (result.success) {
-      setFailMessage({ mode: "success", message: "Template stored successfully." });
+      setEditFailMessage({ mode: "success", message: "Template stored successfully." });
       setIsDraft(false);
       setEditing(false);
       // Saved, store snapshot.
@@ -124,14 +126,14 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         setTemplates(result.templates || []);
       }
     } else {
-      setFailMessage({
+      setEditFailMessage({
         mode: "error",
         message: result.message || "Failed to add or update template.",
       });
     }
   };
 
-  const cancelEdit = (isDraft: boolean) => {
+  const cancelEdit = useCallback(() => {
     if (isDraft) {
       setTemplate({
         id: "",
@@ -147,15 +149,8 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     }
 
     setEditing(false);
-    setFailMessage(null);
-  };
-
-  // Ensure that we enter editing mode if this is a new template.
-  useEffect(() => {
-    if (isNew) {
-      setEditing(isNew);
-    }
-  }, [isNew]);
+    setEditFailMessage(null);
+  }, [isDraft, templateSnapshot]);
 
   const getTemplateArticleSelectItems = (
     data: Array<TemplateArticle>
@@ -190,7 +185,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   ];
 
   return (
-    <div className="template-edit-panel">
+    <div className="template-edit">
       {editing && (
         <Input
           label="Name"
@@ -370,18 +365,18 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           <Text size={Text.Size.M}>{formatTemplateAddCondition(template)}</Text>
         </div>
       )}
-      {failMessage !== null && (
+      {editFailMessage !== null && (
         <Banner
-          mode={failMessage.mode}
+          mode={editFailMessage.mode}
           title={
-            failMessage.mode === "success"
+            editFailMessage.mode === "success"
               ? "Template stored successfully"
               : "Failed to store template"
           }
           withIcon
-          onClose={() => setFailMessage(null)}
+          onClose={() => setEditFailMessage(null)}
         >
-          {failMessage.message}
+          {editFailMessage.message}
         </Banner>
       )}
       <div className="template-edit-actions">
@@ -390,7 +385,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
             {isDraft ? "Add Template" : "Save Template"}
           </Button>
         )}
-        {editing && <Button onClick={() => cancelEdit(isDraft)}>Cancel edit</Button>}
+        {editing && <Button onClick={() => cancelEdit()}>Cancel edit</Button>}
         {!editing && (
           <Button
             onClick={() => {
@@ -398,6 +393,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
               setTemplateSnapshot(template);
               setEditing(true);
             }}
+            icon={EditIcon}
           >
             Edit template
           </Button>

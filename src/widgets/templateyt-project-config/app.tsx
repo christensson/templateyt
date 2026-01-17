@@ -1,7 +1,8 @@
+import AddIcon from "@jetbrains/icons/add-12px";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import { Col, Grid, Row } from "@jetbrains/ring-ui-built/components/grid/grid";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { memo, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { Template } from "../../../@types/template";
 import type { TemplateArticle } from "../../../@types/template-article";
 import TemplateEdit from "../../components/template-edit";
@@ -28,7 +29,7 @@ const createNullTemplate = (): Template => ({
 
 const AppComponent: React.FunctionComponent = () => {
   const [isDraft, setIsDraft] = useState<boolean>(false);
-  const [isNew, setIsNew] = useState<boolean>(false);
+  const [editing, setEditing] = useState<boolean>(false);
   const [templates, setTemplates] = useState<Array<Template>>([]);
   const [template, setTemplate] = useState<Template>(createNullTemplate());
   const [templateArticles, setTemplateArticles] = useState<TemplateArticle[]>([]);
@@ -56,16 +57,23 @@ const AppComponent: React.FunctionComponent = () => {
       });
   }, [host]);
 
-  const selectTemplate = (selectedTemplate: Template) => {
-    setTemplate(selectedTemplate);
-    setIsDraft(false);
-    setIsNew(false);
-  };
+  const selectTemplate = useCallback(
+    (selectedTemplate: Template) => {
+      // Cannot select templates whiled editing one.
+      if (editing) {
+        return;
+      }
+      setTemplate(selectedTemplate);
+      setIsDraft(false);
+      setEditing(false);
+    },
+    [editing]
+  );
 
   const createNewTemplate = () => {
     setTemplate(createEmptyTemplate());
     setIsDraft(true);
-    setIsNew(true);
+    setEditing(true);
   };
 
   return (
@@ -73,32 +81,39 @@ const AppComponent: React.FunctionComponent = () => {
       <Grid className="template-config-panel">
         <Row>
           <Col xs={12} sm={6} md={6} lg={7} className="template-list-panel">
-            <Button disabled={isDraft} onClick={() => createNewTemplate()}>
-              Add new template
-            </Button>
+            <div className="template-toolbar">
+              <Button disabled={editing} onClick={() => createNewTemplate()} icon={AddIcon} inline>
+                Add new template
+              </Button>
+            </div>
             <TemplateList
+              disabled={editing}
               templates={templates}
               selectedTemplate={template}
               setSelectedTemplate={selectTemplate}
             />
           </Col>
           <Col xs={12} sm={6} md={6} lg={5}>
-            {template.id === "" && (
-              <Text size={Text.Size.M}>
-                No template selected, please select a template from the list or add a new template.
-              </Text>
-            )}
-            {template.id !== "" && (
-              <TemplateEdit
-                isDraft={isDraft}
-                setIsDraft={setIsDraft}
-                templateArticles={templateArticles}
-                template={template}
-                setTemplate={setTemplate}
-                setTemplates={setTemplates}
-                isNew={isNew}
-              />
-            )}
+            <div className="template-edit-panel">
+              {template.id === "" && (
+                <Text size={Text.Size.M}>
+                  No template selected, please select a template from the list or add a new
+                  template.
+                </Text>
+              )}
+              {template.id !== "" && (
+                <TemplateEdit
+                  isDraft={isDraft}
+                  setIsDraft={setIsDraft}
+                  editing={editing}
+                  setEditing={setEditing}
+                  templateArticles={templateArticles}
+                  template={template}
+                  setTemplate={setTemplate}
+                  setTemplates={setTemplates}
+                />
+              )}
+            </div>
           </Col>
         </Row>
       </Grid>
