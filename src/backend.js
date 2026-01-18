@@ -249,9 +249,11 @@ exports.httpHandler = {
         const article = ctx.article;
         const props = article.extensionProperties;
         const isTemplate = props?.isTemplate || false;
+        const usedTemplateIds = JSON.parse(props.usedTemplateIds) || [];
         ctx.response.json({
           articleId: article.id,
           isTemplate: isTemplate,
+          hasTemplates: usedTemplateIds.length > 0,
         });
       },
     },
@@ -262,7 +264,9 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const article = ctx.article;
         const props = article.extensionProperties;
+        const usedTemplateIds = JSON.parse(props.usedTemplateIds) || [];
         const articleInfo = JSON.parse(ctx.request.body);
+
         if (articleInfo.hasOwnProperty("articleId") === false || articleInfo.articleId === "") {
           ctx.response.status = 400;
           ctx.response.json({
@@ -277,6 +281,14 @@ exports.httpHandler = {
           ctx.response.json({
             success: false,
             message: "Article info must have an isTemplate field.",
+          });
+          return;
+        }
+        if (usedTemplateIds.length > 0) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Article uses templates, remove all used templates first.",
           });
           return;
         }
@@ -479,6 +491,7 @@ exports.httpHandler = {
           usedTemplateIds: usedTemplateIds,
           templates: templates,
           validTemplateIds: validTemplateIds,
+          isTemplate: articleProps?.isTemplate || false,
         });
       },
     },

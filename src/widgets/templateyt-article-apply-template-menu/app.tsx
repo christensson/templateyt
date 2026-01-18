@@ -13,6 +13,7 @@ type ArticleTemplateInfo = {
   usedTemplateIds: Array<string>;
   templates: Array<Template>;
   validTemplateIds: Array<string>;
+  isTemplate: boolean;
 };
 
 const AppComponent: React.FunctionComponent = () => {
@@ -160,14 +161,20 @@ const AppComponent: React.FunctionComponent = () => {
   return (
     <div className="widget">
       {articleTemplateInfo === null && <Loader message="Loading used templates..." />}
+      {articleTemplateInfo !== null && articleTemplateInfo.isTemplate && (
+        <Banner mode="info" withIcon>
+          Article is configured as a template, cannot apply any templates to it.
+        </Banner>
+      )}
       {articleTemplateInfo !== null &&
+        !articleTemplateInfo.isTemplate &&
         articleTemplateInfo.usedTemplateIds.length == 0 &&
         articleTemplateInfo.validTemplateIds.length == 0 && (
           <Banner mode="info" withIcon>
             No valid templates found for article.
           </Banner>
         )}
-      {articleTemplateInfo !== null && (
+      {articleTemplateInfo !== null && !articleTemplateInfo.isTemplate && (
         <div className="article-template-row">
           <TemplateList
             templates={articleTemplateInfo.templates}
