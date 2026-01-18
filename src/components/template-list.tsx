@@ -89,11 +89,15 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
     // Add grouped templates.
     const items: Array<ListDataItem<{ templateItem?: Template }>> = [];
     for (const group of groupOrderAll) {
+      const templatesInGroup = templatesInGroups[group];
+      if (templatesInGroup.length === 0) {
+        continue;
+      }
       items.push({
         rgItemType: 5,
         label: group,
       });
-      items.push(...templatesInGroups[group].map(makeListItem));
+      items.push(...templatesInGroup.map(makeListItem));
     }
 
     if (onlyShowGrouped) {
