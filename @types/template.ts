@@ -81,6 +81,9 @@ export const formatTemplateValidCondition = (template: Template): string => {
   if (parts.length === 0) {
     return "No validity condition set.";
   }
+  if (parts.length === 1) {
+    return `Valid when ${parts[0]}.`;
+  }
 
   return `Valid when any of; ${parts.join(", or ")}.`;
 };
