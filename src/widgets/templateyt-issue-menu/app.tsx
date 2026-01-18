@@ -161,6 +161,13 @@ const AppComponent: React.FunctionComponent = () => {
   return (
     <div className="widget">
       {issueTemplateInfo === null && <Loader message="Loading used templates..." />}
+      {issueTemplateInfo !== null &&
+        issueTemplateInfo.usedTemplateIds.length == 0 &&
+        issueTemplateInfo.validTemplateIds.length == 0 && (
+          <Banner mode="info" withIcon>
+            No valid templates found for ticket.
+          </Banner>
+        )}
       {issueTemplateInfo !== null && (
         <div className="issue-template-row">
           <TemplateList
