@@ -80,7 +80,7 @@ const AppComponent: React.FunctionComponent = () => {
         };
       });
     },
-    [host, issueTemplateInfo]
+    [host, issueTemplateInfo],
   );
 
   const removeTemplateFromIssue = useCallback(
@@ -129,7 +129,7 @@ const AppComponent: React.FunctionComponent = () => {
         };
       });
     },
-    [host, issueTemplateInfo]
+    [host, issueTemplateInfo],
   );
 
   const getTemplateIdGroupMap = (data: IssueTemplateInfo | null): { [key: string]: string } => {

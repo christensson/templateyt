@@ -1,7 +1,11 @@
 import ArticleIcon from "@jetbrains/icons/article";
+import ConditionIcon from "@jetbrains/icons/buildType-12px";
 import EditIcon from "@jetbrains/icons/pencil";
+import TrashIcon from "@jetbrains/icons/trash";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
+import DropdownMenu from "@jetbrains/ring-ui-built/components/dropdown-menu/dropdown-menu";
+import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
@@ -9,8 +13,9 @@ import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProjectFieldInfo, TagInfo } from "../../@types/project-info";
 import {
-  formatTemplateAddCondition,
-  formatTemplateValidCondition,
+  createNullTemplate,
+  formatAddCondition,
+  formatValidCondition,
   type Template,
 } from "../../@types/template";
 import type { TemplateArticle } from "../../@types/template-article";
@@ -97,10 +102,10 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       setEditFailMessage({ mode: "error", message: "Template article is required." });
       return;
     }
-    if (template.validCondition === null) {
+    if (!Array.isArray(template.validCondition) || template.validCondition.length === 0) {
       setEditFailMessage({
         mode: "error",
-        message: "Template is not valid for any issues, please defined when valid.",
+        message: "Template missing valid conditions, please define when valid.",
       });
       return;
     }
@@ -135,13 +140,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
 
   const cancelEdit = useCallback(() => {
     if (isDraft) {
-      setTemplate({
-        id: "",
-        name: "",
-        articleId: "",
-        validCondition: null,
-        addCondition: null,
-      });
+      setTemplate(createNullTemplate());
       setIsDraft(false);
     } else {
       // Revert to initial template state.
@@ -172,10 +171,9 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   );
 
   const selectValidCondition = [
-    { key: "none", label: "No valid condition set" },
-    { key: "entity_is", label: "Valid when ticket or article" },
-    { key: "field_is", label: "Valid when ticket field has a specific value" },
-    { key: "tag_is", label: "Valid when ticket or article has a specific tag" },
+    { key: "entity_is", label: "When ticket/article" },
+    { key: "field_is", label: "When ticket field is" },
+    { key: "tag_is", label: "When ticket/article has tag" },
   ];
 
   const selectActionData = [
@@ -248,76 +246,95 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       </div>
       {editing && (
         <div className="template-edit-field-panel">
-          <Select
-            clear
-            selectedLabel={"Condition when template is valid"}
-            size={Size.L}
+          <Text size={Text.Size.S} info>
+            Conditions when template is valid (any matches)
+          </Text>
+          {(Array.isArray(template.validCondition) ? template.validCondition : []).length === 0 && (
+            <Text size={Text.Size.M}>No validity conditions yet.</Text>
+          )}
+          {(Array.isArray(template.validCondition) ? template.validCondition : []).map(
+            (cond, idx) => (
+              <div
+                key={`valid-cond-${idx}`}
+                style={{ display: "flex", gap: 8, alignItems: "center" }}
+              >
+                {cond.when === "entity_is" && (
+                  <EntityTypeConditionInput
+                    conditionType="valid"
+                    template={template}
+                    setTemplate={setTemplate}
+                    conditionIndex={idx}
+                  />
+                )}
+                {cond.when === "field_is" && (
+                  <FieldConditionInput
+                    fields={projectFields}
+                    conditionType="valid"
+                    template={template}
+                    setTemplate={setTemplate}
+                    conditionIndex={idx}
+                  />
+                )}
+                {cond.when === "tag_is" && (
+                  <TagConditionInput
+                    tags={projectTags}
+                    conditionType="valid"
+                    template={template}
+                    setTemplate={setTemplate}
+                    conditionIndex={idx}
+                  />
+                )}
+                <Button
+                  onClick={() =>
+                    setTemplate((prev) => {
+                      const list = Array.isArray(prev.validCondition)
+                        ? [...prev.validCondition]
+                        : [];
+                      list.splice(idx, 1);
+                      return { ...prev, validCondition: list };
+                    })
+                  }
+                  icon={TrashIcon}
+                  title="Remove condition"
+                />
+              </div>
+            ),
+          )}
+          <DropdownMenu
+            anchor={"Add condition"}
             data={selectValidCondition}
-            selected={selectValidCondition.find(
-              (item) => item.key === (template?.validCondition?.when || "none"),
-            )}
-            onChange={(selected: SelectItem | null) => {
-              if (selected === null || selected.key === "none") {
-                setTemplate((prev) => (prev !== null ? { ...prev, validCondition: null } : prev));
-              } else if (selected.key === "field_is") {
-                setTemplate((prev) =>
-                  prev !== null
-                    ? {
-                        ...prev,
-                        validCondition: {
-                          when: "field_is",
-                          fieldName: "",
-                          fieldValue: "",
-                        },
-                      }
-                    : prev,
-                );
-              } else if (selected.key === "tag_is") {
-                setTemplate((prev) =>
-                  prev !== null
-                    ? {
-                        ...prev,
-                        validCondition: {
-                          when: "tag_is",
-                          tagName: "",
-                        },
-                      }
-                    : prev,
-                );
-              }
+            onSelect={(selected: SelectItem | null) => {
+              if (!selected) return;
+              const newCond =
+                selected.key === "entity_is"
+                  ? ({ when: "entity_is", entityType: "issue" } as const)
+                  : selected.key === "field_is"
+                    ? ({ when: "field_is", fieldName: "", fieldValue: "" } as const)
+                    : ({ when: "tag_is", tagName: "" } as const);
+              setTemplate((prev) => {
+                const list = Array.isArray(prev.validCondition) ? [...prev.validCondition] : [];
+                return { ...prev, validCondition: [...list, newCond] };
+              });
             }}
           />
-          {template !== null && template?.validCondition?.when === "entity_is" && (
-            <EntityTypeConditionInput
-              conditionType="valid"
-              template={template}
-              setTemplate={setTemplate}
-            />
-          )}
-          {template !== null && template?.validCondition?.when === "field_is" && (
-            <FieldConditionInput
-              fields={projectFields}
-              conditionType="valid"
-              template={template}
-              setTemplate={setTemplate}
-            />
-          )}
-          {template !== null && template?.validCondition?.when === "tag_is" && (
-            <TagConditionInput
-              tags={projectTags}
-              conditionType="valid"
-              template={template}
-              setTemplate={setTemplate}
-            />
-          )}
         </div>
       )}
       {!editing && (
         <div className="template-edit-field-panel">
           <Text size={Text.Size.S} info>
-            Condition when template is valid
+            Conditions when template is valid (any matches)
           </Text>
-          <Text size={Text.Size.M}>{formatTemplateValidCondition(template)}</Text>
+          {!Array.isArray(template?.validCondition) || template.validCondition.length === 0 ? (
+            <Text size={Text.Size.M}>No validity conditions.</Text>
+          ) : (
+            <div className="template-edit-valid-cond-list">
+              {template.validCondition.map((cond, idx) => (
+                <Text size={Text.Size.M} key={`valid-cond-text-${idx}`}>
+                  <Icon glyph={ConditionIcon} /> {formatValidCondition(cond, true)}.
+                </Text>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {editing && (
@@ -384,7 +401,13 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           <Text size={Text.Size.S} info>
             Condition when template is added automatically
           </Text>
-          <Text size={Text.Size.M}>{formatTemplateAddCondition(template)}</Text>
+          {template.addCondition == null ? (
+            <Text size={Text.Size.M}>No automatic condition set.</Text>
+          ) : (
+            <Text size={Text.Size.M}>
+              <Icon glyph={ConditionIcon} /> {formatAddCondition(template.addCondition, true)}.
+            </Text>
+          )}
         </div>
       )}
       {editFailMessage !== null && (

@@ -34,13 +34,15 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
     groupOrder?: Array<string>,
     onlyShowGrouped?: boolean,
     disabled?: boolean,
-    selectedTemplate: Template | null = null
+    selectedTemplate: Template | null = null,
   ): Array<ListDataItem<{ templateItem?: Template }>> => {
     const getDetails = (template: Template): [string, boolean] => {
-      if (!template?.validCondition) {
+      const hasNoValid =
+        !template?.validCondition ||
+        (Array.isArray(template.validCondition) && template.validCondition.length === 0);
+      if (hasNoValid) {
         return ["Incomplete configuration! No validity condition set.", true];
       }
-      const validCond = template.validCondition;
 
       let description = formatTemplateValidCondition(template);
 
@@ -118,9 +120,9 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
         groupOrder,
         onlyShowGrouped,
         disabled,
-        selectedTemplate
+        selectedTemplate,
       ),
-    [templates, templateIdGroupMap, groupOrder, onlyShowGrouped, disabled, selectedTemplate]
+    [templates, templateIdGroupMap, groupOrder, onlyShowGrouped, disabled, selectedTemplate],
   );
 
   return (
@@ -129,7 +131,7 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
       activeIndex={
         selectedTemplate != null && selectedTemplate.id !== ""
           ? listItems.findIndex(
-              (item) => item?.templateItem && item.templateItem.id === selectedTemplate?.id
+              (item) => item?.templateItem && item.templateItem.id === selectedTemplate?.id,
             )
           : -1
       }

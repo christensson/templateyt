@@ -57,6 +57,12 @@
   margin: calc(var(--ring-unit) / 2);
 }
 
+.template-edit-valid-cond-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit) / 2);
+}
+
 .template-edit-field-panel {
   display: flex;
   flex-direction: column;

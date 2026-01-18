@@ -12,12 +12,12 @@ const log = (msg) => {
 const getValidTemplates = (ctx, article) => {
   const templates = utils.getTemplates(ctx);
   log(`Article ${article.id}: All templates: ${JSON.stringify(templates)}`);
-  return templates
-    .filter((t) =>
-      t?.validCondition ? ["entity_is", "tag_is"].includes(t?.validCondition?.when) : false
-    )
-    .filter((t) => {
-      const cond = t.validCondition;
+  return templates.filter((t) => {
+    const conditions = Array.isArray(t.validCondition) ? t.validCondition : [];
+    for (const cond of conditions) {
+      if (!cond || !cond.when) {
+        continue;
+      }
       if (cond.when === "entity_is") {
         // Valid templates currently matches the condition...
         return cond.entityType === "article";
@@ -35,9 +35,13 @@ const getValidTemplates = (ctx, article) => {
         if (article.tags.added.find((t) => t.name === tagName)) {
           return true;
         }
+      } else {
+        // Unknown condition, ignore.
+        continue;
       }
-      return false;
-    });
+    }
+    return false;
+  });
 };
 
 exports.rule = entities.Article.onChange({
@@ -65,17 +69,17 @@ exports.rule = entities.Article.onChange({
     let matchedActionTags = [];
     if (article.isNew) {
       matchedActionTags = validActionTags.filter((t) =>
-        article.tags.find((tag) => tag.name === t.tagName)
+        article.tags.find((tag) => tag.name === t.tagName),
       );
     } else {
       matchedActionTags = validActionTags.filter(
         (t) =>
           article.tags.added.find((tag) => tag.name === t.tagName) ||
-          article.tags.removed.find((tag) => tag.name === t.tagName)
+          article.tags.removed.find((tag) => tag.name === t.tagName),
       );
     }
     log(
-      "Article " + article.id + " (new) tags matched article: " + JSON.stringify(matchedActionTags)
+      "Article " + article.id + " (new) tags matched article: " + JSON.stringify(matchedActionTags),
     );
     return matchedActionTags.length > 0;
   },
@@ -85,8 +89,8 @@ exports.rule = entities.Article.onChange({
     const templates = getValidTemplates(ctx, article);
     log(
       `Article ${article.id}${article.isNew ? " (new)" : ""} templates: ${JSON.stringify(
-        templates
-      )}`
+        templates,
+      )}`,
     );
     const newTemplates = templates
       .filter((t) => (t?.addCondition ? ["tag_added"].includes(t?.addCondition?.when) : false))
@@ -118,7 +122,7 @@ exports.rule = entities.Article.onChange({
     oldTemplates.push(
       ...newTemplates
         .filter((t) => usedTemplateIds.includes(t.id))
-        .filter((t) => !oldTemplates.find((ot) => ot.id === t.id))
+        .filter((t) => !oldTemplates.find((ot) => ot.id === t.id)),
     );
 
     log(`Ticket ${article.id}: Templates to apply: ${JSON.stringify(newTemplates)}`);
@@ -148,7 +152,7 @@ exports.rule = entities.Article.onChange({
         const charsRemoved = lenBefore - newDescription.length;
         if (charsRemoved > 0) {
           log(
-            `Article ${article.id}: Removed template "${template.name}" (${template.id}): ${charsRemoved} characters removed.`
+            `Article ${article.id}: Removed template "${template.name}" (${template.id}): ${charsRemoved} characters removed.`,
           );
         }
       }
@@ -171,7 +175,7 @@ exports.rule = entities.Article.onChange({
           usedTemplateIds.push(template.id);
         }
         log(
-          `Article ${article.id}: Applied template "${template.name}" (${template.id}) from article ${template.articleId}`
+          `Article ${article.id}: Applied template "${template.name}" (${template.id}) from article ${template.articleId}`,
         );
       }
     }

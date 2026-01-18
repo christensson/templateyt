@@ -4,7 +4,7 @@ import { Col, Grid, Row } from "@jetbrains/ring-ui-built/components/grid/grid";
 import Link from "@jetbrains/ring-ui-built/components/link/link";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { Template } from "../../../@types/template";
+import { createEmptyTemplate, createNullTemplate, type Template } from "../../../@types/template";
 import type { TemplateArticle } from "../../../@types/template-article";
 import TemplateEdit from "../../components/template-edit";
 import TemplateHelp from "../../components/template-help";
@@ -12,22 +12,6 @@ import TemplateList from "../../components/template-list";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
-
-const createEmptyTemplate = (): Template => ({
-  id: crypto.randomUUID(),
-  name: "",
-  articleId: "",
-  validCondition: null,
-  addCondition: null,
-});
-
-const createNullTemplate = (): Template => ({
-  id: "", // Indicate null template with empty id.
-  name: "",
-  articleId: "",
-  validCondition: null,
-  addCondition: null,
-});
 
 const AppComponent: React.FunctionComponent = () => {
   const [isDraft, setIsDraft] = useState<boolean>(false);

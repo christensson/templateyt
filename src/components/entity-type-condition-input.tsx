@@ -1,3 +1,5 @@
+import ConditionIcon from "@jetbrains/icons/buildType-12px";
+import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
@@ -10,6 +12,7 @@ interface EntityTypeConditionInputProps {
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
   disabled?: boolean;
+  conditionIndex?: number; // index within validCondition array when conditionType is "valid"
 }
 
 const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInputProps> = ({
@@ -18,6 +21,7 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
   template,
   setTemplate,
   disabled,
+  conditionIndex,
 }) => {
   const onSelectEntityType = useCallback(
     (selected: SelectItem | null) => {
@@ -27,17 +31,23 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
             ...prevTemplate,
           };
           if (conditionType === "valid") {
-            newTemplate.validCondition = {
-              ...prevTemplate?.validCondition,
+            const currentList = Array.isArray(prevTemplate.validCondition)
+              ? [...prevTemplate.validCondition]
+              : [];
+            const idx = conditionIndex ?? currentList.length;
+            const existing = currentList[idx] as EntityTypeCondition | undefined;
+            currentList[idx] = {
               when: "entity_is",
               entityType: selected.key as string,
+              ...(existing ? existing : {}),
             } as EntityTypeCondition;
+            newTemplate.validCondition = currentList;
           }
           return newTemplate;
         });
       }
     },
-    [template, conditionType]
+    [template, conditionType, conditionIndex],
   );
 
   const selectItems = [
@@ -46,20 +56,19 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
   ];
 
   const selectedItem = useMemo(() => {
-    var condition: EntityTypeCondition | null = null;
-    if (conditionType === "valid" && template?.validCondition?.when === "entity_is") {
-      condition = template.validCondition as EntityTypeCondition;
-    }
-    if (!condition) {
-      return null;
-    }
-    return selectItems.find((item) => item.key === condition?.entityType);
-  }, [template, conditionType]);
+    if (conditionType !== "valid") return null;
+    const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
+    const idx = conditionIndex ?? 0;
+    const condition = list[idx] as EntityTypeCondition | undefined;
+    if (!condition || condition.when !== "entity_is") return null;
+    return selectItems.find((item) => item.key === condition.entityType);
+  }, [template, conditionType, conditionIndex]);
 
   return (
     <div>
-      <Text size={Text.Size.M} info>
-        {(whenTitle ?? (conditionType === "valid" ? "Valid when entity is" : "")) + " "}
+      <Icon glyph={ConditionIcon} />{" "}
+      <Text size={Text.Size.M}>
+        {(whenTitle ?? (conditionType === "valid" ? "When entity is" : "")) + " "}
       </Text>
       <Select
         clear

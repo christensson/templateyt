@@ -1,6 +1,11 @@
 var entities = require("@jetbrains/youtrack-scripting-api/entities");
 var utils = require("./template-utils");
 
+const storeTemplates = (ctx, templates) => {
+  const props = ctx.project.extensionProperties;
+  props.templates = JSON.stringify(templates);
+};
+
 exports.httpHandler = {
   endpoints: [
     {
@@ -8,10 +13,8 @@ exports.httpHandler = {
       method: "GET",
       path: "templates",
       handle: function handle(ctx) {
-        const props = ctx.project.extensionProperties;
-        const templates = JSON.parse(props.templates) || [];
         ctx.response.json({
-          templates: templates,
+          templates: utils.getTemplates(ctx),
         });
       },
     },
@@ -46,8 +49,16 @@ exports.httpHandler = {
           return;
         }
 
-        if (newTemplate.validCondition !== null) {
-          const cond = newTemplate.validCondition;
+        if (!Array.isArray(newTemplate.validCondition)) {
+          ctx.response.status = 400;
+          ctx.response.json({
+            success: false,
+            message: "Template validCondition is not an array.",
+          });
+          return;
+        }
+
+        for (const cond of newTemplate.validCondition) {
           if (cond.hasOwnProperty("when") === false) {
             ctx.response.status = 400;
             ctx.response.json({
@@ -155,9 +166,9 @@ exports.httpHandler = {
           return;
         }
 
-        let props = ctx.project.extensionProperties;
-        let templates = JSON.parse(props.templates) || [];
-        let template = templates.find((t) => t.id === newTemplate.id);
+        const templates = utils.getTemplates(ctx);
+
+        const template = templates.find((t) => t.id === newTemplate.id);
         if (template) {
           // Update existing entry.
           Object.assign(template, newTemplate);
@@ -165,7 +176,7 @@ exports.httpHandler = {
           // Add new entry.
           templates.push(newTemplate);
         }
-        props.templates = JSON.stringify(templates);
+        storeTemplates(ctx, templates);
         ctx.response.json({ success: true, templates: templates });
       },
     },
@@ -181,10 +192,9 @@ exports.httpHandler = {
           return;
         }
         const id = body.id;
-        let props = ctx.project.extensionProperties;
-        const oldTemplates = JSON.parse(props.templates) || [];
+        const oldTemplates = utils.getTemplates(ctx);
         const updatedTemplates = oldTemplates.filter((t) => t.id !== id);
-        props.templates = JSON.stringify(updatedTemplates);
+        storeTemplates(ctx, updatedTemplates);
         ctx.response.json({ success: true });
       },
     },
@@ -293,9 +303,8 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const issue = ctx.issue;
         const issueProps = issue.extensionProperties;
-        const projectProps = ctx.project.extensionProperties;
         const usedTemplateIds = JSON.parse(issueProps.usedTemplateIds) || [];
-        const templates = JSON.parse(projectProps.templates) || [];
+        const templates = utils.getTemplates(ctx);
 
         const validTemplateIds = templates
           .filter((t) => utils.isTemplateValidForIssue(issue, t))
@@ -314,9 +323,8 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const issue = ctx.issue;
         const issueProps = issue.extensionProperties;
-        const projectProps = ctx.project.extensionProperties;
         const usedTemplateIds = JSON.parse(issueProps.usedTemplateIds) || [];
-        const templates = JSON.parse(projectProps.templates) || [];
+        const templates = utils.getTemplates(ctx);
 
         const body = JSON.parse(ctx.request.body);
         if (body.hasOwnProperty("templateId") === false || body.templateId === "") {
@@ -393,9 +401,8 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const issue = ctx.issue;
         const issueProps = issue.extensionProperties;
-        const projectProps = ctx.project.extensionProperties;
         const usedTemplateIds = JSON.parse(issueProps.usedTemplateIds) || [];
-        const templates = JSON.parse(projectProps.templates) || [];
+        const templates = utils.getTemplates(ctx);
 
         const body = JSON.parse(ctx.request.body);
         if (body.hasOwnProperty("templateId") === false || body.templateId === "") {
@@ -462,9 +469,8 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const article = ctx.article;
         const articleProps = article.extensionProperties;
-        const projectProps = ctx.project.extensionProperties;
         const usedTemplateIds = JSON.parse(articleProps.usedTemplateIds) || [];
-        const templates = JSON.parse(projectProps.templates) || [];
+        const templates = utils.getTemplates(ctx);
 
         const validTemplateIds = templates
           .filter((t) => utils.isTemplateValidForArticle(article, t))
@@ -483,9 +489,8 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const article = ctx.article;
         const articleProps = article.extensionProperties;
-        const projectProps = ctx.project.extensionProperties;
         const usedTemplateIds = JSON.parse(articleProps.usedTemplateIds) || [];
-        const templates = JSON.parse(projectProps.templates) || [];
+        const templates = utils.getTemplates(ctx);
 
         if (articleProps?.isTemplate === true) {
           ctx.response.status = 400;
@@ -571,9 +576,8 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const article = ctx.article;
         const articleProps = article.extensionProperties;
-        const projectProps = ctx.project.extensionProperties;
         const usedTemplateIds = JSON.parse(articleProps.usedTemplateIds) || [];
-        const templates = JSON.parse(projectProps.templates) || [];
+        const templates = utils.getTemplates(ctx);
 
         if (articleProps?.isTemplate === true) {
           ctx.response.status = 400;

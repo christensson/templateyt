@@ -1,3 +1,5 @@
+import ConditionIcon from "@jetbrains/icons/buildType-12px";
+import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
@@ -12,6 +14,7 @@ interface FieldConditionInputProps {
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
   disabled?: boolean;
+  conditionIndex?: number; // index within validCondition array when conditionType is "valid"
 }
 
 const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = ({
@@ -21,6 +24,7 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
   template,
   setTemplate,
   disabled,
+  conditionIndex,
 }) => {
   const onSelectField = useCallback(
     (selected: SelectItem | null) => {
@@ -30,11 +34,17 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
             ...prevTemplate,
           };
           if (conditionType === "valid") {
-            newTemplate.validCondition = {
-              ...prevTemplate?.validCondition,
+            const list = Array.isArray(prevTemplate.validCondition)
+              ? [...prevTemplate.validCondition]
+              : [];
+            const idx = conditionIndex ?? list.length;
+            const existing = list[idx] as FieldStateCondition | undefined;
+            list[idx] = {
               when: "field_is",
               fieldName: selected.key as string,
+              fieldValue: existing?.fieldValue ?? "",
             } as FieldStateCondition;
+            newTemplate.validCondition = list;
           } else if (conditionType === "add") {
             newTemplate.addCondition = {
               ...prevTemplate?.addCondition,
@@ -46,7 +56,7 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
         });
       }
     },
-    [template, conditionType]
+    [template, conditionType, conditionIndex],
   );
 
   const onSelectFieldValue = useCallback(
@@ -57,11 +67,17 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
             ...prevTemplate,
           };
           if (conditionType === "valid") {
-            newTemplate.validCondition = {
-              ...prevTemplate?.validCondition,
+            const list = Array.isArray(prevTemplate.validCondition)
+              ? [...prevTemplate.validCondition]
+              : [];
+            const idx = conditionIndex ?? list.length;
+            const existing = list[idx] as FieldStateCondition | undefined;
+            list[idx] = {
               when: "field_is",
+              fieldName: existing?.fieldName ?? "",
               fieldValue: selected.key as string,
             } as FieldStateCondition;
+            newTemplate.validCondition = list;
           } else if (conditionType === "add") {
             newTemplate.addCondition = {
               ...prevTemplate?.addCondition,
@@ -73,64 +89,70 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
         });
       }
     },
-    [template, conditionType]
+    [template, conditionType, conditionIndex],
   );
 
   const selectFieldItems = useMemo(
     () => fields.map((field) => ({ key: field.name, label: field.name })),
-    [fields]
+    [fields],
   );
   const selectFieldValueItems = useMemo(() => {
-    var condition: FieldStateCondition | FieldActionCondition | null = null;
-    if (conditionType === "valid" && template?.validCondition?.when === "field_is") {
-      condition = template.validCondition as FieldStateCondition;
+    if (conditionType === "valid") {
+      const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
+      const idx = conditionIndex ?? 0;
+      const condition = list[idx] as FieldStateCondition | undefined;
+      const fieldName = condition?.fieldName;
+      if (!condition || condition.when !== "field_is" || !fieldName) return [];
+      return (
+        fields
+          .find((field) => field.name === fieldName)
+          ?.values.map((value) => ({ key: value.name, label: value.presentation })) || []
+      );
     } else if (conditionType === "add" && template?.addCondition?.when === "field_becomes") {
-      condition = template.addCondition as FieldActionCondition;
+      const condition = template.addCondition as FieldActionCondition;
+      return (
+        fields
+          .find((field) => field.name === condition?.fieldName)
+          ?.values.map((value) => ({ key: value.name, label: value.presentation })) || []
+      );
     }
-    if (!condition) {
-      return [];
-    }
-    return (
-      fields
-        .find((field) => field.name === condition?.fieldName)
-        ?.values.map((value) => ({
-          key: value.name,
-          label: value.presentation,
-        })) || []
-    );
-  }, [fields, template, conditionType]);
+    return [];
+  }, [fields, template, conditionType, conditionIndex]);
 
   const selectedFieldItem = useMemo(() => {
-    var condition: FieldStateCondition | FieldActionCondition | null = null;
-    if (conditionType === "valid" && template?.validCondition?.when === "field_is") {
-      condition = template.validCondition as FieldStateCondition;
+    if (conditionType === "valid") {
+      const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
+      const idx = conditionIndex ?? 0;
+      const condition = list[idx] as FieldStateCondition | undefined;
+      if (!condition || condition.when !== "field_is") return null;
+      return selectFieldItems.find((field) => field.key === condition.fieldName) || null;
     } else if (conditionType === "add" && template?.addCondition?.when === "field_becomes") {
-      condition = template.addCondition as FieldActionCondition;
+      const condition = template.addCondition as FieldActionCondition;
+      return selectFieldItems.find((field) => field.key === condition?.fieldName) || null;
     }
-    if (!condition) {
-      return null;
-    }
-    return selectFieldItems.find((field) => field.key === condition?.fieldName);
-  }, [fields, template, conditionType]);
+    return null;
+  }, [fields, template, conditionType, conditionIndex]);
 
   const selectedFieldValueItem = useMemo(() => {
-    var condition: FieldStateCondition | FieldActionCondition | null = null;
-    if (conditionType === "valid" && template?.validCondition?.when === "field_is") {
-      condition = template.validCondition as FieldStateCondition;
+    if (conditionType === "valid") {
+      const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
+      const idx = conditionIndex ?? 0;
+      const condition = list[idx] as FieldStateCondition | undefined;
+      if (!condition || condition.when !== "field_is") return null;
+      return selectFieldValueItems.find((field) => field.key === condition.fieldValue) || null;
     } else if (conditionType === "add" && template?.addCondition?.when === "field_becomes") {
-      condition = template.addCondition as FieldActionCondition;
+      const condition = template.addCondition as FieldActionCondition;
+      return selectFieldValueItems.find((field) => field.key === condition?.fieldValue) || null;
     }
-    if (!condition) {
-      return null;
-    }
-    return selectFieldValueItems.find((field) => field.key === condition?.fieldValue);
-  }, [fields, template, conditionType]);
+    return null;
+  }, [fields, template, conditionType, conditionIndex, selectFieldValueItems]);
 
   return (
     <div>
-      <Text size={Text.Size.M} info>
-        {(whenTitle ??
-          (conditionType === "add" ? "Add when ticket field" : "Valid when ticket field")) + " "}
+      <Icon glyph={ConditionIcon} />{" "}
+      <Text size={Text.Size.M}>
+        {(whenTitle ?? (conditionType === "add" ? "Add when ticket field" : "When ticket field")) +
+          " "}
       </Text>
       <Select
         clear
@@ -142,9 +164,7 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
         onSelect={onSelectField}
         selected={selectedFieldItem}
       />
-      <Text size={Text.Size.M} info>
-        {conditionType === "add" ? " becomes " : " is "}
-      </Text>
+      <Text size={Text.Size.M}>{conditionType === "add" ? " becomes " : " is "}</Text>
       <Select
         clear
         label="..."

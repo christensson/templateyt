@@ -12,14 +12,12 @@ const log = (msg) => {
 const getValidTemplates = (ctx, issue) => {
   const templates = utils.getTemplates(ctx);
   log(`Issue ${issue.id}: All templates: ${JSON.stringify(templates)}`);
-  return templates
-    .filter((t) =>
-      t?.validCondition
-        ? ["entity_is", "field_is", "tag_is"].includes(t?.validCondition?.when)
-        : false
-    )
-    .filter((t) => {
-      const cond = t.validCondition;
+  return templates.filter((t) => {
+    const conditions = Array.isArray(t.validCondition) ? t.validCondition : [];
+    for (const cond of conditions) {
+      if (!cond || !cond.when) {
+        continue;
+      }
       if (cond.when === "entity_is") {
         return cond.entityType === "issue";
       } else if (cond.when === "field_is") {
@@ -52,9 +50,13 @@ const getValidTemplates = (ctx, issue) => {
         if (issue.tags.added.find((t) => t.name === tagName)) {
           return true;
         }
+      } else {
+        // Unknown condition, ignore.
+        continue;
       }
-      return false;
-    });
+    }
+    return false;
+  });
 };
 
 exports.rule = entities.Issue.onChange({
@@ -79,11 +81,11 @@ exports.rule = entities.Issue.onChange({
       matchedActionFields = validActionFields.filter((f) => issue.fields[f.name]?.name === f.value);
     } else {
       matchedActionFields = validActionFields.filter(
-        (f) => issue.isChanged(f.name) && issue.fields.becomes(f.name, f.value)
+        (f) => issue.isChanged(f.name) && issue.fields.becomes(f.name, f.value),
       );
     }
     log(
-      "Issue " + issue.id + " (new) fields matched issue: " + JSON.stringify(matchedActionFields)
+      "Issue " + issue.id + " (new) fields matched issue: " + JSON.stringify(matchedActionFields),
     );
     if (matchedActionFields.length > 0) {
       return true;
@@ -97,13 +99,13 @@ exports.rule = entities.Issue.onChange({
     let matchedActionTags = [];
     if (issue.isNew) {
       matchedActionTags = validActionTags.filter((t) =>
-        issue.tags.find((tag) => tag.name === t.tagName)
+        issue.tags.find((tag) => tag.name === t.tagName),
       );
     } else {
       matchedActionTags = validActionTags.filter(
         (t) =>
           issue.tags.added.find((tag) => tag.name === t.tagName) ||
-          issue.tags.removed.find((tag) => tag.name === t.tagName)
+          issue.tags.removed.find((tag) => tag.name === t.tagName),
       );
     }
     log("Issue " + issue.id + " (new) tags matched issue: " + JSON.stringify(matchedActionTags));
@@ -116,7 +118,7 @@ exports.rule = entities.Issue.onChange({
     log(`Issue ${issue.id}${issue.isNew ? " (new)" : ""} templates: ${JSON.stringify(templates)}`);
     const newTemplates = templates
       .filter((t) =>
-        t?.addCondition ? ["field_becomes", "tag_added"].includes(t?.addCondition?.when) : false
+        t?.addCondition ? ["field_becomes", "tag_added"].includes(t?.addCondition?.when) : false,
       )
       .filter((t) => {
         const cond = t.addCondition;
@@ -140,7 +142,7 @@ exports.rule = entities.Issue.onChange({
       });
     const oldTemplates = templates
       .filter((t) =>
-        t?.addCondition ? ["field_becomes", "tag_added"].includes(t?.addCondition?.when) : false
+        t?.addCondition ? ["field_becomes", "tag_added"].includes(t?.addCondition?.when) : false,
       )
       .filter((t) => {
         const cond = t.addCondition;
@@ -156,7 +158,7 @@ exports.rule = entities.Issue.onChange({
     oldTemplates.push(
       ...newTemplates
         .filter((t) => usedTemplateIds.includes(t.id))
-        .filter((t) => !oldTemplates.find((ot) => ot.id === t.id))
+        .filter((t) => !oldTemplates.find((ot) => ot.id === t.id)),
     );
 
     log(`Ticket ${issue.id}: Templates to apply: ${JSON.stringify(newTemplates)}`);
@@ -186,7 +188,7 @@ exports.rule = entities.Issue.onChange({
         const charsRemoved = lenBefore - newDescription.length;
         if (charsRemoved > 0) {
           log(
-            `Ticket ${issue.id}: Removed template "${template.name}" (${template.id}): ${charsRemoved} characters removed.`
+            `Ticket ${issue.id}: Removed template "${template.name}" (${template.id}): ${charsRemoved} characters removed.`,
           );
         }
       }
@@ -209,7 +211,7 @@ exports.rule = entities.Issue.onChange({
           usedTemplateIds.push(template.id);
         }
         log(
-          `Ticket ${issue.id}: Applied template "${template.name}" (${template.id}) from article ${template.articleId}`
+          `Ticket ${issue.id}: Applied template "${template.name}" (${template.id}) from article ${template.articleId}`,
         );
       }
     }

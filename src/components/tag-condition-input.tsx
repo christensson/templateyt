@@ -1,4 +1,6 @@
+import ConditionIcon from "@jetbrains/icons/buildType-12px";
 import SearchIcon from "@jetbrains/icons/search";
+import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
@@ -13,6 +15,7 @@ interface TagConditionInputProps {
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
   disabled?: boolean;
+  conditionIndex?: number; // index within validCondition array when conditionType is "valid"
 }
 
 const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
@@ -22,6 +25,7 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
   template,
   setTemplate,
   disabled,
+  conditionIndex,
 }) => {
   const onSelectTag = useCallback(
     (selected: SelectItem | null) => {
@@ -31,11 +35,15 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
             ...prevTemplate,
           };
           if (conditionType === "valid") {
-            newTemplate.validCondition = {
-              ...prevTemplate?.validCondition,
+            const list = Array.isArray(prevTemplate.validCondition)
+              ? [...prevTemplate.validCondition]
+              : [];
+            const idx = conditionIndex ?? list.length;
+            list[idx] = {
               when: "tag_is",
               tagName: selected.key as string,
             } as TagStateCondition;
+            newTemplate.validCondition = list;
           } else if (conditionType === "add") {
             newTemplate.addCondition = {
               ...prevTemplate?.addCondition,
@@ -47,31 +55,33 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
         });
       }
     },
-    [template, conditionType]
+    [template, conditionType, conditionIndex],
   );
 
   const selectTagItems = useMemo(
     () => tags.map((tag) => ({ key: tag.name, label: tag.name })),
-    [tags]
+    [tags],
   );
 
   const selectedTagItem = useMemo(() => {
-    var condition: TagStateCondition | TagActionCondition | null = null;
-    if (conditionType === "valid" && template?.validCondition?.when === "tag_is") {
-      condition = template.validCondition as TagStateCondition;
+    if (conditionType === "valid") {
+      const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
+      const idx = conditionIndex ?? 0;
+      const condition = list[idx] as TagStateCondition | undefined;
+      if (!condition || condition.when !== "tag_is") return null;
+      return selectTagItems.find((field) => field.key === condition.tagName) || null;
     } else if (conditionType === "add" && template?.addCondition?.when === "tag_added") {
-      condition = template.addCondition as TagActionCondition;
+      const condition = template.addCondition as TagActionCondition;
+      return selectTagItems.find((field) => field.key === condition?.tagName) || null;
     }
-    if (!condition) {
-      return null;
-    }
-    return selectTagItems.find((field) => field.key === condition?.tagName);
-  }, [tags, template, conditionType]);
+    return null;
+  }, [tags, template, conditionType, conditionIndex, selectTagItems]);
 
   return (
     <div>
-      <Text size={Text.Size.M} info>
-        {(whenTitle ?? (conditionType === "add" ? "Add when tag" : "Valid when tag")) + " "}
+      <Icon glyph={ConditionIcon} />{" "}
+      <Text size={Text.Size.M}>
+        {(whenTitle ?? (conditionType === "add" ? "Add when tag" : "When tag")) + " "}
       </Text>
       <Select
         clear
