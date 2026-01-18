@@ -42,7 +42,7 @@ const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({
                     <li>Edit article content to define the template.</li>
                     <li>
                       Configure the article as a template by clicking the ...-menu and then
-                      selecting "Configure as Ticket Template".
+                      selecting "Configure as template".
                     </li>
                   </ul>
                 </li>

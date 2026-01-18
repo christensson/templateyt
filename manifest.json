@@ -24,7 +24,7 @@
     },
     {
       "key": "templateyt-article-menu",
-      "name": "Configure as Ticket Template",
+      "name": "Configure as template",
       "indexPath": "templateyt-article-menu/index.html",
       "extensionPoint": "ARTICLE_OPTIONS_MENU_ITEM",
       "iconPath": "icon-small.svg",
