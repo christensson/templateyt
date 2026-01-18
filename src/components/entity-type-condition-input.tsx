@@ -37,9 +37,9 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
             const idx = conditionIndex ?? currentList.length;
             const existing = currentList[idx] as EntityTypeCondition | undefined;
             currentList[idx] = {
+              ...(existing ? existing : {}),
               when: "entity_is",
               entityType: selected.key as string,
-              ...(existing ? existing : {}),
             } as EntityTypeCondition;
             newTemplate.validCondition = currentList;
           }
@@ -60,7 +60,9 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
     const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
     const idx = conditionIndex ?? 0;
     const condition = list[idx] as EntityTypeCondition | undefined;
-    if (!condition || condition.when !== "entity_is") return null;
+    if (!condition || condition.when !== "entity_is") {
+      return null;
+    }
     return selectItems.find((item) => item.key === condition.entityType);
   }, [template, conditionType, conditionIndex]);
 

@@ -256,7 +256,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
             (cond, idx) => (
               <div
                 key={`valid-cond-${idx}`}
-                style={{ display: "flex", gap: 8, alignItems: "center" }}
+                style={{ display: "flex", gap: 8 }}
               >
                 {cond.when === "entity_is" && (
                   <EntityTypeConditionInput
