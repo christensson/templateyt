@@ -10,7 +10,7 @@ import {
 interface TemplateListProps {
   templates: Array<Template>;
   selectedTemplate: Template | null;
-  setSelectedTemplate: (selectedTemplate: Template) => void;
+  setSelectedTemplate: (selectedTemplate: Template | null) => void;
   templateIdGroupMap?: { [key: string]: string };
   groupOrder?: Array<string>;
   onlyShowGrouped?: boolean;
@@ -127,18 +127,18 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
     <List
       data={listItems}
       activeIndex={
-        selectedTemplate != null
+        selectedTemplate != null && selectedTemplate.id !== ""
           ? listItems.findIndex(
               (item) => item?.templateItem && item.templateItem.id === selectedTemplate?.id
             )
-          : null
+          : -1
       }
       onSelect={(item: ListDataItem<{ templateItem?: Template }>) => {
         if (item.templateItem) {
           setSelectedTemplate(item.templateItem);
         }
       }}
-      activateSingleItem
+      restoreActiveIndex={false}
       className={className}
     />
   );

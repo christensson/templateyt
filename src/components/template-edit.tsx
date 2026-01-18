@@ -153,7 +153,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   }, [isDraft, templateSnapshot]);
 
   const getTemplateArticleSelectItems = (
-    data: Array<TemplateArticle>
+    data: Array<TemplateArticle>,
   ): Array<SelectItem<{ templateArticleItem: TemplateArticle }>> => {
     const items: Array<SelectItem<{ templateArticleItem: TemplateArticle }>> = data.map(
       (templateArticle: TemplateArticle) => ({
@@ -161,14 +161,14 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         rgItemType: 2,
         label: `${templateArticle.articleId}: ${templateArticle.summary}`,
         templateArticleItem: templateArticle,
-      })
+      }),
     );
     return items;
   };
 
   const templateArticleSelectItems = useMemo(
     () => getTemplateArticleSelectItems(templateArticles),
-    [templateArticles]
+    [templateArticles],
   );
 
   const selectValidCondition = [
@@ -190,7 +190,9 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         <Input
           label="Name"
           value={template.name}
-          onChange={(e) => setTemplate((prev) => ({ ...prev, name: e.target.value }))}
+          onChange={(e) =>
+            setTemplate((prev) => (prev !== null ? { ...prev, name: e.target.value } : prev))
+          }
           size={Size.M}
         />
       )}
@@ -211,14 +213,18 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
             label="Select template article..."
             data={templateArticleSelectItems}
             selected={templateArticleSelectItems.find(
-              (item) => item.templateArticleItem.articleId === template?.articleId
+              (item) => item.templateArticleItem.articleId === template?.articleId,
             )}
             onChange={(selected: SelectItem<{ templateArticleItem: TemplateArticle }> | null) => {
               if (selected != null) {
-                setTemplate((prev) => ({
-                  ...prev,
-                  articleId: selected.templateArticleItem.articleId,
-                }));
+                setTemplate((prev) =>
+                  prev !== null
+                    ? {
+                        ...prev,
+                        articleId: selected.templateArticleItem.articleId,
+                      }
+                    : prev,
+                );
               }
             }}
           />
@@ -248,28 +254,36 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
             size={Size.L}
             data={selectValidCondition}
             selected={selectValidCondition.find(
-              (item) => item.key === (template?.validCondition?.when || "none")
+              (item) => item.key === (template?.validCondition?.when || "none"),
             )}
             onChange={(selected: SelectItem | null) => {
               if (selected === null || selected.key === "none") {
-                setTemplate((prev) => ({ ...prev, validCondition: null }));
+                setTemplate((prev) => (prev !== null ? { ...prev, validCondition: null } : prev));
               } else if (selected.key === "field_is") {
-                setTemplate((prev) => ({
-                  ...prev,
-                  validCondition: {
-                    when: "field_is",
-                    fieldName: "",
-                    fieldValue: "",
-                  },
-                }));
+                setTemplate((prev) =>
+                  prev !== null
+                    ? {
+                        ...prev,
+                        validCondition: {
+                          when: "field_is",
+                          fieldName: "",
+                          fieldValue: "",
+                        },
+                      }
+                    : prev,
+                );
               } else if (selected.key === "tag_is") {
-                setTemplate((prev) => ({
-                  ...prev,
-                  validCondition: {
-                    when: "tag_is",
-                    tagName: "",
-                  },
-                }));
+                setTemplate((prev) =>
+                  prev !== null
+                    ? {
+                        ...prev,
+                        validCondition: {
+                          when: "tag_is",
+                          tagName: "",
+                        },
+                      }
+                    : prev,
+                );
               }
             }}
           />
@@ -314,28 +328,36 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
             size={Size.L}
             data={selectActionData}
             selected={selectActionData.find(
-              (item) => item.key === (template?.addCondition?.when || "none")
+              (item) => item.key === (template?.addCondition?.when || "none"),
             )}
             onChange={(selected: SelectItem | null) => {
               if (selected === null || selected.key === "none") {
-                setTemplate((prev) => ({ ...prev, addCondition: null }));
+                setTemplate((prev) => (prev !== null ? { ...prev, addCondition: null } : prev));
               } else if (selected.key === "field_becomes") {
-                setTemplate((prev) => ({
-                  ...prev,
-                  addCondition: {
-                    when: "field_becomes",
-                    fieldName: "",
-                    fieldValue: "",
-                  },
-                }));
+                setTemplate((prev) =>
+                  prev !== null
+                    ? {
+                        ...prev,
+                        addCondition: {
+                          when: "field_becomes",
+                          fieldName: "",
+                          fieldValue: "",
+                        },
+                      }
+                    : prev,
+                );
               } else if (selected.key === "tag_added") {
-                setTemplate((prev) => ({
-                  ...prev,
-                  addCondition: {
-                    when: "tag_added",
-                    tagName: "",
-                  },
-                }));
+                setTemplate((prev) =>
+                  prev !== null
+                    ? {
+                        ...prev,
+                        addCondition: {
+                          when: "tag_added",
+                          tagName: "",
+                        },
+                      }
+                    : prev,
+                );
               }
             }}
           />
@@ -382,7 +404,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       <div className="template-edit-actions">
         {editing && (
           <Button onClick={() => addOrUpdateTemplate(template)} primary>
-            {isDraft ? "Add Template" : "Save Template"}
+            {isDraft ? "Add template" : "Save template"}
           </Button>
         )}
         {editing && <Button onClick={() => cancelEdit()}>Cancel edit</Button>}

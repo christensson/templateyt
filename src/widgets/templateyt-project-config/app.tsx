@@ -1,11 +1,13 @@
 import AddIcon from "@jetbrains/icons/add-12px";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import { Col, Grid, Row } from "@jetbrains/ring-ui-built/components/grid/grid";
+import Link from "@jetbrains/ring-ui-built/components/link/link";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { Template } from "../../../@types/template";
 import type { TemplateArticle } from "../../../@types/template-article";
 import TemplateEdit from "../../components/template-edit";
+import TemplateHelp from "../../components/template-help";
 import TemplateList from "../../components/template-list";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
@@ -33,6 +35,7 @@ const AppComponent: React.FunctionComponent = () => {
   const [templates, setTemplates] = useState<Array<Template>>([]);
   const [template, setTemplate] = useState<Template>(createNullTemplate());
   const [templateArticles, setTemplateArticles] = useState<TemplateArticle[]>([]);
+  const [helpCollapsed, setHelpCollapsed] = useState<boolean>(false);
 
   useEffect(() => {
     host
@@ -58,16 +61,21 @@ const AppComponent: React.FunctionComponent = () => {
   }, [host]);
 
   const selectTemplate = useCallback(
-    (selectedTemplate: Template) => {
+    (selectedTemplate: Template | null) => {
       // Cannot select templates whiled editing one.
       if (editing) {
         return;
       }
-      setTemplate(selectedTemplate);
+      if (selectedTemplate === null) {
+        setTemplate(createNullTemplate());
+      } else {
+        setTemplate(selectedTemplate);
+      }
       setIsDraft(false);
       setEditing(false);
+      setHelpCollapsed(true);
     },
-    [editing]
+    [editing],
   );
 
   const createNewTemplate = () => {
@@ -95,12 +103,6 @@ const AppComponent: React.FunctionComponent = () => {
           </Col>
           <Col xs={12} sm={6} md={6} lg={5}>
             <div className="template-edit-panel">
-              {template.id === "" && (
-                <Text size={Text.Size.M}>
-                  No template selected, please select a template from the list or add a new
-                  template.
-                </Text>
-              )}
               {template.id !== "" && (
                 <TemplateEdit
                   isDraft={isDraft}
@@ -113,6 +115,19 @@ const AppComponent: React.FunctionComponent = () => {
                   setTemplates={setTemplates}
                 />
               )}
+              <div className="template-edit-extra-info">
+                {template.id === "" && (
+                  <Text size={Text.Size.M}>
+                    No template selected, please select a template from the list or{" "}
+                    <Link onClick={() => createNewTemplate()}>add a new template</Link>.
+                  </Text>
+                )}
+              </div>
+              <TemplateHelp
+                collapsed={helpCollapsed}
+                setCollapsed={setHelpCollapsed}
+                createNewTemplate={createNewTemplate}
+              />
             </div>
           </Col>
         </Row>

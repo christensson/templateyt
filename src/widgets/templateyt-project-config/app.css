@@ -9,6 +9,7 @@
   margin-left: calc(var(--ring-unit) / 2) !important;
   margin-right: calc(var(--ring-unit) / 2) !important;
 }
+
 .template-toolbar {
   width: auto;
   gap: calc(var(--ring-unit) / 2);
@@ -21,6 +22,25 @@
 
 .template-list-panel {
   border-right: 1px solid var(--ring-line-color);
+}
+
+.template-edit-help {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit));
+  margin-top: calc(var(--ring-unit));
+}
+.template-edit-help-content {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit) * 2);
+}
+
+.template-edit-extra-info {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit) * 2);
+  margin: calc(var(--ring-unit) / 2);
 }
 
 .template-edit-panel {
