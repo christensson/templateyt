@@ -4,6 +4,7 @@ import EditIcon from "@jetbrains/icons/pencil";
 import TrashIcon from "@jetbrains/icons/trash";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
+import Confirm from "@jetbrains/ring-ui-built/components/confirm/confirm";
 import DropdownMenu from "@jetbrains/ring-ui-built/components/dropdown-menu/dropdown-menu";
 import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
@@ -54,6 +55,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     message: string;
   } | null>(null);
   const [templateSnapshot, setTemplateSnapshot] = useState<Template>(template);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState<boolean>(false);
 
   // Keep a fresh snapshot when parent `template` changes and we're not editing.
   useEffect(() => {
@@ -461,7 +463,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         )}
         {editing && <Button onClick={() => cancelEdit()}>Cancel edit</Button>}
         {editing && !isDraft && (
-          <Button onClick={() => removeTemplate(template)} icon={TrashIcon} danger>
+          <Button onClick={() => setConfirmRemoveOpen(true)} icon={TrashIcon} danger>
             Remove template
           </Button>
         )}
@@ -478,6 +480,17 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           </Button>
         )}
       </div>
+      {editing && !isDraft && (
+        <Confirm
+          show={confirmRemoveOpen}
+          text="Remove template?"
+          description={`Are you sure you want to remove template "${template.name}"?`}
+          onReject={() => setConfirmRemoveOpen(false)}
+          onConfirm={() => removeTemplate(template)}
+          confirmLabel="Remove template"
+          rejectLabel="Cancel"
+        />
+      )}
     </div>
   );
 };
