@@ -102,7 +102,9 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
       const idx = conditionIndex ?? 0;
       const condition = list[idx] as FieldStateCondition | undefined;
       const fieldName = condition?.fieldName;
-      if (!condition || condition.when !== "field_is" || !fieldName) return [];
+      if (!condition || condition.when !== "field_is" || !fieldName) {
+        return [];
+      }
       return (
         fields
           .find((field) => field.name === fieldName)
@@ -124,7 +126,9 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
       const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
       const idx = conditionIndex ?? 0;
       const condition = list[idx] as FieldStateCondition | undefined;
-      if (!condition || condition.when !== "field_is") return null;
+      if (!condition || condition.when !== "field_is") {
+        return null;
+      }
       return selectFieldItems.find((field) => field.key === condition.fieldName) || null;
     } else if (conditionType === "add" && template?.addCondition?.when === "field_becomes") {
       const condition = template.addCondition as FieldActionCondition;

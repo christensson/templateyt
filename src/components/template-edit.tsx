@@ -254,10 +254,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           )}
           {(Array.isArray(template.validCondition) ? template.validCondition : []).map(
             (cond, idx) => (
-              <div
-                key={`valid-cond-${idx}`}
-                style={{ display: "flex", gap: 8 }}
-              >
+              <div key={`valid-cond-${idx}`} style={{ display: "flex", gap: 8 }}>
                 {cond.when === "entity_is" && (
                   <EntityTypeConditionInput
                     conditionType="valid"
@@ -405,7 +402,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
             <Text size={Text.Size.M}>No automatic condition set.</Text>
           ) : (
             <Text size={Text.Size.M}>
-              <Icon glyph={ConditionIcon} /> {formatAddCondition(template.addCondition, true)}.
+              <Icon glyph={ConditionIcon} /> {formatAddCondition(template.addCondition, true)}
             </Text>
           )}
         </div>
