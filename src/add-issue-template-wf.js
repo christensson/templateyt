@@ -85,7 +85,7 @@ exports.rule = entities.Issue.onChange({
       );
     }
     log(
-      "Issue " + issue.id + " (new) fields matched issue: " + JSON.stringify(matchedActionFields),
+      `Issue ${issue.id}${issue.isNew ? " (new)" : ""} fields matched issue: ${JSON.stringify(matchedActionFields)}`,
     );
     if (matchedActionFields.length > 0) {
       return true;
@@ -108,7 +108,9 @@ exports.rule = entities.Issue.onChange({
           issue.tags.removed.find((tag) => tag.name === t.tagName),
       );
     }
-    log("Issue " + issue.id + " (new) tags matched issue: " + JSON.stringify(matchedActionTags));
+    log(
+      `Issue ${issue.id}${issue.isNew ? " (new)" : ""} tags matched issue: ${JSON.stringify(matchedActionTags)}`,
+    );
     return matchedActionTags.length > 0;
   },
   action: function (ctx) {

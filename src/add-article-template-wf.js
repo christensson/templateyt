@@ -79,7 +79,7 @@ exports.rule = entities.Article.onChange({
       );
     }
     log(
-      "Article " + article.id + " (new) tags matched article: " + JSON.stringify(matchedActionTags),
+      `Article ${article.id}${article.isNew ? " (new)" : ""} tags matched article: ${JSON.stringify(matchedActionTags)}`,
     );
     return matchedActionTags.length > 0;
   },
