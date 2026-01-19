@@ -138,6 +138,38 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     }
   };
 
+  const removeTemplate = async (template: Template) => {
+    if (template.id.trim() === "") {
+      setEditFailMessage({ mode: "error", message: "Template has no id, cannot remove." });
+      return;
+    }
+    const result = await host.fetchApp<{
+      success: Boolean;
+      message?: string;
+      templates?: Array<Template>;
+    }>("backend/removeTemplate", {
+      scope: true,
+      method: "DELETE",
+      body: { id: template.id },
+    });
+    // eslint-disable-next-line no-console
+    console.log("Remove template result", result);
+    if (result.success) {
+      setEditFailMessage(null);
+      setIsDraft(false);
+      setEditing(false);
+      setTemplate(createNullTemplate());
+      if (setTemplates) {
+        setTemplates(result.templates || []);
+      }
+    } else {
+      setEditFailMessage({
+        mode: "error",
+        message: result.message || "Failed to remove template.",
+      });
+    }
+  };
+
   const cancelEdit = useCallback(() => {
     if (isDraft) {
       setTemplate(createNullTemplate());
@@ -428,6 +460,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           </Button>
         )}
         {editing && <Button onClick={() => cancelEdit()}>Cancel edit</Button>}
+        {editing && !isDraft && (
+          <Button onClick={() => removeTemplate(template)} icon={TrashIcon} danger>
+            Remove template
+          </Button>
+        )}
         {!editing && (
           <Button
             onClick={() => {

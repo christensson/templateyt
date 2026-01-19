@@ -195,7 +195,7 @@ exports.httpHandler = {
         const oldTemplates = utils.getTemplates(ctx);
         const updatedTemplates = oldTemplates.filter((t) => t.id !== id);
         storeTemplates(ctx, updatedTemplates);
-        ctx.response.json({ success: true });
+        ctx.response.json({ success: true, templates: updatedTemplates });
       },
     },
     {
