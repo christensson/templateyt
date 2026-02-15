@@ -235,7 +235,6 @@ exports.httpHandler = {
         const articles = templateArticles.map((x) => ({
           articleId: x.id,
           summary: x.summary,
-          url: x.url,
         }));
 
         ctx.response.json(articles);
