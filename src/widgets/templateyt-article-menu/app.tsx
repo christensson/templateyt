@@ -44,7 +44,7 @@ const AppComponent: React.FunctionComponent = () => {
       {!articleInfo && <Loader message="Loading article info..." />}
       {articleInfo && articleInfo.hasTemplates && (
         <Banner mode="info" withIcon>
-          Article is configured as a template, cannot apply any templates to it.
+          Article uses templates, cannot configure as template.
         </Banner>
       )}
       {articleInfo && !articleInfo.hasTemplates && (
