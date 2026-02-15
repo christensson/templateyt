@@ -16,6 +16,8 @@ export type ArticleInfo = {
 
 const AppComponent: React.FunctionComponent = () => {
   const [articleInfo, setArticleInfo] = useState<ArticleInfo | null>(null);
+  const [isDraft, setIsDraft] = useState<boolean>(false);
+  const [failMessage, setFailMessage] = useState<string>("");
   useEffect(() => {
     host
       .fetchApp<ArticleInfo>("backend/getArticleInfo", {
@@ -26,17 +28,27 @@ const AppComponent: React.FunctionComponent = () => {
         // eslint-disable-next-line no-console
         console.log("Article info", result);
         setArticleInfo(result);
+        setIsDraft(false);
       });
   }, [host]);
 
   const saveInfo = useCallback(async () => {
-    const result = await host.fetchApp("backend/setArticleInfo", {
+    const result = await host.fetchApp<{
+      success: Boolean;
+      message?: string;
+    }>("backend/setArticleInfo", {
       scope: true,
       method: "POST",
       body: articleInfo,
     });
     // eslint-disable-next-line no-console
     console.log("Set article info result", result);
+    if (!result.success) {
+      setFailMessage(result.message || `Failed to save article info.`);
+      return;
+    }
+    setFailMessage("");
+    setIsDraft(false);
   }, [host, articleInfo]);
 
   return (
@@ -52,19 +64,25 @@ const AppComponent: React.FunctionComponent = () => {
           <Checkbox
             label="Use article as ticket template."
             checked={articleInfo.isTemplate}
-            onChange={(e: any) =>
+            onChange={(e: any) => {
               setArticleInfo(
                 (prev) => ({ ...prev, isTemplate: e.target.checked as boolean }) as ArticleInfo,
-              )
-            }
+              );
+              setIsDraft(true);
+            }}
           />
         </div>
+      )}
+      {failMessage && (
+        <Banner mode="error" title="Failed to save" withIcon>
+          {failMessage}
+        </Banner>
       )}
       <Panel className="article-template-config-bottom-panel">
         <Button
           primary
           onClick={saveInfo}
-          disabled={articleInfo === null || articleInfo.hasTemplates}
+          disabled={!isDraft || articleInfo === null || articleInfo.hasTemplates}
         >
           Save info
         </Button>
