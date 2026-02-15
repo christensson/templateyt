@@ -24,6 +24,10 @@ export default defineConfig({
           src: "../public/*.*",
           dest: ".",
         },
+        {
+          src: "../public/icon-small.svg",
+          dest: "./widgets",
+        },
       ],
     }),
   ],
