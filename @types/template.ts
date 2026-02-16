@@ -1,3 +1,5 @@
+import {v4 as uuidv4 } from "uuid";
+
 export type EntityTypeCondition = {
   when: "entity_is";
   entityType: "issue" | "article";
@@ -98,7 +100,7 @@ export const formatTemplateAddCondition = (template: Template): string => {
 };
 
 export const createEmptyTemplate = (): Template => ({
-  id: crypto.randomUUID(),
+  id: uuidv4(),
   name: "",
   articleId: "",
   validCondition: [],
