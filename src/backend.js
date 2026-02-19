@@ -6,6 +6,15 @@ const storeTemplates = (ctx, templates) => {
   props.templates = JSON.stringify(templates);
 };
 
+// The YT workflow API Set data-structure somehow doesn't support .map for
+// iterating over the items in old self-hosted YT versions. This is a
+// workaround where .forEach is used to push items into a new array.
+const toArray = (wfSet) => {
+  const arr = [];
+  wfSet.forEach((x) => arr.push(x));
+  return arr;
+};
+
 exports.httpHandler = {
   endpoints: [
     {
@@ -204,18 +213,22 @@ exports.httpHandler = {
       path: "getProjectInfo",
       handle: function handle(ctx) {
         const project = ctx.project;
-        const stateFields = project.fields.map((x) => x).filter((x) => x.typeName === "state[1]");
-        const enumFields = project.fields.map((x) => x).filter((x) => x.typeName === "enum[1]");
+        const stateFields = toArray(project.fields)
+          .map((x) => x)
+          .filter((x) => x.typeName === "state[1]");
+        const enumFields = toArray(project.fields)
+          .map((x) => x)
+          .filter((x) => x.typeName === "enum[1]");
         const stateFieldInfo = stateFields.map((x) => ({
           name: x.name,
-          values: x.values.map((v) => ({
+          values: toArray(x.values).map((v) => ({
             name: v.name,
             presentation: v.presentation,
           })),
         }));
         const enumFieldInfo = enumFields.map((x) => ({
           name: x.name,
-          values: x.values.map((v) => ({
+          values: toArray(x.values).map((v) => ({
             name: v.name,
             presentation: v.presentation,
           })),
@@ -232,7 +245,7 @@ exports.httpHandler = {
         const templateArticles = entities.Article.findByExtensionProperties({
           isTemplate: true,
         });
-        const articles = templateArticles.map((x) => ({
+        const articles = toArray(templateArticles).map((x) => ({
           articleId: x.id,
           summary: x.summary,
         }));
