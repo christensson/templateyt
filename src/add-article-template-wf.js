@@ -118,13 +118,6 @@ exports.rule = entities.Article.onChange({
         return false;
       });
 
-    // Also remove any of the new templates that are already used.
-    oldTemplates.push(
-      ...newTemplates
-        .filter((t) => usedTemplateIds.includes(t.id))
-        .filter((t) => !oldTemplates.find((ot) => ot.id === t.id)),
-    );
-
     log(`Ticket ${article.id}: Templates to apply: ${JSON.stringify(newTemplates)}`);
     log(`Ticket ${article.id}: Templates to potentially remove: ${JSON.stringify(oldTemplates)}`);
 
@@ -162,8 +155,11 @@ exports.rule = entities.Article.onChange({
       }
     }
 
-    // Apply new templates.
+    // Apply new templates, skipping already-applied ones.
     for (const template of newTemplates) {
+      if (usedTemplateIds.includes(template.id)) {
+        continue;
+      }
       const templateArticle = articles[template.articleId];
       const templateContent = templateArticle.content.trim();
       if (templateContent) {
@@ -171,9 +167,7 @@ exports.rule = entities.Article.onChange({
           newDescription += "\n\n";
         }
         newDescription += templateContent;
-        if (!usedTemplateIds.includes(template.id)) {
-          usedTemplateIds.push(template.id);
-        }
+        usedTemplateIds.push(template.id);
         log(
           `Article ${article.id}: Applied template "${template.name}" (${template.id}) from article ${template.articleId}`,
         );
