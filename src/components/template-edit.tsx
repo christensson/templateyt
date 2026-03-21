@@ -11,7 +11,7 @@ import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectFieldInfo, TagInfo } from "../../@types/project-info";
 import {
   createNullTemplate,
@@ -50,6 +50,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
 }) => {
   const [projectFields, setProjectFields] = useState<Array<ProjectFieldInfo>>([]);
   const [projectTags, setProjectTags] = useState<Array<TagInfo>>([]);
+  const [tagsLoading, setTagsLoading] = useState<boolean>(false);
+  const [tagsHasMore, setTagsHasMore] = useState<boolean>(false);
+  const tagsFilterRef = useRef<string>("");
+  const tagsSkipRef = useRef<number>(0);
+  const TAG_PAGE_SIZE = 50;
   const [editFailMessage, setEditFailMessage] = useState<{
     mode: "info" | "error" | "success" | "warning" | "purple" | "grey";
     message: string;
@@ -63,6 +68,47 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       setTemplateSnapshot(template);
     }
   }, [template, editing]);
+
+  const fetchTags = useCallback(
+    async (filter: string, reset: boolean) => {
+      setTagsLoading(true);
+      if (reset) {
+        tagsSkipRef.current = 0;
+        tagsFilterRef.current = filter;
+      }
+      try {
+        const query: Record<string, unknown> = {
+          fields: "name",
+          $top: TAG_PAGE_SIZE,
+          $skip: tagsSkipRef.current,
+        };
+        if (filter) {
+          query.query = filter;
+        }
+        const result = await host.fetchYouTrack<Array<{ name: string }>>(`tags`, { query });
+        const newTags = result.map((tag) => ({ name: tag.name }));
+        setProjectTags((prev) => (reset ? newTags : [...prev, ...newTags]));
+        setTagsHasMore(result.length === TAG_PAGE_SIZE);
+        tagsSkipRef.current += result.length;
+      } finally {
+        setTagsLoading(false);
+      }
+    },
+    [host],
+  );
+
+  const onTagsFilter = useCallback(
+    (filter: string) => {
+      fetchTags(filter, true);
+    },
+    [fetchTags],
+  );
+
+  const onTagsLoadMore = useCallback(() => {
+    if (!tagsLoading && tagsHasMore) {
+      fetchTags(tagsFilterRef.current, false);
+    }
+  }, [fetchTags, tagsLoading, tagsHasMore]);
 
   useEffect(() => {
     host
@@ -79,20 +125,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         const fields = [...result.enumFields, ...result.stateFields];
         setProjectFields(fields);
       });
-    host
-      .fetchYouTrack<Array<{ name: string }>>(`tags`, {
-        query: {
-          fields: "name",
-        },
-      })
-      .then((result) => {
-        // eslint-disable-next-line no-console
-        console.log("Tags", result);
-        const tags: Array<TagInfo> = result.map((tag) => ({
-          name: tag.name,
-        }));
-        setProjectTags(tags);
-      });
+    fetchTags("", true);
   }, [host]);
 
   const addOrUpdateTemplate = async (template: Template) => {
@@ -309,6 +342,9 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
                 {cond.when === "tag_is" && (
                   <TagConditionInput
                     tags={projectTags}
+                    tagsLoading={tagsLoading}
+                    onFilter={onTagsFilter}
+                    onLoadMore={onTagsLoadMore}
                     conditionType="valid"
                     template={template}
                     setTemplate={setTemplate}
@@ -420,6 +456,9 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           {template !== null && template?.addCondition?.when === "tag_added" && (
             <TagConditionInput
               tags={projectTags}
+              tagsLoading={tagsLoading}
+              onFilter={onTagsFilter}
+              onLoadMore={onTagsLoadMore}
               conditionType="add"
               template={template}
               setTemplate={setTemplate}

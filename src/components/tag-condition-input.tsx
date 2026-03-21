@@ -10,6 +10,9 @@ import type { TagActionCondition, TagStateCondition, Template } from "../../@typ
 
 interface TagConditionInputProps {
   tags: Array<TagInfo>;
+  tagsLoading?: boolean;
+  onFilter?: (filter: string) => void;
+  onLoadMore?: () => void;
   whenTitle?: string;
   conditionType: "valid" | "add";
   template: Template;
@@ -20,6 +23,9 @@ interface TagConditionInputProps {
 
 const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
   tags,
+  tagsLoading,
+  onFilter,
+  onLoadMore,
   whenTitle,
   conditionType,
   template,
@@ -86,12 +92,15 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
       <Select
         clear
         filter
+        loading={tagsLoading}
         disabled={disabled}
         label="..."
         filterIcon={SearchIcon}
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}
         data={selectTagItems}
+        onFilter={onFilter}
+        onLoadMore={onLoadMore}
         onSelect={onSelectTag}
         selected={selectedTagItem}
       />
