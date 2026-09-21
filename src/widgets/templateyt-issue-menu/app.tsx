@@ -2,163 +2,25 @@ import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
-import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
-import Select from "@jetbrains/ring-ui-built/components/select/select";
-import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { ProjectFieldInfo } from "../../../@types/project-info";
-import {
-  getTemplateFields,
-  hasUserInputFields,
-  type Template,
-  type TemplateField,
-} from "../../../@types/template";
+import { getTemplateFields, hasUserInputFields, type Template } from "../../../@types/template";
+import { TemplateFieldsForm } from "../../components/template-fields-form";
 import TemplateList from "../../components/template-list";
+import {
+  ACTION_LABELS,
+  fetchIssueTemplateInfo,
+  getInitialFieldValues,
+  pickChosenValues,
+  removeTemplate,
+  submitTemplateFields,
+  type ApplyMode,
+  type FieldValues,
+  type IssueTemplateInfo,
+  type PendingApply,
+} from "../../template-client";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
-
-type IssueTemplateInfo = {
-  usedTemplateIds: Array<string>;
-  templates: Array<Template>;
-  validTemplateIds: Array<string>;
-  fields: Array<ProjectFieldInfo>;
-  currentFieldValues: Record<string, string | null>;
-};
-
-// "add" applies the whole template (description and fields), "fields" only sets its fields.
-type ApplyMode = "add" | "fields";
-
-type PendingApply = {
-  mode: ApplyMode;
-  template: Template;
-};
-
-type FieldValues = Record<string, string | null>;
-
-const ENDPOINTS: Record<ApplyMode, string> = {
-  add: "backend/addTemplate",
-  fields: "backend/applyTemplateFields",
-};
-
-const ACTION_LABELS: Record<ApplyMode, string> = {
-  add: "Apply template",
-  fields: "Set fields",
-};
-
-// Initial user-input values: the ticket's current values for the template's user-input fields.
-const getInitialFieldValues = (template: Template, current: FieldValues): FieldValues => {
-  const values: FieldValues = {};
-  for (const field of getTemplateFields(template)) {
-    if (field.mode === "user_input") {
-      values[field.fieldName] = current[field.fieldName] ?? null;
-    }
-  }
-  return values;
-};
-
-interface UserInputFieldSelectProps {
-  field: TemplateField;
-  fieldInfos: Array<ProjectFieldInfo>;
-  value: string | null;
-  onChange: (fieldName: string, value: string | null) => void;
-}
-
-const UserInputFieldSelect: React.FunctionComponent<UserInputFieldSelectProps> = ({
-  field,
-  fieldInfos,
-  value,
-  onChange,
-}) => {
-  const items = useMemo(() => {
-    const info = fieldInfos.find((f) => f.name === field.fieldName);
-    return info ? info.values.map((v) => ({ key: v.name, label: v.presentation })) : [];
-  }, [fieldInfos, field.fieldName]);
-  const selected = items.find((item) => item.key === value) || null;
-  return (
-    <div>
-      <Text size={Text.Size.M}>Set {field.fieldName} to </Text>
-      <Select
-        clear
-        filter
-        label="..."
-        type={Select.Type.INLINE}
-        size={Select.Size.AUTO}
-        data={items}
-        selected={selected}
-        onSelect={(item: SelectItem | null) =>
-          onChange(field.fieldName, item ? String(item.key) : null)
-        }
-      />
-    </div>
-  );
-};
-
-interface TemplateFieldsFormProps {
-  pending: PendingApply;
-  fieldInfos: Array<ProjectFieldInfo>;
-  values: FieldValues;
-  setValues: React.Dispatch<React.SetStateAction<FieldValues>>;
-  submitting: boolean;
-  onConfirm: () => void;
-  onBack: () => void;
-}
-
-// Second step shown when a template has user-input fields: lets the user pick the values.
-const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps> = ({
-  pending,
-  fieldInfos,
-  values,
-  setValues,
-  submitting,
-  onConfirm,
-  onBack,
-}) => {
-  const templateFields = getTemplateFields(pending.template);
-  const title =
-    pending.mode === "add"
-      ? `Apply template ${pending.template.name}`
-      : `Set fields from template ${pending.template.name}`;
-  const onChange = useCallback(
-    (fieldName: string, value: string | null) =>
-      setValues((prev) => ({ ...prev, [fieldName]: value })),
-    [setValues],
-  );
-
-  return (
-    <>
-      <Text size={Text.Size.M}>{title}</Text>
-      <div className="issue-template-fields-form">
-        {templateFields.map((field) =>
-          field.mode === "fixed" ? (
-            <Text size={Text.Size.M} info key={field.fieldName}>
-              Will set {field.fieldName} to {field.fieldValue}.
-            </Text>
-          ) : (
-            <UserInputFieldSelect
-              key={field.fieldName}
-              field={field}
-              fieldInfos={fieldInfos}
-              value={values[field.fieldName] ?? null}
-              onChange={onChange}
-            />
-          ),
-        )}
-        <Text size={Text.Size.S} info>
-          Fields left empty are not changed.
-        </Text>
-      </div>
-      <Panel className="issue-template-config-bottom-panel">
-        <Button primary loader={submitting} disabled={submitting} onClick={onConfirm}>
-          {ACTION_LABELS[pending.mode]}
-        </Button>
-        <Button disabled={submitting} onClick={onBack}>
-          Back
-        </Button>
-      </Panel>
-    </>
-  );
-};
 
 interface TemplateActionsProps {
   selectedTemplate: Template | null;
@@ -229,10 +91,7 @@ const AppComponent: React.FunctionComponent = () => {
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   const fetchTemplateInfo = useCallback(async () => {
-    const result = await host.fetchApp<IssueTemplateInfo>("backend/templates", {
-      scope: true,
-      method: "GET",
-    });
+    const result = await fetchIssueTemplateInfo(host);
     console.log("getUsedTemplates result", result);
     setIssueTemplateInfo(result);
   }, []);
@@ -269,14 +128,7 @@ const AppComponent: React.FunctionComponent = () => {
       }
       setSubmitting(true);
       try {
-        const result = await host.fetchApp<{ success: boolean; message?: string }>(
-          ENDPOINTS[mode],
-          {
-            scope: true,
-            method: "POST",
-            body: { templateId: template.id, fieldValues: fieldValues },
-          },
-        );
+        const result = await submitTemplateFields(host, mode, template.id, fieldValues);
         console.log(`${ACTION_LABELS[mode]} ${template.id} result`, result);
         if (!result.success) {
           setFailMessage(result.message || `Failed to ${ACTION_LABELS[mode].toLowerCase()}.`);
@@ -317,14 +169,7 @@ const AppComponent: React.FunctionComponent = () => {
     if (pending === null) {
       return;
     }
-    // Only send chosen values; empty inputs leave the ticket field untouched.
-    const fieldValues: FieldValues = {};
-    for (const [fieldName, value] of Object.entries(pendingValues)) {
-      if (value) {
-        fieldValues[fieldName] = value;
-      }
-    }
-    const ok = await submitTemplate(pending.mode, pending.template, fieldValues);
+    const ok = await submitTemplate(pending.mode, pending.template, pickChosenValues(pendingValues));
     if (ok) {
       setPending(null);
     }
@@ -335,14 +180,7 @@ const AppComponent: React.FunctionComponent = () => {
       if (template === null || !checkTemplate(template, "remove")) {
         return;
       }
-      const result = await host.fetchApp<{ success: boolean; message?: string }>(
-        "backend/removeTemplate",
-        {
-          scope: true,
-          method: "DELETE",
-          body: { templateId: template.id },
-        },
-      );
+      const result = await removeTemplate(host, template.id);
       console.log(`Remove template ${template.id} result`, result);
       if (!result.success) {
         setFailMessage(result.message || `Failed to remove template ${template.id}.`);

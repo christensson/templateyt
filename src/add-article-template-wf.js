@@ -101,7 +101,7 @@ exports.rule = entities.Article.onChange({
   },
   action: function action(ctx) {
     const article = ctx.article;
-    const usedTemplateIds = JSON.parse(article.extensionProperties.usedTemplateIds) || [];
+    const usedTemplateIds = utils.parseIdList(article.extensionProperties.usedTemplateIds);
     const templates = getValidTemplates(ctx, article);
     log(
       `Article ${article.id}${article.isNew ? " (new)" : ""} templates: ${JSON.stringify(

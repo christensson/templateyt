@@ -28,6 +28,10 @@
         "usedTemplateIds": {
           "type": "string",
           "multi": false
+        },
+        "templateIdsWithPendingUserFields": {
+          "type": "string",
+          "multi": false
         }
       }
     }

@@ -1,0 +1,33 @@
+.widget {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit) / 2);
+  margin: calc(var(--ring-unit) / 2);
+}
+
+.template-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ring-unit);
+  min-height: 24px;
+}
+
+.template-status-pending {
+  color: var(--ring-warning-color);
+}
+
+.template-status-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.template-fields-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ring-unit);
+}
+
+.template-fields-form-actions {
+  padding: var(--ring-unit) 0 0 0;
+}

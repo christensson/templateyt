@@ -252,7 +252,7 @@ exports.httpHandler = {
         const article = ctx.article;
         const props = article.extensionProperties;
         const isTemplate = props?.isTemplate || false;
-        const usedTemplateIds = JSON.parse(props.usedTemplateIds) || [];
+        const usedTemplateIds = utils.parseIdList(props.usedTemplateIds);
         ctx.response.json({
           articleId: article.id,
           isTemplate: isTemplate,
@@ -267,7 +267,7 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const article = ctx.article;
         const props = article.extensionProperties;
-        const usedTemplateIds = JSON.parse(props.usedTemplateIds) || [];
+        const usedTemplateIds = utils.parseIdList(props.usedTemplateIds);
         const articleInfo = JSON.parse(ctx.request.body);
 
         if (articleInfo.hasOwnProperty("articleId") === false || articleInfo.articleId === "") {
@@ -318,7 +318,7 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const issue = ctx.issue;
         const issueProps = issue.extensionProperties;
-        const usedTemplateIds = JSON.parse(issueProps.usedTemplateIds) || [];
+        const usedTemplateIds = utils.parseIdList(issueProps.usedTemplateIds);
         const templates = utils.getTemplates(ctx);
 
         const validTemplateIds = templates
@@ -331,6 +331,7 @@ exports.httpHandler = {
           validTemplateIds: validTemplateIds,
           fields: fields,
           currentFieldValues: utils.getIssueFieldValues(issue, fields),
+          pendingTemplateIds: utils.getPendingTemplateIds(issue),
         });
       },
     },
@@ -341,7 +342,7 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const issue = ctx.issue;
         const issueProps = issue.extensionProperties;
-        const usedTemplateIds = JSON.parse(issueProps.usedTemplateIds) || [];
+        const usedTemplateIds = utils.parseIdList(issueProps.usedTemplateIds);
         const templates = utils.getTemplates(ctx);
 
         const body = JSON.parse(ctx.request.body);
@@ -409,9 +410,17 @@ exports.httpHandler = {
         usedTemplateIds.push(templateId);
         issue.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
 
+        // Remember templates whose user-input fields were left empty.
+        if (utils.hasMissingUserInput(template, body.fieldValues)) {
+          utils.markTemplatePending(issue, templateId);
+        } else {
+          utils.clearTemplatePending(issue, templateId);
+        }
+
         ctx.response.json({
           success: true,
           usedTemplateIds: usedTemplateIds,
+          pendingTemplateIds: utils.getPendingTemplateIds(issue),
         });
       },
     },
@@ -423,7 +432,7 @@ exports.httpHandler = {
       // the used templates. Lets users fill in user-input fields of automatically added templates.
       handle: function handle(ctx) {
         const issue = ctx.issue;
-        const usedTemplateIds = JSON.parse(issue.extensionProperties.usedTemplateIds) || [];
+        const usedTemplateIds = utils.parseIdList(issue.extensionProperties.usedTemplateIds);
         const templates = utils.getTemplates(ctx);
 
         const body = JSON.parse(ctx.request.body);
@@ -454,8 +463,13 @@ exports.httpHandler = {
           return;
         }
         utils.applyFieldAssignments(issue, resolved.assignments);
+        // The user has been asked for the user-input fields; the template is no longer pending.
+        utils.clearTemplatePending(issue, template.id);
 
-        ctx.response.json({ success: true });
+        ctx.response.json({
+          success: true,
+          pendingTemplateIds: utils.getPendingTemplateIds(issue),
+        });
       },
     },
     {
@@ -465,7 +479,7 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const issue = ctx.issue;
         const issueProps = issue.extensionProperties;
-        const usedTemplateIds = JSON.parse(issueProps.usedTemplateIds) || [];
+        const usedTemplateIds = utils.parseIdList(issueProps.usedTemplateIds);
         const templates = utils.getTemplates(ctx);
 
         const body = JSON.parse(ctx.request.body);
@@ -507,6 +521,7 @@ exports.httpHandler = {
           usedTemplateIds.splice(index, 1);
         }
         issue.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
+        utils.clearTemplatePending(issue, templateId);
 
         ctx.response.json({
           success: true,
@@ -521,7 +536,7 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const article = ctx.article;
         const articleProps = article.extensionProperties;
-        const usedTemplateIds = JSON.parse(articleProps.usedTemplateIds) || [];
+        const usedTemplateIds = utils.parseIdList(articleProps.usedTemplateIds);
         const templates = utils.getTemplates(ctx);
 
         const validTemplateIds = templates
@@ -542,7 +557,7 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const article = ctx.article;
         const articleProps = article.extensionProperties;
-        const usedTemplateIds = JSON.parse(articleProps.usedTemplateIds) || [];
+        const usedTemplateIds = utils.parseIdList(articleProps.usedTemplateIds);
         const templates = utils.getTemplates(ctx);
 
         if (articleProps?.isTemplate === true) {
@@ -629,7 +644,7 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const article = ctx.article;
         const articleProps = article.extensionProperties;
-        const usedTemplateIds = JSON.parse(articleProps.usedTemplateIds) || [];
+        const usedTemplateIds = utils.parseIdList(articleProps.usedTemplateIds);
         const templates = utils.getTemplates(ctx);
 
         if (articleProps?.isTemplate === true) {

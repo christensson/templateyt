@@ -76,7 +76,8 @@ const loadTemplateArticles = (templates) => {
 };
 
 // Sets the fixed-value fields of a template on the issue. User-input fields are only set on
-// manual application. Problems are logged and skipped so that the user's change is never blocked.
+// manual application, so templates having them are marked as waiting for user input.
+// Problems are logged and skipped so that the user's change is never blocked.
 const applyTemplateFields = (issue, template) => {
   const resolved = utils.resolveTemplateFieldValues(issue.project, template, {}, false);
   for (const error of resolved.errors) {
@@ -85,6 +86,10 @@ const applyTemplateFields = (issue, template) => {
   utils.applyFieldAssignments(issue, resolved.assignments);
   for (const assignment of resolved.assignments) {
     log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) set field ${assignment.fieldName}`);
+  }
+  if (utils.templateHasUserInputFields(template)) {
+    utils.markTemplatePending(issue, template.id);
+    log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) waits for user input`);
   }
 };
 
@@ -144,7 +149,7 @@ exports.rule = entities.Issue.onChange({
   },
   action: function action(ctx) {
     const issue = ctx.issue;
-    const usedTemplateIds = JSON.parse(issue.extensionProperties.usedTemplateIds) || [];
+    const usedTemplateIds = utils.parseIdList(issue.extensionProperties.usedTemplateIds);
     const templates = getValidTemplates(ctx, issue);
     log(`Issue ${issue.id}${issue.isNew ? " (new)" : ""} templates: ${JSON.stringify(templates)}`);
     const newTemplates = templates
@@ -209,6 +214,7 @@ exports.rule = entities.Issue.onChange({
         const index = usedTemplateIds.indexOf(template.id);
         usedTemplateIds.splice(index, 1);
       }
+      utils.clearTemplatePending(issue, template.id);
     }
 
     // Apply new templates, skipping already-applied ones.

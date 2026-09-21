@@ -96,6 +96,18 @@ offers *"Set fields"*, which sets (or re-sets) only the fields defined by the se
 without touching the description. This is how values chosen by the user are filled in for
 templates that were added automatically.
 
+The *"Applied templates"* panel below the ticket fields lists the templates applied to the ticket.
+Templates that set fields have a *"Set fields"* button that shows what will be set and applies
+(or re-applies) the fields directly in the panel. The button carries a warning icon while
+user-chosen fields have not been set yet (because the template was added automatically, or the
+values were left empty when adding it); the mark is cleared once the fields have been confirmed or
+the template is removed.
+
+> [!IMPORTANT]
+> YouTrack does not notify app widgets when a ticket changes, so the *"Applied templates"* panel
+> shows the state from when the ticket page was opened. Use the refresh icon in the panel after a
+> template has been added or removed automatically.
+
 > [!IMPORTANT]
 > The usability of templates applied to articles can be improved. When a template is added to
 > an article (either manually or automatically), the article content will not automatically updated

@@ -15,6 +15,19 @@ const toArray = (wfSet) => {
   return arr;
 };
 
+// Parses a JSON encoded array of ids stored in an extension property; [] when unset or invalid.
+const parseIdList = (json) => {
+  if (!json) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 const getTemplates = (ctx) => {
   const templatesJson = ctx.project.extensionProperties.templates;
   const templates = templatesJson ? JSON.parse(templatesJson) : [];
@@ -185,6 +198,43 @@ const applyFieldAssignments = (issue, assignments) => {
   }
 };
 
+const templateHasUserInputFields = (template) =>
+  Array.isArray(template.fields) && template.fields.some((field) => field.mode === "user_input");
+
+// True when any user-input field of the template has no value in userValues.
+const hasMissingUserInput = (template, userValues) => {
+  const fields = Array.isArray(template.fields) ? template.fields : [];
+  return fields.some(
+    (field) => field.mode === "user_input" && !(userValues && userValues[field.fieldName]),
+  );
+};
+
+// Templates applied to the issue whose user-input fields have not been set yet.
+const getPendingTemplateIds = (issue) =>
+  parseIdList(issue.extensionProperties.templateIdsWithPendingUserFields);
+
+const setPendingTemplateIds = (issue, ids) => {
+  issue.extensionProperties.templateIdsWithPendingUserFields = JSON.stringify(ids);
+};
+
+const markTemplatePending = (issue, templateId) => {
+  const ids = getPendingTemplateIds(issue);
+  if (!ids.includes(templateId)) {
+    ids.push(templateId);
+    setPendingTemplateIds(issue, ids);
+  }
+};
+
+const clearTemplatePending = (issue, templateId) => {
+  const ids = getPendingTemplateIds(issue);
+  if (ids.includes(templateId)) {
+    setPendingTemplateIds(
+      issue,
+      ids.filter((id) => id !== templateId),
+    );
+  }
+};
+
 module.exports = {
   SUPPORTED_FIELD_TYPES,
   CONDITION_FIELD_TYPES,
@@ -196,4 +246,10 @@ module.exports = {
   getIssueFieldValues,
   resolveTemplateFieldValues,
   applyFieldAssignments,
+  parseIdList,
+  templateHasUserInputFields,
+  hasMissingUserInput,
+  getPendingTemplateIds,
+  markTemplatePending,
+  clearTemplatePending,
 };
