@@ -74,7 +74,7 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
       const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
       const idx = conditionIndex ?? 0;
       const condition = list[idx] as TagStateCondition | undefined;
-      if (!condition || condition.when !== "tag_is") return null;
+      if (!condition || condition.when !== "tag_is") {return null;}
       return selectTagItems.find((field) => field.key === condition.tagName) || null;
     } else if (conditionType === "add" && template?.addCondition?.when === "tag_added") {
       const condition = template.addCondition as TagActionCondition;
@@ -85,7 +85,7 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
 
   return (
     <div>
-      <Icon glyph={ConditionIcon} />{" "}
+      <Icon glyph={ConditionIcon}/>{" "}
       <Text size={Text.Size.M}>
         {(whenTitle ?? (conditionType === "add" ? "Add when tag" : "When tag")) + " "}
       </Text>

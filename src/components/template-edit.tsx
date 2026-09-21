@@ -146,7 +146,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     }
 
     const result = await host.fetchApp<{
-      success: Boolean;
+      success: boolean;
       message?: string;
       templates?: Array<Template>;
     }>("backend/addTemplate", {
@@ -179,7 +179,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       return;
     }
     const result = await host.fetchApp<{
-      success: Boolean;
+      success: boolean;
       message?: string;
       templates?: Array<Template>;
     }>("backend/removeTemplate", {
@@ -371,7 +371,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
             anchor={"Add condition"}
             data={selectValidCondition}
             onSelect={(selected: SelectItem | null) => {
-              if (!selected) return;
+              if (!selected) {return;}
               const newCond =
                 selected.key === "entity_is"
                   ? ({ when: "entity_is", entityType: "issue" } as const)
@@ -397,7 +397,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
             <div className="template-edit-valid-cond-list">
               {template.validCondition.map((cond, idx) => (
                 <Text size={Text.Size.M} key={`valid-cond-text-${idx}`}>
-                  <Icon glyph={ConditionIcon} /> {formatValidCondition(cond, true)}.
+                  <Icon glyph={ConditionIcon}/> {formatValidCondition(cond, true)}.
                 </Text>
               ))}
             </div>
@@ -475,7 +475,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
             <Text size={Text.Size.M}>No automatic condition set.</Text>
           ) : (
             <Text size={Text.Size.M}>
-              <Icon glyph={ConditionIcon} /> {formatAddCondition(template.addCondition, true)}
+              <Icon glyph={ConditionIcon}/> {formatAddCondition(template.addCondition, true)}
             </Text>
           )}
         </div>

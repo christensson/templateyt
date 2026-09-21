@@ -56,7 +56,7 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
   ];
 
   const selectedItem = useMemo(() => {
-    if (conditionType !== "valid") return null;
+    if (conditionType !== "valid") {return null;}
     const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
     const idx = conditionIndex ?? 0;
     const condition = list[idx] as EntityTypeCondition | undefined;
@@ -68,7 +68,7 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
 
   return (
     <div>
-      <Icon glyph={ConditionIcon} />{" "}
+      <Icon glyph={ConditionIcon}/>{" "}
       <Text size={Text.Size.M}>
         {(whenTitle ?? (conditionType === "valid" ? "When entity is" : "")) + " "}
       </Text>

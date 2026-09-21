@@ -50,7 +50,7 @@ const AppComponent: React.FunctionComponent = () => {
         return;
       }
       const result = await host.fetchApp<{
-        success: Boolean;
+        success: boolean;
         message?: string;
         usedTemplateIds?: Array<string>;
       }>("backend/addTemplate", {
@@ -99,7 +99,7 @@ const AppComponent: React.FunctionComponent = () => {
         return;
       }
       const result = await host.fetchApp<{
-        success: Boolean;
+        success: boolean;
         message?: string;
         usedTemplateIds?: Array<string>;
       }>("backend/removeTemplate", {
@@ -160,7 +160,7 @@ const AppComponent: React.FunctionComponent = () => {
 
   return (
     <div className="widget">
-      {articleTemplateInfo === null && <Loader message="Loading used templates..." />}
+      {articleTemplateInfo === null && <Loader message="Loading used templates..."/>}
       {articleTemplateInfo !== null && articleTemplateInfo.isTemplate && (
         <Banner mode="info" withIcon>
           Article is configured as a template, cannot apply any templates to it.

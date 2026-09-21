@@ -142,7 +142,7 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
       const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
       const idx = conditionIndex ?? 0;
       const condition = list[idx] as FieldStateCondition | undefined;
-      if (!condition || condition.when !== "field_is") return null;
+      if (!condition || condition.when !== "field_is") {return null;}
       return selectFieldValueItems.find((field) => field.key === condition.fieldValue) || null;
     } else if (conditionType === "add" && template?.addCondition?.when === "field_becomes") {
       const condition = template.addCondition as FieldActionCondition;
@@ -153,7 +153,7 @@ const FieldConditionInput: React.FunctionComponent<FieldConditionInputProps> = (
 
   return (
     <div>
-      <Icon glyph={ConditionIcon} />{" "}
+      <Icon glyph={ConditionIcon}/>{" "}
       <Text size={Text.Size.M}>
         {(whenTitle ?? (conditionType === "add" ? "Add when ticket field" : "When ticket field")) +
           " "}

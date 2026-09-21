@@ -50,7 +50,7 @@ const AppComponent: React.FunctionComponent = () => {
         return;
       }
       const result = await host.fetchApp<{
-        success: Boolean;
+        success: boolean;
         message?: string;
         usedTemplateIds?: Array<string>;
       }>("backend/addTemplate", {
@@ -99,7 +99,7 @@ const AppComponent: React.FunctionComponent = () => {
         return;
       }
       const result = await host.fetchApp<{
-        success: Boolean;
+        success: boolean;
         message?: string;
         usedTemplateIds?: Array<string>;
       }>("backend/removeTemplate", {
@@ -160,7 +160,7 @@ const AppComponent: React.FunctionComponent = () => {
 
   return (
     <div className="widget">
-      {issueTemplateInfo === null && <Loader message="Loading used templates..." />}
+      {issueTemplateInfo === null && <Loader message="Loading used templates..."/>}
       {issueTemplateInfo !== null &&
         issueTemplateInfo.usedTemplateIds.length == 0 &&
         issueTemplateInfo.validTemplateIds.length == 0 && (

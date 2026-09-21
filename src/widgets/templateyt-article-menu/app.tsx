@@ -34,7 +34,7 @@ const AppComponent: React.FunctionComponent = () => {
 
   const saveInfo = useCallback(async () => {
     const result = await host.fetchApp<{
-      success: Boolean;
+      success: boolean;
       message?: string;
     }>("backend/setArticleInfo", {
       scope: true,
@@ -53,7 +53,7 @@ const AppComponent: React.FunctionComponent = () => {
 
   return (
     <div className="widget">
-      {!articleInfo && <Loader message="Loading article info..." />}
+      {!articleInfo && <Loader message="Loading article info..."/>}
       {articleInfo && articleInfo.hasTemplates && (
         <Banner mode="info" withIcon>
           Article uses templates, cannot configure as template.
