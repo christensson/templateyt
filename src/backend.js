@@ -6,15 +6,6 @@ const storeTemplates = (ctx, templates) => {
   props.templates = JSON.stringify(templates);
 };
 
-// The YT workflow API Set data-structure somehow doesn't support .map for
-// iterating over the items in old self-hosted YT versions. This is a
-// workaround where .forEach is used to push items into a new array.
-const toArray = (wfSet) => {
-  const arr = [];
-  wfSet.forEach((x) => arr.push(x));
-  return arr;
-};
-
 const badRequest = (ctx, message) => {
   ctx.response.status = 400;
   ctx.response.json({ success: false, message: message });
@@ -68,6 +59,67 @@ const validateAddCondition = (cond) => {
   }
 };
 
+const TEMPLATE_FIELD_MODES = ["fixed", "user_input"];
+
+// Returns an error message if the template field list is inconsistent, otherwise null.
+// Keep in sync with validateTemplateFields in @types/template.ts.
+const validateTemplateFields = (template) => {
+  const fields = template.fields;
+  if (fields === undefined) {
+    return null;
+  }
+  if (!Array.isArray(fields)) {
+    return "Template fields is not an array.";
+  }
+  const seen = [];
+  for (const field of fields) {
+    if (!field || typeof field.fieldName !== "string" || field.fieldName === "") {
+      return "Template field is missing a field name, please select a field.";
+    }
+    if (seen.includes(field.fieldName)) {
+      return `Template field "${field.fieldName}" is listed more than once.`;
+    }
+    seen.push(field.fieldName);
+    if (!TEMPLATE_FIELD_MODES.includes(field.mode)) {
+      return `Template field "${field.fieldName}" has unknown mode "${field.mode}".`;
+    }
+    if (field.mode === "fixed" && (typeof field.fieldValue !== "string" || field.fieldValue === "")) {
+      return `Template field "${field.fieldName}" is missing a value.`;
+    }
+  }
+
+  // A template must never set its own trigger field to another value than the one that
+  // triggers it, otherwise applying the template would undo the condition that added it.
+  const addCond = template.addCondition;
+  if (addCond && addCond.when === "field_becomes") {
+    const conflict = fields.find(
+      (field) =>
+        field.fieldName === addCond.fieldName &&
+        (field.mode !== "fixed" || field.fieldValue !== addCond.fieldValue),
+    );
+    if (conflict) {
+      return `Field "${addCond.fieldName}" is used in the automatic add condition and can only be set to "${addCond.fieldValue}".`;
+    }
+  }
+  return null;
+};
+
+// Looks up a template referenced by templateId in a request body.
+// Returns { template, error } where exactly one of them is set.
+const lookupRequestTemplate = (templates, body, verb) => {
+  if (body.hasOwnProperty("templateId") === false || body.templateId === "") {
+    return { template: null, error: `Failed to ${verb} template, no templateId.` };
+  }
+  const template = templates.find((t) => t.id === body.templateId);
+  if (!template) {
+    return {
+      template: null,
+      error: `Failed to ${verb} template, template ${body.templateId} doesn't exist.`,
+    };
+  }
+  return { template: template, error: null };
+};
+
 // Returns an error message if the template is invalid, otherwise null.
 const validateTemplate = (template) => {
   if (template.hasOwnProperty("id") === false || template.id === "") {
@@ -93,6 +145,10 @@ const validateTemplate = (template) => {
     if (error !== null) {
       return error;
     }
+  }
+  const fieldsError = validateTemplateFields(template);
+  if (fieldsError !== null) {
+    return fieldsError;
   }
   const articleId = template?.articleId;
   if (articleId === undefined || articleId === "") {
@@ -169,29 +225,7 @@ exports.httpHandler = {
       method: "GET",
       path: "getProjectInfo",
       handle: function handle(ctx) {
-        const project = ctx.project;
-        const stateFields = toArray(project.fields)
-          .map((x) => x)
-          .filter((x) => x.typeName === "state[1]");
-        const enumFields = toArray(project.fields)
-          .map((x) => x)
-          .filter((x) => x.typeName === "enum[1]");
-        const stateFieldInfo = stateFields.map((x) => ({
-          name: x.name,
-          values: toArray(x.values).map((v) => ({
-            name: v.name,
-            presentation: v.presentation,
-          })),
-        }));
-        const enumFieldInfo = enumFields.map((x) => ({
-          name: x.name,
-          values: toArray(x.values).map((v) => ({
-            name: v.name,
-            presentation: v.presentation,
-          })),
-        }));
-
-        ctx.response.json({ stateFields: stateFieldInfo, enumFields: enumFieldInfo });
+        ctx.response.json({ fields: utils.getProjectFieldInfo(ctx.project) });
       },
     },
     {
@@ -202,7 +236,7 @@ exports.httpHandler = {
         const templateArticles = entities.Article.findByExtensionProperties({
           isTemplate: true,
         });
-        const articles = toArray(templateArticles).map((x) => ({
+        const articles = utils.toArray(templateArticles).map((x) => ({
           articleId: x.id,
           summary: x.summary,
         }));
@@ -290,10 +324,13 @@ exports.httpHandler = {
         const validTemplateIds = templates
           .filter((t) => utils.isTemplateValidForIssue(issue, t))
           .map((t) => t.id);
+        const fields = utils.getProjectFieldInfo(issue.project);
         ctx.response.json({
           usedTemplateIds: usedTemplateIds,
           templates: templates,
           validTemplateIds: validTemplateIds,
+          fields: fields,
+          currentFieldValues: utils.getIssueFieldValues(issue, fields),
         });
       },
     },
@@ -308,25 +345,13 @@ exports.httpHandler = {
         const templates = utils.getTemplates(ctx);
 
         const body = JSON.parse(ctx.request.body);
-        if (body.hasOwnProperty("templateId") === false || body.templateId === "") {
-          ctx.response.status = 400;
-          ctx.response.json({
-            success: false,
-            message: "Failed to add template, no templateId.",
-          });
+        const lookup = lookupRequestTemplate(templates, body, "add");
+        if (lookup.error !== null) {
+          badRequest(ctx, lookup.error);
           return;
         }
-
-        const templateId = body.templateId;
-        const template = templates.find((t) => t.id === templateId);
-        if (!template) {
-          ctx.response.status = 400;
-          ctx.response.json({
-            success: false,
-            message: `Failed to add template, template ${templateId} doesn't exist.`,
-          });
-          return;
-        }
+        const template = lookup.template;
+        const templateId = template.id;
 
         const isValidTemplate = utils.isTemplateValidForIssue(issue, template);
         if (!isValidTemplate) {
@@ -357,6 +382,18 @@ exports.httpHandler = {
           return;
         }
 
+        // Resolve field values before modifying anything, so a bad value leaves the ticket as is.
+        const resolved = utils.resolveTemplateFieldValues(
+          issue.project,
+          template,
+          body.fieldValues,
+          true,
+        );
+        if (resolved.errors.length > 0) {
+          badRequest(ctx, `Failed to add template: ${resolved.errors.join(" ")}`);
+          return;
+        }
+
         // Add template to ticket description.
         let newDescription = issue.description ? issue.description.trim() : "";
         if (newDescription.length > 0) {
@@ -364,6 +401,9 @@ exports.httpHandler = {
         }
         newDescription += templateContent.trim();
         issue.description = newDescription;
+
+        // Set ticket fields defined by template.
+        utils.applyFieldAssignments(issue, resolved.assignments);
 
         // Add template to used templates.
         usedTemplateIds.push(templateId);
@@ -377,6 +417,49 @@ exports.httpHandler = {
     },
     {
       scope: "issue",
+      method: "POST",
+      path: "applyTemplateFields",
+      // Sets (or re-sets) only the fields of a template, without touching the description or
+      // the used templates. Lets users fill in user-input fields of automatically added templates.
+      handle: function handle(ctx) {
+        const issue = ctx.issue;
+        const usedTemplateIds = JSON.parse(issue.extensionProperties.usedTemplateIds) || [];
+        const templates = utils.getTemplates(ctx);
+
+        const body = JSON.parse(ctx.request.body);
+        const lookup = lookupRequestTemplate(templates, body, "set fields from");
+        if (lookup.error !== null) {
+          badRequest(ctx, lookup.error);
+          return;
+        }
+        const template = lookup.template;
+
+        const isUsed = usedTemplateIds.includes(template.id);
+        if (!isUsed && !utils.isTemplateValidForIssue(issue, template)) {
+          badRequest(
+            ctx,
+            `Failed to set fields from template, template ${template.id} is not valid for this issue.`,
+          );
+          return;
+        }
+
+        const resolved = utils.resolveTemplateFieldValues(
+          issue.project,
+          template,
+          body.fieldValues,
+          true,
+        );
+        if (resolved.errors.length > 0) {
+          badRequest(ctx, `Failed to set fields from template: ${resolved.errors.join(" ")}`);
+          return;
+        }
+        utils.applyFieldAssignments(issue, resolved.assignments);
+
+        ctx.response.json({ success: true });
+      },
+    },
+    {
+      scope: "issue",
       method: "DELETE",
       path: "removeTemplate",
       handle: function handle(ctx) {
@@ -386,25 +469,13 @@ exports.httpHandler = {
         const templates = utils.getTemplates(ctx);
 
         const body = JSON.parse(ctx.request.body);
-        if (body.hasOwnProperty("templateId") === false || body.templateId === "") {
-          ctx.response.status = 400;
-          ctx.response.json({
-            success: false,
-            message: "Failed to remove template, no templateId.",
-          });
+        const lookup = lookupRequestTemplate(templates, body, "remove");
+        if (lookup.error !== null) {
+          badRequest(ctx, lookup.error);
           return;
         }
-
-        const templateId = body.templateId;
-        const template = templates.find((t) => t.id === templateId);
-        if (!template) {
-          ctx.response.status = 400;
-          ctx.response.json({
-            success: false,
-            message: `Failed to remove template, template ${templateId} doesn't exist.`,
-          });
-          return;
-        }
+        const template = lookup.template;
+        const templateId = template.id;
 
         // Don't check if template is valid for ticket, allow removal anyway.
 

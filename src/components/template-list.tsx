@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import {
   Template,
   formatTemplateAddCondition,
+  formatTemplateFields,
   formatTemplateValidCondition,
 } from "../../@types/template";
 
@@ -38,6 +39,10 @@ const getListItems = (
 
     if (template.addCondition !== null) {
       description += " " + formatTemplateAddCondition(template);
+    }
+    const fieldsDescription = formatTemplateFields(template);
+    if (fieldsDescription) {
+      description += " " + fieldsDescription;
     }
     return [description, false];
   };

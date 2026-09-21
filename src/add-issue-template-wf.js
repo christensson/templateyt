@@ -75,6 +75,19 @@ const loadTemplateArticles = (templates) => {
   return articles;
 };
 
+// Sets the fixed-value fields of a template on the issue. User-input fields are only set on
+// manual application. Problems are logged and skipped so that the user's change is never blocked.
+const applyTemplateFields = (issue, template) => {
+  const resolved = utils.resolveTemplateFieldValues(issue.project, template, {}, false);
+  for (const error of resolved.errors) {
+    log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) field skipped: ${error}`);
+  }
+  utils.applyFieldAssignments(issue, resolved.assignments);
+  for (const assignment of resolved.assignments) {
+    log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) set field ${assignment.fieldName}`);
+  }
+};
+
 exports.rule = entities.Issue.onChange({
   title: "Apply ticket template",
   guard: function guard(ctx) {
@@ -204,17 +217,18 @@ exports.rule = entities.Issue.onChange({
         continue;
       }
       const article = articles[template.articleId];
-      const templateContent = article.content.trim();
+      const templateContent = article ? article.content.trim() : "";
       if (templateContent) {
         if (newDescription !== "") {
           newDescription += "\n\n";
         }
         newDescription += templateContent;
-        usedTemplateIds.push(template.id);
-        log(
-          `Ticket ${issue.id}: Applied template "${template.name}" (${template.id}) from article ${template.articleId}`,
-        );
       }
+      applyTemplateFields(issue, template);
+      usedTemplateIds.push(template.id);
+      log(
+        `Ticket ${issue.id}: Applied template "${template.name}" (${template.id}) from article ${template.articleId}`,
+      );
     }
     if (newDescription) {
       issue.description = newDescription;

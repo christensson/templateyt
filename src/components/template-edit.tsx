@@ -1,6 +1,8 @@
+import AddIcon from "@jetbrains/icons/add-12px";
 import ArticleIcon from "@jetbrains/icons/article";
 import ConditionIcon from "@jetbrains/icons/buildType-12px";
 import EditIcon from "@jetbrains/icons/pencil";
+import FieldIcon from "@jetbrains/icons/settings-12px";
 import TrashIcon from "@jetbrains/icons/trash";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
@@ -12,11 +14,16 @@ import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/sele
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectFieldInfo, TagInfo } from "../../@types/project-info";
+import { isConditionField, type ProjectFieldInfo, type TagInfo } from "../../@types/project-info";
 import {
   createNullTemplate,
   formatAddCondition,
+  formatTemplateField,
   formatValidCondition,
+  getTemplateFields,
+  getValidConditions,
+  hasUserInputFields,
+  validateTemplateFields,
   type Template,
   type ValidCondition,
 } from "../../@types/template";
@@ -24,6 +31,7 @@ import type { TemplateArticle } from "../../@types/template-article";
 import EntityTypeConditionInput from "./entity-type-condition-input";
 import FieldConditionInput from "./field-condition-input";
 import TagConditionInput from "./tag-condition-input";
+import TemplateFieldInput from "./template-field-input";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
@@ -59,9 +67,6 @@ const createValidCondition = (key: string): ValidCondition => {
   return { when: "tag_is", tagName: "" };
 };
 
-const getValidConditions = (template: Template): Array<ValidCondition> =>
-  Array.isArray(template?.validCondition) ? template.validCondition : [];
-
 const getTemplateArticleSelectItems = (
   data: Array<TemplateArticle>,
 ): Array<TemplateArticleSelectItem> =>
@@ -83,6 +88,7 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
   templateArticleSelectItems,
 }) => {
   const validConditions = getValidConditions(template);
+  const templateFields = getTemplateFields(template);
   return (
     <>
       <div className="template-edit-field-panel">
@@ -127,6 +133,22 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
       </div>
       <div className="template-edit-field-panel">
         <Text size={Text.Size.S} info>
+          Ticket fields set by template
+        </Text>
+        {templateFields.length === 0 ? (
+          <Text size={Text.Size.M}>No fields set.</Text>
+        ) : (
+          <div className="template-edit-valid-cond-list">
+            {templateFields.map((field) => (
+              <Text size={Text.Size.M} key={`field-text-${field.fieldName}`}>
+                <Icon glyph={FieldIcon}/> {formatTemplateField(field, true)}
+              </Text>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="template-edit-field-panel">
+        <Text size={Text.Size.S} info>
           Condition when template is added automatically
         </Text>
         {template.addCondition == null ? (
@@ -141,11 +163,80 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
   );
 };
 
+interface TemplateFieldsPanelProps {
+  template: Template;
+  setTemplate: React.Dispatch<React.SetStateAction<Template>>;
+  projectFields: Array<ProjectFieldInfo>;
+}
+
+// Editable list of the ticket fields a template sets.
+const TemplateFieldsPanel: React.FunctionComponent<TemplateFieldsPanelProps> = ({
+  template,
+  setTemplate,
+  projectFields,
+}) => {
+  const templateFields = getTemplateFields(template);
+  const hasFieldTrigger = template.addCondition?.when === "field_becomes";
+
+  const addField = () =>
+    setTemplate((prev) => ({
+      ...prev,
+      fields: [...getTemplateFields(prev), { fieldName: "", mode: "fixed", fieldValue: "" }],
+    }));
+
+  const removeField = (idx: number) =>
+    setTemplate((prev) => {
+      const updated = [...getTemplateFields(prev)];
+      updated.splice(idx, 1);
+      return { ...prev, fields: updated };
+    });
+
+  return (
+    <div className="template-edit-field-panel">
+      <Text size={Text.Size.S} info>
+        Ticket fields set by template
+      </Text>
+      {templateFields.length === 0 && <Text size={Text.Size.M}>No fields set yet.</Text>}
+      {templateFields.map((field, idx) => (
+        // Fields are keyed by position: the field name is user-editable and may be empty or
+        // temporarily duplicated while editing, and the inputs are fully controlled by `template`.
+        // eslint-disable-next-line react/no-array-index-key
+        <div key={`template-field-${idx}`} style={{ display: "flex", gap: 8 }}>
+          <TemplateFieldInput
+            fields={projectFields}
+            template={template}
+            setTemplate={setTemplate}
+            fieldIndex={idx}
+          />
+          <Button onClick={() => removeField(idx)} icon={TrashIcon} title="Remove field"/>
+        </div>
+      ))}
+      <div>
+        <Button onClick={addField} icon={AddIcon} inline>
+          Add field
+        </Button>
+      </div>
+      {hasUserInputFields(template) && (
+        <Text size={Text.Size.S} info>
+          Fields with a value chosen by the user are only set when the template is applied manually
+          from the Apply template menu of a ticket.
+        </Text>
+      )}
+      {hasFieldTrigger && templateFields.length > 0 && (
+        <Text size={Text.Size.S} info>
+          The field used in the automatic add condition can only be set to the triggering value.
+        </Text>
+      )}
+    </div>
+  );
+};
+
 interface TemplateEditFormProps {
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
   templateArticleSelectItems: Array<TemplateArticleSelectItem>;
   projectFields: Array<ProjectFieldInfo>;
+  conditionFields: Array<ProjectFieldInfo>;
   projectTags: Array<TagInfo>;
   tagsLoading: boolean;
   onTagsFilter: (filter: string) => void;
@@ -158,6 +249,7 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
   setTemplate,
   templateArticleSelectItems,
   projectFields,
+  conditionFields,
   projectTags,
   tagsLoading,
   onTagsFilter,
@@ -210,7 +302,7 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
     if (cond.when === "field_is") {
       return (
         <FieldConditionInput
-          fields={projectFields}
+          fields={conditionFields}
           conditionType="valid"
           template={template}
           setTemplate={setTemplate}
@@ -313,6 +405,7 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
           }}
         />
       </div>
+      <TemplateFieldsPanel template={template} setTemplate={setTemplate} projectFields={projectFields}/>
       <div className="template-edit-field-panel">
         <Select
           clear
@@ -326,7 +419,7 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
         />
         {template?.addCondition?.when === "field_becomes" && (
           <FieldConditionInput
-            fields={projectFields}
+            fields={conditionFields}
             conditionType="add"
             template={template}
             setTemplate={setTemplate}
@@ -426,20 +519,18 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
 
   useEffect(() => {
     host
-      .fetchApp<{
-        stateFields: Array<ProjectFieldInfo>;
-        enumFields: Array<ProjectFieldInfo>;
-      }>("backend/getProjectInfo", {
+      .fetchApp<{ fields: Array<ProjectFieldInfo> }>("backend/getProjectInfo", {
         scope: true,
         method: "GET",
       })
       .then((result) => {
         console.log("Project info", result);
-        const fields = [...result.enumFields, ...result.stateFields];
-        setProjectFields(fields);
+        setProjectFields(result.fields);
       });
     fetchTags("", true);
   }, [fetchTags]);
+
+  const conditionFields = useMemo(() => projectFields.filter(isConditionField), [projectFields]);
 
   const addOrUpdateTemplate = async (templateToStore: Template) => {
     if (templateToStore.name.trim() === "") {
@@ -455,6 +546,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         mode: "error",
         message: "Template missing valid conditions, please define when valid.",
       });
+      return;
+    }
+    const fieldsError = validateTemplateFields(templateToStore);
+    if (fieldsError !== null) {
+      setEditFailMessage({ mode: "error", message: fieldsError });
       return;
     }
 
@@ -542,6 +638,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           setTemplate={setTemplate}
           templateArticleSelectItems={templateArticleSelectItems}
           projectFields={projectFields}
+          conditionFields={conditionFields}
           projectTags={projectTags}
           tagsLoading={tagsLoading}
           onTagsFilter={onTagsFilter}
