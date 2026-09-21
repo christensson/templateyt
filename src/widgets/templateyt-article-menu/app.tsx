@@ -25,12 +25,11 @@ const AppComponent: React.FunctionComponent = () => {
         method: "GET",
       })
       .then((result) => {
-        // eslint-disable-next-line no-console
         console.log("Article info", result);
         setArticleInfo(result);
         setIsDraft(false);
       });
-  }, [host]);
+  }, []);
 
   const saveInfo = useCallback(async () => {
     const result = await host.fetchApp<{
@@ -41,7 +40,6 @@ const AppComponent: React.FunctionComponent = () => {
       method: "POST",
       body: articleInfo,
     });
-    // eslint-disable-next-line no-console
     console.log("Set article info result", result);
     if (!result.success) {
       setFailMessage(result.message || `Failed to save article info.`);
@@ -49,7 +47,7 @@ const AppComponent: React.FunctionComponent = () => {
     }
     setFailMessage("");
     setIsDraft(false);
-  }, [host, articleInfo]);
+  }, [articleInfo]);
 
   return (
     <div className="widget">
@@ -64,9 +62,9 @@ const AppComponent: React.FunctionComponent = () => {
           <Checkbox
             label="Use article as ticket template."
             checked={articleInfo.isTemplate}
-            onChange={(e: any) => {
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
               setArticleInfo(
-                (prev) => ({ ...prev, isTemplate: e.target.checked as boolean }) as ArticleInfo,
+                (prev) => ({ ...prev, isTemplate: e.target.checked }) as ArticleInfo,
               );
               setIsDraft(true);
             }}

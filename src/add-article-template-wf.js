@@ -28,11 +28,11 @@ const getValidTemplates = (ctx, article) => {
           return true;
         }
         // ...or was matching the condition before change...
-        if (article.tags.removed.find((t) => t.name === tagName)) {
+        if (article.tags.removed.find((tag) => tag.name === tagName)) {
           return true;
         }
         // ...or will match the condition on change.
-        if (article.tags.added.find((t) => t.name === tagName)) {
+        if (article.tags.added.find((tag) => tag.name === tagName)) {
           return true;
         }
       } else {
@@ -44,9 +44,25 @@ const getValidTemplates = (ctx, article) => {
   });
 };
 
+// Load the knowledge base articles referenced by the given templates, keyed by article id.
+const loadTemplateArticles = (templates) => {
+  const articles = {};
+  for (const t of templates) {
+    const articleId = t.articleId;
+    if (articles[articleId]) {
+      continue;
+    }
+    const templateArticle = entities.Article.findById(articleId);
+    if (templateArticle != null) {
+      articles[articleId] = templateArticle;
+    }
+  }
+  return articles;
+};
+
 exports.rule = entities.Article.onChange({
   title: "Apply article template",
-  guard: function (ctx) {
+  guard: function guard(ctx) {
     const article = ctx.article;
 
     // Do not ever add templates to the articles defined as templates.
@@ -57,7 +73,7 @@ exports.rule = entities.Article.onChange({
     const validTemplates = getValidTemplates(ctx, article);
 
     log("Article " + article.id + " valid templates article: " + JSON.stringify(validTemplates));
-    if (validTemplates.length == 0) {
+    if (validTemplates.length === 0) {
       return false;
     }
 
@@ -83,7 +99,7 @@ exports.rule = entities.Article.onChange({
     );
     return matchedActionTags.length > 0;
   },
-  action: function (ctx) {
+  action: function action(ctx) {
     const article = ctx.article;
     const usedTemplateIds = JSON.parse(article.extensionProperties.usedTemplateIds) || [];
     const templates = getValidTemplates(ctx, article);
@@ -104,7 +120,7 @@ exports.rule = entities.Article.onChange({
         }
 
         if (cond.when === "tag_added") {
-          return article.tags.added.find((t) => t.name === cond.tagName);
+          return article.tags.added.find((tag) => tag.name === cond.tagName);
         }
         return false;
       });
@@ -113,7 +129,7 @@ exports.rule = entities.Article.onChange({
       .filter((t) => {
         const cond = t.addCondition;
         if (cond.when === "tag_added") {
-          return article.tags.removed.find((t) => t.name === cond.tagName);
+          return article.tags.removed.find((tag) => tag.name === cond.tagName);
         }
         return false;
       });
@@ -121,18 +137,7 @@ exports.rule = entities.Article.onChange({
     log(`Ticket ${article.id}: Templates to apply: ${JSON.stringify(newTemplates)}`);
     log(`Ticket ${article.id}: Templates to potentially remove: ${JSON.stringify(oldTemplates)}`);
 
-    // Load articles.
-    const articles = {};
-    for (const t of [...newTemplates, ...oldTemplates]) {
-      const articleId = t.articleId;
-      if (articles[articleId]) {
-        continue;
-      }
-      const article = entities.Article.findById(articleId);
-      if (article != null) {
-        articles[articleId] = article;
-      }
-    }
+    const articles = loadTemplateArticles([...newTemplates, ...oldTemplates]);
     let newDescription = article.content ? article.content.trim() : "";
 
     // Remove any old (or new) non-modified templates.

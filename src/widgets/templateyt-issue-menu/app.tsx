@@ -1,6 +1,5 @@
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
-import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
@@ -28,11 +27,10 @@ const AppComponent: React.FunctionComponent = () => {
         method: "GET",
       })
       .then((result) => {
-        // eslint-disable-next-line no-console
         console.log("getUsedTemplates result", result);
         setIssueTemplateInfo(result);
       });
-  }, [host]);
+  }, []);
 
   const addTemplateToIssue = useCallback(
     async (template: Template | null) => {
@@ -58,13 +56,12 @@ const AppComponent: React.FunctionComponent = () => {
         method: "POST",
         body: { templateId: templateId },
       });
-      // eslint-disable-next-line no-console
       console.log(`Add template ${templateId} result`, result);
       if (!result.success) {
         setFailMessage(result.message || `Failed to add template ${templateId}.`);
         return;
       }
-      if (result?.usedTemplateIds == undefined) {
+      if (result.usedTemplateIds == null) {
         setFailMessage("Got no template IDs from server after add.");
         return;
       }
@@ -80,7 +77,7 @@ const AppComponent: React.FunctionComponent = () => {
         };
       });
     },
-    [host, issueTemplateInfo],
+    [issueTemplateInfo],
   );
 
   const removeTemplateFromIssue = useCallback(
@@ -107,13 +104,12 @@ const AppComponent: React.FunctionComponent = () => {
         method: "DELETE",
         body: { templateId: templateId },
       });
-      // eslint-disable-next-line no-console
       console.log(`Remove template ${templateId} result`, result);
       if (!result.success) {
         setFailMessage(result.message || `Failed to remove template ${templateId}.`);
         return;
       }
-      if (result?.usedTemplateIds == undefined) {
+      if (result.usedTemplateIds == null) {
         setFailMessage("Got no template IDs from server after removal.");
         return;
       }
@@ -129,7 +125,7 @@ const AppComponent: React.FunctionComponent = () => {
         };
       });
     },
-    [host, issueTemplateInfo],
+    [issueTemplateInfo],
   );
 
   const getTemplateIdGroupMap = (data: IssueTemplateInfo | null): { [key: string]: string } => {
@@ -162,8 +158,8 @@ const AppComponent: React.FunctionComponent = () => {
     <div className="widget">
       {issueTemplateInfo === null && <Loader message="Loading used templates..."/>}
       {issueTemplateInfo !== null &&
-        issueTemplateInfo.usedTemplateIds.length == 0 &&
-        issueTemplateInfo.validTemplateIds.length == 0 && (
+        issueTemplateInfo.usedTemplateIds.length === 0 &&
+        issueTemplateInfo.validTemplateIds.length === 0 && (
           <Banner mode="info" withIcon>
             No valid templates found for ticket.
           </Banner>
@@ -208,8 +204,8 @@ const AppComponent: React.FunctionComponent = () => {
           {"Remove template"}
         </Button>
         {selectedTemplate !== null && (
-          <Button secondary href={`/articles/${selectedTemplate?.articleId}`}>
-            {`Open article ${selectedTemplate?.articleId}`}
+          <Button secondary href={`/articles/${selectedTemplate.articleId}`}>
+            {`Open article ${selectedTemplate.articleId}`}
           </Button>
         )}
       </Panel>

@@ -3,7 +3,7 @@ import Button from "@jetbrains/ring-ui-built/components/button/button";
 import { Col, Grid, Row } from "@jetbrains/ring-ui-built/components/grid/grid";
 import Link from "@jetbrains/ring-ui-built/components/link/link";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useState } from "react";
 import { createEmptyTemplate, createNullTemplate, type Template } from "../../../@types/template";
 import type { TemplateArticle } from "../../../@types/template-article";
 import TemplateEdit from "../../components/template-edit";
@@ -28,7 +28,6 @@ const AppComponent: React.FunctionComponent = () => {
         method: "GET",
       })
       .then((result) => {
-        // eslint-disable-next-line no-console
         console.log("Result", result);
         setTemplates(result.templates);
       });
@@ -38,11 +37,10 @@ const AppComponent: React.FunctionComponent = () => {
         method: "GET",
       })
       .then((result) => {
-        // eslint-disable-next-line no-console
         console.log("Template articles", result);
         setTemplateArticles(result);
       });
-  }, [host]);
+  }, []);
 
   const selectTemplate = useCallback(
     (selectedTemplate: Template | null) => {

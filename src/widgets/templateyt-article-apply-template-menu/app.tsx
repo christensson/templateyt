@@ -16,6 +16,9 @@ type ArticleTemplateInfo = {
   isTemplate: boolean;
 };
 
+const hasNoTemplates = (info: ArticleTemplateInfo): boolean =>
+  info.usedTemplateIds.length === 0 && info.validTemplateIds.length === 0;
+
 const AppComponent: React.FunctionComponent = () => {
   const [articleTemplateInfo, setArticleTemplateInfo] = useState<ArticleTemplateInfo | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
@@ -28,11 +31,10 @@ const AppComponent: React.FunctionComponent = () => {
         method: "GET",
       })
       .then((result) => {
-        // eslint-disable-next-line no-console
         console.log("getUsedTemplates result", result);
         setArticleTemplateInfo(result);
       });
-  }, [host]);
+  }, []);
 
   const addTemplateToArticle = useCallback(
     async (template: Template | null) => {
@@ -58,13 +60,12 @@ const AppComponent: React.FunctionComponent = () => {
         method: "POST",
         body: { templateId: templateId },
       });
-      // eslint-disable-next-line no-console
       console.log(`Add template ${templateId} result`, result);
       if (!result.success) {
         setFailMessage(result.message || `Failed to add template ${templateId}.`);
         return;
       }
-      if (result?.usedTemplateIds == undefined) {
+      if (result.usedTemplateIds == null) {
         setFailMessage("Got no template IDs from server after add.");
         return;
       }
@@ -80,7 +81,7 @@ const AppComponent: React.FunctionComponent = () => {
         };
       });
     },
-    [host, articleTemplateInfo],
+    [articleTemplateInfo],
   );
 
   const removeTemplateFromArticle = useCallback(
@@ -107,13 +108,12 @@ const AppComponent: React.FunctionComponent = () => {
         method: "DELETE",
         body: { templateId: templateId },
       });
-      // eslint-disable-next-line no-console
       console.log(`Remove template ${templateId} result`, result);
       if (!result.success) {
         setFailMessage(result.message || `Failed to remove template ${templateId}.`);
         return;
       }
-      if (result?.usedTemplateIds == undefined) {
+      if (result.usedTemplateIds == null) {
         setFailMessage("Got no template IDs from server after removal.");
         return;
       }
@@ -129,7 +129,7 @@ const AppComponent: React.FunctionComponent = () => {
         };
       });
     },
-    [host, articleTemplateInfo],
+    [articleTemplateInfo],
   );
 
   const getTemplateIdGroupMap = (data: ArticleTemplateInfo | null): { [key: string]: string } => {
@@ -168,8 +168,7 @@ const AppComponent: React.FunctionComponent = () => {
       )}
       {articleTemplateInfo !== null &&
         !articleTemplateInfo.isTemplate &&
-        articleTemplateInfo.usedTemplateIds.length == 0 &&
-        articleTemplateInfo.validTemplateIds.length == 0 && (
+        hasNoTemplates(articleTemplateInfo) && (
           <Banner mode="info" withIcon>
             No valid templates found for article.
           </Banner>
@@ -214,8 +213,8 @@ const AppComponent: React.FunctionComponent = () => {
           {"Remove template"}
         </Button>
         {selectedTemplate !== null && (
-          <Button secondary href={`/articles/${selectedTemplate?.articleId}`}>
-            {`Open article ${selectedTemplate?.articleId}`}
+          <Button secondary href={`/articles/${selectedTemplate.articleId}`}>
+            {`Open article ${selectedTemplate.articleId}`}
           </Button>
         )}
       </Panel>

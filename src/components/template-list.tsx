@@ -18,6 +18,94 @@ interface TemplateListProps {
   disabled?: boolean;
 }
 
+const getListItems = (
+  data: Array<Template>,
+  templateIdGroupMap?: { [key: string]: string },
+  groupOrder?: Array<string>,
+  onlyShowGrouped?: boolean,
+  disabled?: boolean,
+  selectedTemplate: Template | null = null,
+): Array<ListDataItem<{ templateItem?: Template }>> => {
+  const getDetails = (template: Template): [string, boolean] => {
+    const hasNoValid =
+      !template?.validCondition ||
+      (Array.isArray(template.validCondition) && template.validCondition.length === 0);
+    if (hasNoValid) {
+      return ["Incomplete configuration! No validity condition set.", true];
+    }
+
+    let description = formatTemplateValidCondition(template);
+
+    if (template.addCondition !== null) {
+      description += " " + formatTemplateAddCondition(template);
+    }
+    return [description, false];
+  };
+
+  const makeListItem = (template: Template): ListDataItem<{ templateItem?: Template }> => {
+    const [details, hasWarning] = getDetails(template);
+    return {
+      disabled: template.id === selectedTemplate?.id ? false : disabled,
+      key: template.id,
+      rgItemType: 2,
+      label: template.name,
+      details: details,
+      templateItem: template,
+      rightGlyph: hasWarning ? WarningIcon : undefined,
+    };
+  };
+
+  const templatesInGroups: Record<string, Template[]> = {};
+  const nonGroupedTemplates: Template[] = [];
+
+  for (const template of data) {
+    const group = templateIdGroupMap ? templateIdGroupMap[template.id] : null;
+    if (group) {
+      if (!(group in templatesInGroups)) {
+        templatesInGroups[group] = [];
+      }
+      templatesInGroups[group].push(template);
+    } else {
+      nonGroupedTemplates.push(template);
+    }
+  }
+
+  // Find group order.
+  const allGroups = Object.keys(templatesInGroups);
+  const groupOrderLocal = (groupOrder || []).filter((g) => g in templatesInGroups);
+  const remainingGroups = allGroups.filter((g) => !groupOrderLocal.includes(g));
+  const groupOrderAll = [...groupOrderLocal, ...remainingGroups];
+
+  // Add grouped templates.
+  const items: Array<ListDataItem<{ templateItem?: Template }>> = [];
+  for (const group of groupOrderAll) {
+    const templatesInGroup = templatesInGroups[group];
+    if (templatesInGroup.length === 0) {
+      continue;
+    }
+    items.push({
+      rgItemType: 5,
+      label: group,
+    });
+    items.push(...templatesInGroup.map(makeListItem));
+  }
+
+  if (onlyShowGrouped) {
+    return items;
+  }
+
+  // Add non-grouped templates.
+  if (items.length > 0) {
+    items.push({
+      rgItemType: 5,
+      label: "Other templates",
+    });
+  }
+  items.push(...nonGroupedTemplates.map(makeListItem));
+
+  return items;
+};
+
 const TemplateList: React.FunctionComponent<TemplateListProps> = ({
   templates,
   selectedTemplate,
@@ -28,94 +116,6 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
   className,
   disabled,
 }) => {
-  const getListItems = (
-    data: Array<Template>,
-    templateIdGroupMap?: { [key: string]: string },
-    groupOrder?: Array<string>,
-    onlyShowGrouped?: boolean,
-    disabled?: boolean,
-    selectedTemplate: Template | null = null,
-  ): Array<ListDataItem<{ templateItem?: Template }>> => {
-    const getDetails = (template: Template): [string, boolean] => {
-      const hasNoValid =
-        !template?.validCondition ||
-        (Array.isArray(template.validCondition) && template.validCondition.length === 0);
-      if (hasNoValid) {
-        return ["Incomplete configuration! No validity condition set.", true];
-      }
-
-      let description = formatTemplateValidCondition(template);
-
-      if (template.addCondition !== null) {
-        description += " " + formatTemplateAddCondition(template);
-      }
-      return [description, false];
-    };
-
-    const makeListItem = (template: Template): ListDataItem<{ templateItem?: Template }> => {
-      const [details, hasWarning] = getDetails(template);
-      return {
-        disabled: template.id === selectedTemplate?.id ? false : disabled,
-        key: template.id,
-        rgItemType: 2,
-        label: template.name,
-        details: details,
-        templateItem: template,
-        rightGlyph: hasWarning ? WarningIcon : undefined,
-      };
-    };
-
-    const templatesInGroups: Record<string, Template[]> = {};
-    const nonGroupedTemplates: Template[] = [];
-
-    for (const template of data) {
-      const group = templateIdGroupMap ? templateIdGroupMap[template.id] : null;
-      if (group) {
-        if (!(group in templatesInGroups)) {
-          templatesInGroups[group] = [];
-        }
-        templatesInGroups[group].push(template);
-      } else {
-        nonGroupedTemplates.push(template);
-      }
-    }
-
-    // Find group order.
-    const allGroups = Object.keys(templatesInGroups);
-    const groupOrderLocal = (groupOrder || []).filter((g) => g in templatesInGroups);
-    const remainingGroups = allGroups.filter((g) => !groupOrderLocal.includes(g));
-    const groupOrderAll = [...groupOrderLocal, ...remainingGroups];
-
-    // Add grouped templates.
-    const items: Array<ListDataItem<{ templateItem?: Template }>> = [];
-    for (const group of groupOrderAll) {
-      const templatesInGroup = templatesInGroups[group];
-      if (templatesInGroup.length === 0) {
-        continue;
-      }
-      items.push({
-        rgItemType: 5,
-        label: group,
-      });
-      items.push(...templatesInGroup.map(makeListItem));
-    }
-
-    if (onlyShowGrouped) {
-      return items;
-    }
-
-    // Add non-grouped templates.
-    if (items.length > 0) {
-      items.push({
-        rgItemType: 5,
-        label: "Other templates",
-      });
-    }
-    items.push(...nonGroupedTemplates.map(makeListItem));
-
-    return items;
-  };
-
   const listItems = useMemo(
     () =>
       getListItems(

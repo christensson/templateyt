@@ -43,11 +43,11 @@ const getValidTemplates = (ctx, issue) => {
           return true;
         }
         // ...or was matching the condition before change...
-        if (issue.tags.removed.find((t) => t.name === tagName)) {
+        if (issue.tags.removed.find((tag) => tag.name === tagName)) {
           return true;
         }
         // ...or will match the condition on change.
-        if (issue.tags.added.find((t) => t.name === tagName)) {
+        if (issue.tags.added.find((tag) => tag.name === tagName)) {
           return true;
         }
       } else {
@@ -59,14 +59,30 @@ const getValidTemplates = (ctx, issue) => {
   });
 };
 
+// Load the knowledge base articles referenced by the given templates, keyed by article id.
+const loadTemplateArticles = (templates) => {
+  const articles = {};
+  for (const t of templates) {
+    const articleId = t.articleId;
+    if (articles[articleId]) {
+      continue;
+    }
+    const article = entities.Article.findById(articleId);
+    if (article != null) {
+      articles[articleId] = article;
+    }
+  }
+  return articles;
+};
+
 exports.rule = entities.Issue.onChange({
   title: "Apply ticket template",
-  guard: function (ctx) {
+  guard: function guard(ctx) {
     const issue = ctx.issue;
     const validTemplates = getValidTemplates(ctx, issue);
 
     log("Issue " + issue.id + " valid templates issue: " + JSON.stringify(validTemplates));
-    if (validTemplates.length == 0) {
+    if (validTemplates.length === 0) {
       return false;
     }
 
@@ -113,7 +129,7 @@ exports.rule = entities.Issue.onChange({
     );
     return matchedActionTags.length > 0;
   },
-  action: function (ctx) {
+  action: function action(ctx) {
     const issue = ctx.issue;
     const usedTemplateIds = JSON.parse(issue.extensionProperties.usedTemplateIds) || [];
     const templates = getValidTemplates(ctx, issue);
@@ -138,7 +154,7 @@ exports.rule = entities.Issue.onChange({
             issue.isChanged(cond.fieldName) && issue.fields.becomes(cond.fieldName, cond.fieldValue)
           );
         } else if (cond.when === "tag_added") {
-          return issue.tags.added.find((t) => t.name === cond.tagName);
+          return issue.tags.added.find((tag) => tag.name === cond.tagName);
         }
         return false;
       });
@@ -151,7 +167,7 @@ exports.rule = entities.Issue.onChange({
         if (cond.when === "field_becomes") {
           return issue.isChanged(cond.fieldName) && issue.was(cond.fieldName, cond.fieldValue);
         } else if (cond.when === "tag_added") {
-          return issue.tags.removed.find((t) => t.name === cond.tagName);
+          return issue.tags.removed.find((tag) => tag.name === cond.tagName);
         }
         return false;
       });
@@ -159,18 +175,7 @@ exports.rule = entities.Issue.onChange({
     log(`Ticket ${issue.id}: Templates to apply: ${JSON.stringify(newTemplates)}`);
     log(`Ticket ${issue.id}: Templates to potentially remove: ${JSON.stringify(oldTemplates)}`);
 
-    // Load articles.
-    const articles = {};
-    for (const t of [...newTemplates, ...oldTemplates]) {
-      const articleId = t.articleId;
-      if (articles[articleId]) {
-        continue;
-      }
-      const article = entities.Article.findById(articleId);
-      if (article != null) {
-        articles[articleId] = article;
-      }
-    }
+    const articles = loadTemplateArticles([...newTemplates, ...oldTemplates]);
     let newDescription = issue.description ? issue.description.trim() : "";
 
     // Remove any old (or new) non-modified templates.

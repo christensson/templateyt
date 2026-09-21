@@ -42,7 +42,7 @@ const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({
                     <li>Edit article content to define the template.</li>
                     <li>
                       Configure the article as a template by clicking the ...-menu and then
-                      selecting "Configure as template".
+                      selecting &quot;Configure as template&quot;.
                     </li>
                   </ul>
                 </li>
@@ -71,7 +71,7 @@ const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({
                         <li>When ticket field becomes a specific value.</li>
                         <li>When ticket or article is assigned a specific tag.</li>
                         <li>
-                          If not automatically applied, apply template using "Apply template" menu
+                          If not automatically applied, apply template using &quot;Apply template&quot; menu
                           item available from ticket or article ...-menu.
                         </li>
                       </ul>

@@ -4,7 +4,7 @@ import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo } from "react";
 import type { TagInfo } from "../../@types/project-info";
 import type { TagActionCondition, TagStateCondition, Template } from "../../@types/template";
 
@@ -61,7 +61,7 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
         });
       }
     },
-    [template, conditionType, conditionIndex],
+    [setTemplate, conditionType, conditionIndex],
   );
 
   const selectTagItems = useMemo(
@@ -81,7 +81,7 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
       return selectTagItems.find((field) => field.key === condition?.tagName) || null;
     }
     return null;
-  }, [tags, template, conditionType, conditionIndex, selectTagItems]);
+  }, [template, conditionType, conditionIndex, selectTagItems]);
 
   return (
     <div>

@@ -3,8 +3,13 @@ import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo } from "react";
 import type { EntityTypeCondition, Template } from "../../@types/template";
+
+const SELECT_ITEMS = [
+  { key: "issue", label: "Ticket" },
+  { key: "article", label: "Article" },
+];
 
 interface EntityTypeConditionInputProps {
   whenTitle?: string;
@@ -47,13 +52,8 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
         });
       }
     },
-    [template, conditionType, conditionIndex],
+    [setTemplate, conditionType, conditionIndex],
   );
-
-  const selectItems = [
-    { key: "issue", label: "Ticket" },
-    { key: "article", label: "Article" },
-  ];
 
   const selectedItem = useMemo(() => {
     if (conditionType !== "valid") {return null;}
@@ -63,7 +63,7 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
     if (!condition || condition.when !== "entity_is") {
       return null;
     }
-    return selectItems.find((item) => item.key === condition.entityType);
+    return SELECT_ITEMS.find((item) => item.key === condition.entityType);
   }, [template, conditionType, conditionIndex]);
 
   return (
@@ -78,7 +78,7 @@ const EntityTypeConditionInput: React.FunctionComponent<EntityTypeConditionInput
         label="..."
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}
-        data={selectItems}
+        data={SELECT_ITEMS}
         onSelect={onSelectEntityType}
         selected={selectedItem}
       />

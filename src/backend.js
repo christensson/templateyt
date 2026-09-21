@@ -15,6 +15,92 @@ const toArray = (wfSet) => {
   return arr;
 };
 
+const badRequest = (ctx, message) => {
+  ctx.response.status = 400;
+  ctx.response.json({ success: false, message: message });
+};
+
+// Returns an error message if the valid-condition is inconsistent, otherwise null.
+const validateValidCondition = (cond) => {
+  if (cond.hasOwnProperty("when") === false) {
+    return 'Inconsistent validCondition, missing "when" property.';
+  }
+  switch (cond.when) {
+    case "field_is":
+      if (cond.hasOwnProperty("fieldName") === false || cond.hasOwnProperty("fieldValue") === false) {
+        return 'Inconsistent validCondition, missing "fieldName" or "fieldValue" property.';
+      }
+      return null;
+    case "tag_is":
+      if (cond.hasOwnProperty("tagName") === false) {
+        return 'Inconsistent validCondition, missing "tagName" property.';
+      }
+      return null;
+    case "entity_is":
+      if (cond.hasOwnProperty("entityType") === false) {
+        return 'Inconsistent validCondition, missing "entityType" property.';
+      }
+      return null;
+    default:
+      return `Inconsistent validCondition, unknown when value: ${cond.when}`;
+  }
+};
+
+// Returns an error message if the add-condition is inconsistent, otherwise null.
+const validateAddCondition = (cond) => {
+  if (cond.hasOwnProperty("when") === false) {
+    return 'Inconsistent addCondition, missing "when" property.';
+  }
+  switch (cond.when) {
+    case "field_becomes":
+      if (cond.hasOwnProperty("fieldName") === false || cond.hasOwnProperty("fieldValue") === false) {
+        return 'Inconsistent addCondition, missing "fieldName" or "fieldValue" property.';
+      }
+      return null;
+    case "tag_added":
+    case "tag_removed":
+      if (cond.hasOwnProperty("tagName") === false) {
+        return 'Inconsistent addCondition, missing "tagName" property.';
+      }
+      return null;
+    default:
+      return `Inconsistent addCondition, unknown when value: ${cond.when}`;
+  }
+};
+
+// Returns an error message if the template is invalid, otherwise null.
+const validateTemplate = (template) => {
+  if (template.hasOwnProperty("id") === false || template.id === "") {
+    return "Template must have a valid id.";
+  }
+  if (template.hasOwnProperty("validCondition") === false) {
+    return "Template must have a valid validCondition.";
+  }
+  if (template.hasOwnProperty("addCondition") === false) {
+    return "Template must have a valid addCondition.";
+  }
+  if (!Array.isArray(template.validCondition)) {
+    return "Template validCondition is not an array.";
+  }
+  for (const cond of template.validCondition) {
+    const error = validateValidCondition(cond);
+    if (error !== null) {
+      return error;
+    }
+  }
+  if (template.addCondition !== null) {
+    const error = validateAddCondition(template.addCondition);
+    if (error !== null) {
+      return error;
+    }
+  }
+  const articleId = template?.articleId;
+  if (articleId === undefined || articleId === "") {
+    return "Template must have a valid articleId.";
+  }
+  return null;
+};
+
 exports.httpHandler = {
   endpoints: [
     {
@@ -34,144 +120,15 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const body = JSON.parse(ctx.request.body);
         const newTemplate = body.template;
-        if (newTemplate.hasOwnProperty("id") === false || newTemplate.id === "") {
-          ctx.response.status = 400;
-          ctx.response.json({ success: false, message: "Template must have a valid id." });
+        const validationError = validateTemplate(newTemplate);
+        if (validationError !== null) {
+          badRequest(ctx, validationError);
           return;
         }
 
-        if (newTemplate.hasOwnProperty("validCondition") === false) {
-          ctx.response.status = 400;
-          ctx.response.json({
-            success: false,
-            message: "Template must have a valid validCondition.",
-          });
-          return;
-        }
-
-        if (newTemplate.hasOwnProperty("addCondition") === false) {
-          ctx.response.status = 400;
-          ctx.response.json({
-            success: false,
-            message: "Template must have a valid addCondition.",
-          });
-          return;
-        }
-
-        if (!Array.isArray(newTemplate.validCondition)) {
-          ctx.response.status = 400;
-          ctx.response.json({
-            success: false,
-            message: "Template validCondition is not an array.",
-          });
-          return;
-        }
-
-        for (const cond of newTemplate.validCondition) {
-          if (cond.hasOwnProperty("when") === false) {
-            ctx.response.status = 400;
-            ctx.response.json({
-              success: false,
-              message: 'Inconsistent validCondition, missing "when" property.',
-            });
-            return;
-          }
-          if (cond.when === "field_is") {
-            if (
-              cond.hasOwnProperty("fieldName") === false ||
-              cond.hasOwnProperty("fieldValue") === false
-            ) {
-              ctx.response.status = 400;
-              ctx.response.json({
-                success: false,
-                message:
-                  'Inconsistent validCondition, missing "fieldName" or "fieldValue" property.',
-              });
-              return;
-            }
-          } else if (cond.when === "tag_is") {
-            if (cond.hasOwnProperty("tagName") === false) {
-              ctx.response.status = 400;
-              ctx.response.json({
-                success: false,
-                message: 'Inconsistent validCondition, missing "tagName" property.',
-              });
-              return;
-            }
-          } else if (cond.when === "entity_is") {
-            if (cond.hasOwnProperty("entityType") === false) {
-              ctx.response.status = 400;
-              ctx.response.json({
-                success: false,
-                message: 'Inconsistent validCondition, missing "entityType" property.',
-              });
-              return;
-            }
-          } else {
-            ctx.response.status = 400;
-            ctx.response.json({
-              success: false,
-              message: `Inconsistent validCondition, unknown when value: ${cond.when}`,
-            });
-            return;
-          }
-        }
-
-        if (newTemplate.addCondition !== null) {
-          const cond = newTemplate.addCondition;
-          if (cond.hasOwnProperty("when") === false) {
-            ctx.response.status = 400;
-            ctx.response.json({
-              success: false,
-              message: 'Inconsistent addCondition, missing "when" property.',
-            });
-            return;
-          }
-          if (cond.when === "field_becomes") {
-            if (
-              cond.hasOwnProperty("fieldName") === false ||
-              cond.hasOwnProperty("fieldValue") === false
-            ) {
-              ctx.response.status = 400;
-              ctx.response.json({
-                success: false,
-                message: 'Inconsistent addCondition, missing "fieldName" or "fieldValue" property.',
-              });
-              return;
-            }
-          } else if (cond.when === "tag_added" || cond.when === "tag_removed") {
-            if (cond.hasOwnProperty("tagName") === false) {
-              ctx.response.status = 400;
-              ctx.response.json({
-                success: false,
-                message: 'Inconsistent addCondition, missing "tagName" property.',
-              });
-              return;
-            }
-          } else {
-            ctx.response.status = 400;
-            ctx.response.json({
-              success: false,
-              message: `Inconsistent addCondition, unknown when value: ${cond.when}`,
-            });
-            return;
-          }
-        }
-
-        const articleId = newTemplate?.articleId;
-        if (articleId === undefined || articleId === "") {
-          ctx.response.status = 400;
-          ctx.response.json({ success: false, message: "Template must have a valid articleId." });
-          return;
-        }
-
-        const article = entities.Article.findById(articleId);
+        const article = entities.Article.findById(newTemplate.articleId);
         if (article === null) {
-          ctx.response.status = 400;
-          ctx.response.json({
-            success: false,
-            message: `No article found with articleId ${articleId}.`,
-          });
+          badRequest(ctx, `No article found with articleId ${newTemplate.articleId}.`);
           return;
         }
 
