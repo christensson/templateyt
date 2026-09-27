@@ -5,58 +5,41 @@ import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useCallback, useMemo } from "react";
 import type { ProjectFieldInfo } from "../../@types/project-info";
-import { getTemplateFields, type Template, type TemplateField } from "../../@types/template";
+import type { TemplateField } from "../../@types/template";
 
 const MODE_ITEMS = [
   { key: "fixed", label: "to fixed value" },
   { key: "user_input", label: "to value chosen by user" },
 ];
 
-const EMPTY_FIELD: TemplateField = { fieldName: "", mode: "fixed", fieldValue: "" };
-
 interface TemplateFieldInputProps {
   fields: Array<ProjectFieldInfo>;
-  template: Template;
-  setTemplate: React.Dispatch<React.SetStateAction<Template>>;
-  fieldIndex: number;
+  field: TemplateField;
+  onChange: (field: TemplateField) => void;
   disabled?: boolean;
 }
 
-// One row of the "fields set by template" list: field, mode and (for fixed mode) the value.
+// One row of a "fields set by template" list: field, mode and (for fixed mode) the value.
 const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
   fields,
-  template,
-  setTemplate,
-  fieldIndex,
+  field,
+  onChange,
   disabled,
 }) => {
-  const templateField: TemplateField = getTemplateFields(template)[fieldIndex] ?? EMPTY_FIELD;
-
-  const updateField = useCallback(
-    (updater: (prev: TemplateField) => TemplateField) => {
-      setTemplate((prevTemplate) => {
-        const list = [...getTemplateFields(prevTemplate)];
-        list[fieldIndex] = updater(list[fieldIndex] ?? EMPTY_FIELD);
-        return { ...prevTemplate, fields: list };
-      });
-    },
-    [setTemplate, fieldIndex],
-  );
-
   const onSelectField = useCallback(
     (selected: SelectItem | null) => {
       if (!selected) {
         return;
       }
-      const fieldName = selected.key as string;
+      const fieldName = String(selected.key);
       // Changing field invalidates any chosen value.
-      updateField((prev) =>
-        prev.mode === "user_input"
+      onChange(
+        field.mode === "user_input"
           ? { fieldName, mode: "user_input" }
           : { fieldName, mode: "fixed", fieldValue: "" },
       );
     },
-    [updateField],
+    [field.mode, onChange],
   );
 
   const onSelectMode = useCallback(
@@ -64,13 +47,13 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
       if (!selected) {
         return;
       }
-      updateField((prev) =>
+      onChange(
         selected.key === "user_input"
-          ? { fieldName: prev.fieldName, mode: "user_input" }
-          : { fieldName: prev.fieldName, mode: "fixed", fieldValue: "" },
+          ? { fieldName: field.fieldName, mode: "user_input" }
+          : { fieldName: field.fieldName, mode: "fixed", fieldValue: "" },
       );
     },
-    [updateField],
+    [field.fieldName, onChange],
   );
 
   const onSelectValue = useCallback(
@@ -78,31 +61,26 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
       if (!selected) {
         return;
       }
-      updateField((prev) => ({
-        fieldName: prev.fieldName,
-        mode: "fixed",
-        fieldValue: selected.key as string,
-      }));
+      onChange({ fieldName: field.fieldName, mode: "fixed", fieldValue: String(selected.key) });
     },
-    [updateField],
+    [field.fieldName, onChange],
   );
 
   const selectFieldItems = useMemo(
-    () => fields.map((field) => ({ key: field.name, label: field.name })),
+    () => fields.map((info) => ({ key: info.name, label: info.name })),
     [fields],
   );
 
   const selectValueItems = useMemo(() => {
-    const info = fields.find((field) => field.name === templateField.fieldName);
+    const info = fields.find((candidate) => candidate.name === field.fieldName);
     return info ? info.values.map((value) => ({ key: value.name, label: value.presentation })) : [];
-  }, [fields, templateField.fieldName]);
+  }, [fields, field.fieldName]);
 
-  const selectedFieldItem =
-    selectFieldItems.find((item) => item.key === templateField.fieldName) || null;
-  const selectedModeItem = MODE_ITEMS.find((item) => item.key === templateField.mode) || null;
+  const selectedFieldItem = selectFieldItems.find((item) => item.key === field.fieldName) || null;
+  const selectedModeItem = MODE_ITEMS.find((item) => item.key === field.mode) || null;
   const selectedValueItem =
-    templateField.mode === "fixed"
-      ? selectValueItems.find((item) => item.key === templateField.fieldValue) || null
+    field.mode === "fixed"
+      ? selectValueItems.find((item) => item.key === field.fieldValue) || null
       : null;
 
   return (
@@ -129,7 +107,7 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
         onSelect={onSelectMode}
         selected={selectedModeItem}
       />
-      {templateField.mode === "fixed" && (
+      {field.mode === "fixed" && (
         <>
           {" "}
           <Select

@@ -1,19 +1,27 @@
+import MoreOptionsIcon from "@jetbrains/icons/more-options";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
+import DropdownMenu from "@jetbrains/ring-ui-built/components/dropdown-menu/dropdown-menu";
+import type { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { getTemplateFields, hasUserInputFields, type Template } from "../../../@types/template";
-import { TemplateFieldsForm } from "../../components/template-fields-form";
+import { HierarchyForm, TemplateFieldsForm } from "../../components/template-fields-form";
 import TemplateList from "../../components/template-list";
 import {
   ACTION_LABELS,
+  canCreateHierarchy,
+  createHierarchy,
   fetchIssueTemplateInfo,
+  getInitialChildFieldValues,
   getInitialFieldValues,
+  pickChosenChildValues,
   pickChosenValues,
   removeTemplate,
   submitTemplateFields,
   type ApplyMode,
+  type ChildFieldValues,
   type FieldValues,
   type IssueTemplateInfo,
   type PendingApply,
@@ -22,12 +30,24 @@ import {
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
 
+// Secondary actions for a template, shown in a "..." menu to keep the button row compact.
+const getMoreActions = (template: Template): Array<ListDataItem> => [
+  {
+    rgItemType: 1,
+    label: `Open article ${template.articleId}`,
+    href: `/articles/${template.articleId}`,
+    target: "_blank",
+  },
+];
+
 interface TemplateActionsProps {
   selectedTemplate: Template | null;
   isSelectedUsed: boolean;
+  canCreateHierarchyForSelected: boolean;
   submitting: boolean;
   onAdd: () => void;
   onSetFields: () => void;
+  onCreateHierarchy: () => void;
   onRemove: () => void;
 }
 
@@ -35,9 +55,11 @@ interface TemplateActionsProps {
 const TemplateActions: React.FunctionComponent<TemplateActionsProps> = ({
   selectedTemplate,
   isSelectedUsed,
+  canCreateHierarchyForSelected,
   submitting,
   onAdd,
   onSetFields,
+  onCreateHierarchy,
   onRemove,
 }) => {
   const hasSelection = selectedTemplate !== null;
@@ -54,13 +76,21 @@ const TemplateActions: React.FunctionComponent<TemplateActionsProps> = ({
       >
         Set fields
       </Button>
+      <Button
+        disabled={!canCreateHierarchyForSelected || submitting}
+        onClick={onCreateHierarchy}
+        title="Create subtasks from the child templates of the applied template"
+      >
+        Create hierarchy
+      </Button>
       <Button disabled={!isSelectedUsed || submitting} onClick={onRemove}>
         Remove template
       </Button>
       {hasSelection && (
-        <Button secondary href={`/articles/${selectedTemplate.articleId}`}>
-          {`Open article ${selectedTemplate.articleId}`}
-        </Button>
+        <DropdownMenu
+          anchor={<Button icon={MoreOptionsIcon} title="More actions"/>}
+          data={getMoreActions(selectedTemplate)}
+        />
       )}
     </Panel>
   );
@@ -88,6 +118,9 @@ const AppComponent: React.FunctionComponent = () => {
   const [failMessage, setFailMessage] = useState<string>("");
   const [pending, setPending] = useState<PendingApply | null>(null);
   const [pendingValues, setPendingValues] = useState<FieldValues>({});
+  // Template whose hierarchy creation form is shown in place of the list.
+  const [hierarchyTemplate, setHierarchyTemplate] = useState<Template | null>(null);
+  const [childValues, setChildValues] = useState<ChildFieldValues>({});
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   const fetchTemplateInfo = useCallback(async () => {
@@ -175,6 +208,43 @@ const AppComponent: React.FunctionComponent = () => {
     }
   }, [pending, pendingValues, submitTemplate]);
 
+  // The hierarchy form is always shown: it presents the subtasks to be created.
+  const startCreateHierarchy = useCallback(() => {
+    if (selectedTemplate === null || issueTemplateInfo === null) {
+      setFailMessage("No template selected.");
+      return;
+    }
+    setFailMessage("");
+    setChildValues(
+      getInitialChildFieldValues(selectedTemplate, issueTemplateInfo.currentFieldValues),
+    );
+    setHierarchyTemplate(selectedTemplate);
+  }, [selectedTemplate, issueTemplateInfo]);
+
+  const confirmCreateHierarchy = useCallback(async () => {
+    if (hierarchyTemplate === null || !checkTemplate(hierarchyTemplate, "create hierarchy from")) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await createHierarchy(
+        host,
+        hierarchyTemplate.id,
+        pickChosenChildValues(childValues),
+      );
+      console.log(`Create hierarchy ${hierarchyTemplate.id} result`, result);
+      if (!result.success) {
+        setFailMessage(result.message || "Failed to create hierarchy.");
+        return;
+      }
+      setFailMessage("");
+      await fetchTemplateInfo();
+      setHierarchyTemplate(null);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [hierarchyTemplate, childValues, checkTemplate, fetchTemplateInfo]);
+
   const removeTemplateFromIssue = useCallback(
     async (template: Template | null) => {
       if (template === null || !checkTemplate(template, "remove")) {
@@ -220,10 +290,34 @@ const AppComponent: React.FunctionComponent = () => {
     );
   }
 
+  if (hierarchyTemplate !== null && issueTemplateInfo !== null) {
+    return (
+      <div className="widget">
+        <HierarchyForm
+          template={hierarchyTemplate}
+          fieldInfos={issueTemplateInfo.fields}
+          values={childValues}
+          setValues={setChildValues}
+          alreadyCreated={issueTemplateInfo.createdHierarchyTemplateIds.includes(
+            hierarchyTemplate.id,
+          )}
+          submitting={submitting}
+          onConfirm={confirmCreateHierarchy}
+          onBack={() => setHierarchyTemplate(null)}
+        />
+        {failBanner}
+      </div>
+    );
+  }
+
   const isSelectedUsed =
     selectedTemplate !== null &&
     issueTemplateInfo !== null &&
     issueTemplateInfo.usedTemplateIds.includes(selectedTemplate.id);
+  const canCreateHierarchyForSelected =
+    selectedTemplate !== null &&
+    issueTemplateInfo !== null &&
+    canCreateHierarchy(issueTemplateInfo, selectedTemplate);
 
   return (
     <div className="widget">
@@ -252,9 +346,11 @@ const AppComponent: React.FunctionComponent = () => {
       <TemplateActions
         selectedTemplate={selectedTemplate}
         isSelectedUsed={isSelectedUsed}
+        canCreateHierarchyForSelected={canCreateHierarchyForSelected}
         submitting={submitting}
         onAdd={() => startAction("add")}
         onSetFields={() => startAction("fields")}
+        onCreateHierarchy={startCreateHierarchy}
         onRemove={() => removeTemplateFromIssue(selectedTemplate)}
       />
     </div>

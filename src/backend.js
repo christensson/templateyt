@@ -61,6 +61,28 @@ const validateAddCondition = (cond) => {
 
 const TEMPLATE_FIELD_MODES = ["fixed", "user_input"];
 
+// Validates a field list. `subject` prefixes the messages. Returns an error message or null.
+// Keep in sync with validateFieldList in @types/template.ts.
+const validateFieldList = (fields, subject) => {
+  const seen = [];
+  for (const field of fields) {
+    if (!field || typeof field.fieldName !== "string" || field.fieldName === "") {
+      return `${subject} field is missing a field name, please select a field.`;
+    }
+    if (seen.includes(field.fieldName)) {
+      return `${subject} field "${field.fieldName}" is listed more than once.`;
+    }
+    seen.push(field.fieldName);
+    if (!TEMPLATE_FIELD_MODES.includes(field.mode)) {
+      return `${subject} field "${field.fieldName}" has unknown mode "${field.mode}".`;
+    }
+    if (field.mode === "fixed" && (typeof field.fieldValue !== "string" || field.fieldValue === "")) {
+      return `${subject} field "${field.fieldName}" is missing a value.`;
+    }
+  }
+  return null;
+};
+
 // Returns an error message if the template field list is inconsistent, otherwise null.
 // Keep in sync with validateTemplateFields in @types/template.ts.
 const validateTemplateFields = (template) => {
@@ -71,21 +93,9 @@ const validateTemplateFields = (template) => {
   if (!Array.isArray(fields)) {
     return "Template fields is not an array.";
   }
-  const seen = [];
-  for (const field of fields) {
-    if (!field || typeof field.fieldName !== "string" || field.fieldName === "") {
-      return "Template field is missing a field name, please select a field.";
-    }
-    if (seen.includes(field.fieldName)) {
-      return `Template field "${field.fieldName}" is listed more than once.`;
-    }
-    seen.push(field.fieldName);
-    if (!TEMPLATE_FIELD_MODES.includes(field.mode)) {
-      return `Template field "${field.fieldName}" has unknown mode "${field.mode}".`;
-    }
-    if (field.mode === "fixed" && (typeof field.fieldValue !== "string" || field.fieldValue === "")) {
-      return `Template field "${field.fieldName}" is missing a value.`;
-    }
+  const listError = validateFieldList(fields, "Template");
+  if (listError !== null) {
+    return listError;
   }
 
   // A template must never set its own trigger field to another value than the one that
@@ -100,6 +110,67 @@ const validateTemplateFields = (template) => {
     if (conflict) {
       return `Field "${addCond.fieldName}" is used in the automatic add condition and can only be set to "${addCond.fieldValue}".`;
     }
+  }
+  return null;
+};
+
+// Validates the own properties of one child template (not its children).
+const validateChildOwnProperties = (child) => {
+  if (!child || typeof child.id !== "string" || child.id === "") {
+    return "Child template is missing an id.";
+  }
+  if (typeof child.articleId !== "string" || child.articleId === "") {
+    return "Child template is missing an articleId.";
+  }
+  if (typeof child.name !== "string" || child.name.trim() === "") {
+    return `Child template for article ${child.articleId} needs a name.`;
+  }
+  if (child.fields !== undefined && !Array.isArray(child.fields)) {
+    return `Child template "${child.name}" fields is not an array.`;
+  }
+  const fieldsError = validateFieldList(child.fields || [], `Child template "${child.name}"`);
+  if (fieldsError !== null) {
+    return fieldsError;
+  }
+  if (child.inheritParentFields !== undefined && typeof child.inheritParentFields !== "boolean") {
+    return `Child template "${child.name}" inheritParentFields must be a boolean.`;
+  }
+  return null;
+};
+
+// Validates a list of child templates recursively. Returns an error message or null.
+const validateChildList = (children, ownerName) => {
+  if (children === undefined) {
+    return null;
+  }
+  if (!Array.isArray(children)) {
+    return `Children of "${ownerName}" is not an array.`;
+  }
+  for (const child of children) {
+    const ownError = validateChildOwnProperties(child);
+    if (ownError !== null) {
+      return ownError;
+    }
+    const nestedError = validateChildList(child.children, child.name);
+    if (nestedError !== null) {
+      return nestedError;
+    }
+  }
+  return null;
+};
+
+// Validates the hierarchy settings of a template. Returns an error message or null.
+// Keep in sync with validateChildTemplates in @types/template.ts.
+const validateChildTemplates = (template) => {
+  if (template.hierarchical !== undefined && typeof template.hierarchical !== "boolean") {
+    return "Template hierarchical must be a boolean.";
+  }
+  const listError = validateChildList(template.children, template.name || template.id);
+  if (listError !== null) {
+    return listError;
+  }
+  if (template.hierarchical === true && utils.flattenChildTemplates(template.children).length === 0) {
+    return "Hierarchical template has no child templates, import child articles first.";
   }
   return null;
 };
@@ -150,12 +221,44 @@ const validateTemplate = (template) => {
   if (fieldsError !== null) {
     return fieldsError;
   }
+  const childrenError = validateChildTemplates(template);
+  if (childrenError !== null) {
+    return childrenError;
+  }
   const articleId = template?.articleId;
   if (articleId === undefined || articleId === "") {
     return "Template must have a valid articleId.";
   }
   return null;
 };
+
+// Resolves everything a hierarchy creation needs (articles and field values) without creating
+// anything, so that a bad value leaves the ticket untouched.
+// Returns { errors: [string], byChildId: { [childId]: { content, assignments } } }.
+const planHierarchy = (project, template, childFieldValues) => {
+  const errors = [];
+  const byChildId = {};
+  for (const flat of utils.flattenChildTemplates(template.children)) {
+    const child = flat.child;
+    const article = entities.Article.findById(child.articleId);
+    if (article == null) {
+      errors.push(`Article ${child.articleId} for child template "${child.name}" not found.`);
+      continue;
+    }
+    const userValues = childFieldValues ? childFieldValues[child.id] : null;
+    const resolved = utils.resolveTemplateFieldValues(project, child, userValues, true);
+    for (const error of resolved.errors) {
+      errors.push(`Child template "${child.name}": ${error}`);
+    }
+    byChildId[child.id] = {
+      content: article.content ? article.content.trim() : "",
+      assignments: resolved.assignments,
+    };
+  }
+  return { errors: errors, byChildId: byChildId };
+};
+
+const uniqueNames = (names) => names.filter((name, index) => names.indexOf(name) === index);
 
 exports.httpHandler = {
   endpoints: [
@@ -242,6 +345,26 @@ exports.httpHandler = {
         }));
 
         ctx.response.json(articles);
+      },
+    },
+    {
+      scope: "project",
+      method: "POST",
+      path: "getChildArticles",
+      // Returns the article tree below the given article, for importing child templates.
+      handle: function handle(ctx) {
+        const body = JSON.parse(ctx.request.body);
+        const articleId = body.articleId;
+        if (typeof articleId !== "string" || articleId === "") {
+          badRequest(ctx, "No articleId in request.");
+          return;
+        }
+        const article = entities.Article.findById(articleId);
+        if (article == null) {
+          badRequest(ctx, `No article found with articleId ${articleId}.`);
+          return;
+        }
+        ctx.response.json(utils.getArticleTree(article));
       },
     },
     {
@@ -332,6 +455,7 @@ exports.httpHandler = {
           fields: fields,
           currentFieldValues: utils.getIssueFieldValues(issue, fields),
           pendingTemplateIds: utils.getPendingTemplateIds(issue),
+          createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(issue),
         });
       },
     },
@@ -469,6 +593,78 @@ exports.httpHandler = {
         ctx.response.json({
           success: true,
           pendingTemplateIds: utils.getPendingTemplateIds(issue),
+        });
+      },
+    },
+    {
+      scope: "issue",
+      method: "POST",
+      path: "createHierarchy",
+      // Creates subtasks below the issue from the child templates of an applied hierarchical
+      // template, nested like the child articles.
+      handle: function handle(ctx) {
+        const issue = ctx.issue;
+        const usedTemplateIds = utils.parseIdList(issue.extensionProperties.usedTemplateIds);
+        const templates = utils.getTemplates(ctx);
+
+        const body = JSON.parse(ctx.request.body);
+        const lookup = lookupRequestTemplate(templates, body, "create hierarchy from");
+        if (lookup.error !== null) {
+          badRequest(ctx, lookup.error);
+          return;
+        }
+        const template = lookup.template;
+        if (!usedTemplateIds.includes(template.id)) {
+          badRequest(
+            ctx,
+            `Failed to create hierarchy, template ${template.id} is not applied to this issue.`,
+          );
+          return;
+        }
+        if (!template.hierarchical || utils.flattenChildTemplates(template.children).length === 0) {
+          badRequest(ctx, "Failed to create hierarchy, template has no child templates.");
+          return;
+        }
+
+        const plan = planHierarchy(issue.project, template, body.childFieldValues);
+        if (plan.errors.length > 0) {
+          badRequest(ctx, `Failed to create hierarchy: ${plan.errors.join(" ")}`);
+          return;
+        }
+
+        const createdIssueIds = [];
+        const createChildren = (parentIssue, parentManagedFields, children) => {
+          for (const child of children) {
+            const prepared = plan.byChildId[child.id];
+            const ticket = new entities.Issue(ctx.currentUser, issue.project, child.name);
+            ticket.description = prepared.content;
+            // Lets the template workflow skip auto-application on creation.
+            ticket.extensionProperties.createdFromChildTemplateId = child.id;
+            const inheritedNames = child.inheritParentFields ? parentManagedFields : [];
+            for (const name of inheritedNames) {
+              ticket.fields[name] = parentIssue.fields[name];
+            }
+            // Own fields win over inherited ones.
+            utils.applyFieldAssignments(ticket, prepared.assignments);
+            parentIssue.links["parent for"].add(ticket);
+            createdIssueIds.push(ticket.id);
+            const managedNames = uniqueNames(
+              inheritedNames.concat(child.fields.map((field) => field.fieldName)),
+            );
+            createChildren(ticket, managedNames, child.children);
+          }
+        };
+        createChildren(
+          issue,
+          template.fields.map((field) => field.fieldName),
+          template.children,
+        );
+        utils.markHierarchyCreated(issue, template.id);
+
+        ctx.response.json({
+          success: true,
+          createdIssueIds: createdIssueIds,
+          createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(issue),
         });
       },
     },

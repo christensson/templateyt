@@ -1,6 +1,13 @@
 import type { HostAPI } from "../@types/globals";
 import type { ProjectFieldInfo } from "../@types/project-info";
-import { getTemplateFields, type Template } from "../@types/template";
+import {
+  flattenChildTemplates,
+  getChildTemplates,
+  getTemplateFields,
+  hasUserInputFields,
+  type HasFields,
+  type Template,
+} from "../@types/template";
 
 // Typed wrappers around the issue-scoped backend endpoints used by the ticket widgets.
 
@@ -12,6 +19,8 @@ export type IssueTemplateInfo = {
   currentFieldValues: Record<string, string | null>;
   // Applied templates whose user-input fields have not been set yet.
   pendingTemplateIds: Array<string>;
+  // Applied templates whose ticket hierarchy has been created below the ticket.
+  createdHierarchyTemplateIds: Array<string>;
 };
 
 // "add" applies the whole template (description and fields), "fields" only sets its fields.
@@ -20,11 +29,21 @@ export type ApplyMode = "add" | "fields";
 // User-input values keyed by field name; null or missing means "leave the field untouched".
 export type FieldValues = Record<string, string | null>;
 
+// User-input values of the child templates of a hierarchy, keyed by child template id.
+export type ChildFieldValues = Record<string, FieldValues>;
+
 export type TemplateActionResult = {
   success: boolean;
   message?: string;
   usedTemplateIds?: Array<string>;
   pendingTemplateIds?: Array<string>;
+};
+
+export type CreateHierarchyResult = {
+  success: boolean;
+  message?: string;
+  createdIssueIds?: Array<string>;
+  createdHierarchyTemplateIds?: Array<string>;
 };
 
 const ENDPOINTS: Record<ApplyMode, string> = {
@@ -49,7 +68,7 @@ export const formatPendingTitle = (pending: PendingApply): string =>
     : `Set fields from template ${pending.template.name}`;
 
 // Initial user-input values: the ticket's current values for the template's user-input fields.
-export const getInitialFieldValues = (template: Template, current: FieldValues): FieldValues => {
+export const getInitialFieldValues = (template: HasFields, current: FieldValues): FieldValues => {
   const values: FieldValues = {};
   for (const field of getTemplateFields(template)) {
     if (field.mode === "user_input") {
@@ -58,6 +77,26 @@ export const getInitialFieldValues = (template: Template, current: FieldValues):
   }
   return values;
 };
+
+// Initial user-input values for every child template that has user-input fields.
+export const getInitialChildFieldValues = (
+  template: Template,
+  current: FieldValues,
+): ChildFieldValues => {
+  const values: ChildFieldValues = {};
+  for (const { child } of flattenChildTemplates(getChildTemplates(template))) {
+    if (hasUserInputFields(child)) {
+      values[child.id] = getInitialFieldValues(child, current);
+    }
+  }
+  return values;
+};
+
+// A hierarchy can be created for applied, hierarchical templates that have child templates.
+export const canCreateHierarchy = (info: IssueTemplateInfo, template: Template): boolean =>
+  info.usedTemplateIds.includes(template.id) &&
+  template.hierarchical &&
+  flattenChildTemplates(getChildTemplates(template)).length > 0;
 
 export const fetchIssueTemplateInfo = (host: HostAPI): Promise<IssueTemplateInfo> =>
   host.fetchApp<IssueTemplateInfo>("backend/templates", { scope: true, method: "GET" });
@@ -73,6 +112,14 @@ export const pickChosenValues = (values: FieldValues): FieldValues => {
   return chosen;
 };
 
+export const pickChosenChildValues = (values: ChildFieldValues): ChildFieldValues => {
+  const chosen: ChildFieldValues = {};
+  for (const [childId, childValues] of Object.entries(values)) {
+    chosen[childId] = pickChosenValues(childValues);
+  }
+  return chosen;
+};
+
 export const submitTemplateFields = (
   host: HostAPI,
   mode: ApplyMode,
@@ -83,6 +130,17 @@ export const submitTemplateFields = (
     scope: true,
     method: "POST",
     body: { templateId, fieldValues },
+  });
+
+export const createHierarchy = (
+  host: HostAPI,
+  templateId: string,
+  childFieldValues: ChildFieldValues,
+): Promise<CreateHierarchyResult> =>
+  host.fetchApp<CreateHierarchyResult>("backend/createHierarchy", {
+    scope: true,
+    method: "POST",
+    body: { templateId, childFieldValues },
   });
 
 export const removeTemplate = (host: HostAPI, templateId: string): Promise<TemplateActionResult> =>

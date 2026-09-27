@@ -3,8 +3,13 @@ import Button from "@jetbrains/ring-ui-built/components/button/button";
 import { Col, Grid, Row } from "@jetbrains/ring-ui-built/components/grid/grid";
 import Link from "@jetbrains/ring-ui-built/components/link/link";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { memo, useCallback, useEffect, useState } from "react";
-import { createEmptyTemplate, createNullTemplate, type Template } from "../../../@types/template";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  createEmptyTemplate,
+  createNullTemplate,
+  type ChildTemplate,
+  type Template,
+} from "../../../@types/template";
 import type { TemplateArticle } from "../../../@types/template-article";
 import TemplateEdit from "../../components/template-edit";
 import TemplateHelp from "../../components/template-help";
@@ -20,6 +25,17 @@ const AppComponent: React.FunctionComponent = () => {
   const [template, setTemplate] = useState<Template>(createNullTemplate());
   const [templateArticles, setTemplateArticles] = useState<TemplateArticle[]>([]);
   const [helpCollapsed, setHelpCollapsed] = useState<boolean>(false);
+  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
+
+  // The list shows the template being edited (including unsaved child templates) in place of
+  // its stored version, and a new draft template at the end.
+  const displayedTemplates = useMemo(() => {
+    if (template.id === "") {
+      return templates;
+    }
+    const known = templates.some((t) => t.id === template.id);
+    return known ? templates.map((t) => (t.id === template.id ? template : t)) : [...templates, template];
+  }, [templates, template]);
 
   useEffect(() => {
     host
@@ -44,8 +60,12 @@ const AppComponent: React.FunctionComponent = () => {
 
   const selectTemplate = useCallback(
     (selectedTemplate: Template | null) => {
-      // Cannot select templates whiled editing one.
+      // While editing, only the edited template's own rows can be selected, which just leaves
+      // any selected child template.
       if (editing) {
+        if (selectedTemplate !== null && selectedTemplate.id === template.id) {
+          setSelectedChildId(null);
+        }
         return;
       }
       if (selectedTemplate === null) {
@@ -53,15 +73,33 @@ const AppComponent: React.FunctionComponent = () => {
       } else {
         setTemplate(selectedTemplate);
       }
+      setSelectedChildId(null);
       setIsDraft(false);
       setEditing(false);
       setHelpCollapsed(true);
     },
-    [editing],
+    [editing, template.id],
+  );
+
+  const selectChildTemplate = useCallback(
+    (parent: Template, child: ChildTemplate) => {
+      if (editing) {
+        if (parent.id === template.id) {
+          setSelectedChildId(child.id);
+        }
+        return;
+      }
+      setTemplate(parent);
+      setSelectedChildId(child.id);
+      setIsDraft(false);
+      setHelpCollapsed(true);
+    },
+    [editing, template.id],
   );
 
   const createNewTemplate = () => {
     setTemplate(createEmptyTemplate());
+    setSelectedChildId(null);
     setIsDraft(true);
     setEditing(true);
   };
@@ -78,9 +116,12 @@ const AppComponent: React.FunctionComponent = () => {
             </div>
             <TemplateList
               disabled={editing}
-              templates={templates}
+              templates={displayedTemplates}
               selectedTemplate={template}
               setSelectedTemplate={selectTemplate}
+              showChildren
+              selectedChildId={selectedChildId}
+              onSelectChild={selectChildTemplate}
             />
           </Col>
           <Col xs={12} sm={6} md={6} lg={5}>
@@ -95,6 +136,8 @@ const AppComponent: React.FunctionComponent = () => {
                   template={template}
                   setTemplate={setTemplate}
                   setTemplates={setTemplates}
+                  selectedChildId={selectedChildId}
+                  setSelectedChildId={setSelectedChildId}
                 />
               )}
               <div className="template-edit-extra-info">

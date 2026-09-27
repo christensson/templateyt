@@ -28,6 +28,28 @@ const parseIdList = (json) => {
   }
 };
 
+const normalizeChildTemplates = (children) =>
+  (Array.isArray(children) ? children : []).map((child) => ({
+    ...child,
+    fields: Array.isArray(child.fields) ? child.fields : [],
+    inheritParentFields: child.inheritParentFields === true,
+    children: normalizeChildTemplates(child.children),
+  }));
+
+// Child templates in tree order with their depth.
+const flattenChildTemplates = (children, depth) =>
+  (Array.isArray(children) ? children : []).flatMap((child) => [
+    { child: child, depth: depth || 0 },
+    ...flattenChildTemplates(child.children, (depth || 0) + 1),
+  ]);
+
+// Article tree below an article, in the shape the config UI imports.
+const getArticleTree = (article) => ({
+  articleId: article.id,
+  summary: article.summary,
+  children: toArray(article.childArticles).map(getArticleTree),
+});
+
 const getTemplates = (ctx) => {
   const templatesJson = ctx.project.extensionProperties.templates;
   const templates = templatesJson ? JSON.parse(templatesJson) : [];
@@ -44,6 +66,9 @@ const getTemplates = (ctx) => {
     if (!Array.isArray(t.fields)) {
       t.fields = [];
     }
+    // Templates stored before hierarchy support have no children.
+    t.hierarchical = t.hierarchical === true;
+    t.children = normalizeChildTemplates(t.children);
   });
 
   // Filter incomplete templates.
@@ -235,6 +260,18 @@ const clearTemplatePending = (issue, templateId) => {
   }
 };
 
+// Templates whose ticket hierarchy has been created below the issue.
+const getCreatedHierarchyTemplateIds = (issue) =>
+  parseIdList(issue.extensionProperties.createdHierarchyTemplateIds);
+
+const markHierarchyCreated = (issue, templateId) => {
+  const ids = getCreatedHierarchyTemplateIds(issue);
+  if (!ids.includes(templateId)) {
+    ids.push(templateId);
+    issue.extensionProperties.createdHierarchyTemplateIds = JSON.stringify(ids);
+  }
+};
+
 module.exports = {
   SUPPORTED_FIELD_TYPES,
   CONDITION_FIELD_TYPES,
@@ -252,4 +289,8 @@ module.exports = {
   getPendingTemplateIds,
   markTemplatePending,
   clearTemplatePending,
+  flattenChildTemplates,
+  getArticleTree,
+  getCreatedHierarchyTemplateIds,
+  markHierarchyCreated,
 };

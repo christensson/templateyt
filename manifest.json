@@ -9,7 +9,7 @@
     "url": "https://github.com/christensson/templateyt"
   },
   "changeNotes": "Version 0.1.4:<br/>- Fix support for more than 42 tags.",
-  "minYouTrackVersion": "2024.3.0",
+  "minYouTrackVersion": "2024.4.0",
   "icon": "icon-small.svg",
   "widgets": [
 

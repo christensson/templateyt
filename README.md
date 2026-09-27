@@ -77,6 +77,29 @@ automatically to tickets or articles, and which ticket fields the template sets.
 [^2]: *Single-value state, enum, user, version and owned fields are supported. Users are picked
 from the users configured for the field.*
 
+### Hierarchical templates
+
+A template whose template article has child articles can create a ticket hierarchy: one subtask
+per child article, nested like the articles, with the article title as summary and the article
+content as description.
+
+- In the template configuration, check *"Enable hierarchical template"* and click
+  *"Import child articles"*. The child templates appear indented below the template in the list.
+  Re-importing refreshes the tree from the knowledge base while keeping the configuration of
+  articles already imported.
+- Select a child template in the list to configure it: its name (the subtask summary), whether it
+  *inherits fields from parent* (the fields configured by the parent template are copied from the
+  parent ticket when the hierarchy is created), and its own ticket fields, which work like the
+  fields of a template and take precedence over inherited ones. Child templates have no
+  conditions.
+- The hierarchy is created manually, for tickets only, from *"Create hierarchy"* in the
+  *"Apply template"* menu or in the *"Applied templates"* panel, once the template has been
+  applied to the ticket. The form shows the subtasks that will be created and asks for the values
+  of user-chosen fields. Creating the hierarchy again is possible after a warning and adds another
+  set of subtasks.
+- Subtasks created this way do not get templates added automatically on creation, even if their
+  fields match an automatic add condition.
+
 ### Use templates
 
 Imagine that two templates has been configured:

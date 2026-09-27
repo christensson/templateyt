@@ -1,3 +1,4 @@
+import BranchesIcon from "@jetbrains/icons/branches-12px";
 import UpdateIcon from "@jetbrains/icons/update-12px";
 import WarningIcon from "@jetbrains/icons/warning-12px";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
@@ -6,12 +7,17 @@ import LoaderInline from "@jetbrains/ring-ui-built/components/loader-inline/load
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { memo, useCallback, useEffect, useState } from "react";
 import { getTemplateFields, type Template } from "../../../@types/template";
-import { TemplateFieldsForm } from "../../components/template-fields-form";
+import { HierarchyForm, TemplateFieldsForm } from "../../components/template-fields-form";
 import {
+  canCreateHierarchy,
+  createHierarchy,
   fetchIssueTemplateInfo,
+  getInitialChildFieldValues,
   getInitialFieldValues,
+  pickChosenChildValues,
   pickChosenValues,
   submitTemplateFields,
+  type ChildFieldValues,
   type FieldValues,
   type IssueTemplateInfo,
 } from "../../template-client";
@@ -30,6 +36,10 @@ type AppliedTemplateRow = {
   template: Template | null;
   // True when the template still waits for user input for some of its fields.
   pending: boolean;
+  // True when a ticket hierarchy can be created from the template.
+  canCreateHierarchy: boolean;
+  // True when a ticket hierarchy has been created from the template before.
+  hierarchyCreated: boolean;
 };
 
 const getAppliedRows = (info: IssueTemplateInfo): Array<AppliedTemplateRow> =>
@@ -40,37 +50,63 @@ const getAppliedRows = (info: IssueTemplateInfo): Array<AppliedTemplateRow> =>
       name: template ? template.name : `Unknown template ${id}`,
       template,
       pending: template !== null && info.pendingTemplateIds.includes(id),
+      canCreateHierarchy: template !== null && canCreateHierarchy(info, template),
+      hierarchyCreated: info.createdHierarchyTemplateIds.includes(id),
     };
   });
+
+// Which form is expanded in place of the list.
+type Expanded = { kind: "fields" | "hierarchy"; template: Template };
 
 interface TemplateRowProps {
   row: AppliedTemplateRow;
   onSetFields: (template: Template) => void;
+  onCreateHierarchy: (template: Template) => void;
 }
 
 // One applied template. Templates that set fields get a "Set fields" button, marked with a
-// warning sign while user input is still missing.
-const TemplateRow: React.FunctionComponent<TemplateRowProps> = ({ row, onSetFields }) => {
-  const { template, pending } = row;
+// warning sign while user input is still missing; hierarchical ones get "Create hierarchy".
+const TemplateRow: React.FunctionComponent<TemplateRowProps> = ({
+  row,
+  onSetFields,
+  onCreateHierarchy,
+}) => {
+  const { template, pending, hierarchyCreated } = row;
   const hasFields = template !== null && getTemplateFields(template).length > 0;
   return (
     <div className="template-status-row">
       <Text size={Text.Size.S}>{row.name}</Text>
-      {template !== null && hasFields && (
-        <Button
-          className={pending ? "template-status-pending" : undefined}
-          icon={pending ? WarningIcon : undefined}
-          title={
-            pending
-              ? "User input required. Click to set fields."
-              : "Set or re-set the ticket fields defined by the template."
-          }
-          onClick={() => onSetFields(template)}
-          inline
-        >
-          Set fields
-        </Button>
-      )}
+      <div className="template-status-row-actions">
+        {template !== null && hasFields && (
+          <Button
+            className={pending ? "template-status-pending" : undefined}
+            icon={pending ? WarningIcon : undefined}
+            title={
+              pending
+                ? "User input required. Click to set fields."
+                : "Set or re-set the ticket fields defined by the template."
+            }
+            onClick={() => onSetFields(template)}
+            inline
+          >
+            Set fields
+          </Button>
+        )}
+        {template !== null && row.canCreateHierarchy && (
+          <Button
+            icon={BranchesIcon}
+            title={
+              hierarchyCreated
+                ? "A hierarchy was already created. Click to create another set of subtasks."
+                : "Create subtasks from the child templates."
+            }
+            onClick={() => onCreateHierarchy(template)}
+            inline
+          >
+            {hierarchyCreated ? "Hierarchy created" : "Create hierarchy"}
+          </Button>
+        )}
+      </div>
     </div>
   );
 };
@@ -79,9 +115,9 @@ const AppComponent: React.FunctionComponent = () => {
   const [info, setInfo] = useState<IssueTemplateInfo | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [loadFailed, setLoadFailed] = useState<boolean>(false);
-  // Template whose "Set fields" form is expanded in place of the list.
-  const [expandedTemplate, setExpandedTemplate] = useState<Template | null>(null);
+  const [expanded, setExpanded] = useState<Expanded | null>(null);
   const [formValues, setFormValues] = useState<FieldValues>({});
+  const [childValues, setChildValues] = useState<ChildFieldValues>({});
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [failMessage, setFailMessage] = useState<string>("");
 
@@ -104,69 +140,121 @@ const AppComponent: React.FunctionComponent = () => {
     load();
   }, [load]);
 
-  const collapseForm = useCallback(() => {
-    setExpandedTemplate(null);
+  const collapse = useCallback(() => {
+    setExpanded(null);
     setFailMessage("");
   }, []);
 
-  const expandForm = useCallback(
+  const expandFields = useCallback(
     (template: Template) => {
       if (info === null) {
         return;
       }
       setFormValues(getInitialFieldValues(template, info.currentFieldValues));
       setFailMessage("");
-      setExpandedTemplate(template);
+      setExpanded({ kind: "fields", template });
     },
     [info],
   );
 
-  const confirmForm = useCallback(async () => {
-    if (expandedTemplate === null) {
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const result = await submitTemplateFields(
-        host,
-        "fields",
-        expandedTemplate.id,
-        pickChosenValues(formValues),
-      );
-      console.log(`Set fields ${expandedTemplate.id} result`, result);
-      if (!result.success) {
-        setFailMessage(result.message || "Failed to set fields.");
+  const expandHierarchy = useCallback(
+    (template: Template) => {
+      if (info === null) {
         return;
       }
-      await load();
-      collapseForm();
-    } finally {
-      setSubmitting(false);
-    }
-  }, [expandedTemplate, formValues, load, collapseForm]);
+      setChildValues(getInitialChildFieldValues(template, info.currentFieldValues));
+      setFailMessage("");
+      setExpanded({ kind: "hierarchy", template });
+    },
+    [info],
+  );
 
-  if (expandedTemplate !== null && info !== null) {
+  // Runs a backend action; on success reloads and collapses the form.
+  const runAction = useCallback(
+    async (action: () => Promise<{ success: boolean; message?: string }>, failText: string) => {
+      setSubmitting(true);
+      try {
+        const result = await action();
+        console.log("Applied templates action result", result);
+        if (!result.success) {
+          setFailMessage(result.message || failText);
+          return;
+        }
+        await load();
+        collapse();
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [load, collapse],
+  );
+
+  const confirmFields = useCallback(() => {
+    if (expanded === null) {
+      return;
+    }
+    runAction(
+      () => submitTemplateFields(host, "fields", expanded.template.id, pickChosenValues(formValues)),
+      "Failed to set fields.",
+    );
+  }, [expanded, formValues, runAction]);
+
+  const confirmHierarchy = useCallback(() => {
+    if (expanded === null) {
+      return;
+    }
+    runAction(
+      () => createHierarchy(host, expanded.template.id, pickChosenChildValues(childValues)),
+      "Failed to create hierarchy.",
+    );
+  }, [expanded, childValues, runAction]);
+
+  const failBanner = failMessage && (
+    <Banner mode="error" withIcon>
+      {failMessage}
+    </Banner>
+  );
+
+  if (expanded !== null && info !== null && expanded.kind === "fields") {
     return (
       <div className="widget">
         <Text size={Text.Size.S} info>
-          Set fields from template {expandedTemplate.name}
+          Set fields from template {expanded.template.name}
         </Text>
         <TemplateFieldsForm
-          pending={{ mode: "fields", template: expandedTemplate }}
+          pending={{ mode: "fields", template: expanded.template }}
           fieldInfos={info.fields}
           values={formValues}
           setValues={setFormValues}
           submitting={submitting}
-          onConfirm={confirmForm}
-          onBack={collapseForm}
+          onConfirm={confirmFields}
+          onBack={collapse}
           showTitle={false}
           cancelLabel="Cancel"
         />
-        {failMessage && (
-          <Banner mode="error" withIcon>
-            {failMessage}
-          </Banner>
-        )}
+        {failBanner}
+      </div>
+    );
+  }
+
+  if (expanded !== null && info !== null) {
+    return (
+      <div className="widget">
+        <Text size={Text.Size.S} info>
+          Create hierarchy from template {expanded.template.name}
+        </Text>
+        <HierarchyForm
+          template={expanded.template}
+          fieldInfos={info.fields}
+          values={childValues}
+          setValues={setChildValues}
+          alreadyCreated={info.createdHierarchyTemplateIds.includes(expanded.template.id)}
+          submitting={submitting}
+          onConfirm={confirmHierarchy}
+          onBack={collapse}
+          cancelLabel="Cancel"
+        />
+        {failBanner}
       </div>
     );
   }
@@ -187,7 +275,12 @@ const AppComponent: React.FunctionComponent = () => {
         </Text>
       )}
       {rows.map((row) => (
-        <TemplateRow key={row.id} row={row} onSetFields={expandForm}/>
+        <TemplateRow
+          key={row.id}
+          row={row}
+          onSetFields={expandFields}
+          onCreateHierarchy={expandHierarchy}
+        />
       ))}
       {info !== null && (
         <div className="template-status-toolbar">

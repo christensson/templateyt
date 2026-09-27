@@ -1,12 +1,29 @@
+import ChevronDownIcon from "@jetbrains/icons/chevron-down";
+import ChevronLeftIcon from "@jetbrains/icons/chevron-left";
 import WarningIcon from "@jetbrains/icons/warning-empty";
 import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import React, { useMemo } from "react";
 import {
+  ChildTemplate,
   Template,
+  flattenChildTemplates,
+  formatChildTemplate,
   formatTemplateAddCondition,
   formatTemplateFields,
+  formatTemplateHierarchy,
   formatTemplateValidCondition,
+  getChildTemplates,
 } from "../../@types/template";
+
+// Ring UI indents list items by one --ring-unit (8px) per level; use several per tree depth so
+// the hierarchy is visible at a glance.
+const LEVELS_PER_DEPTH = 3;
+
+type TemplateListItem = ListDataItem<{
+  templateItem?: Template;
+  // Set on rows that represent a child template of `templateItem`.
+  childTemplateItem?: ChildTemplate;
+}>;
 
 interface TemplateListProps {
   templates: Array<Template>;
@@ -17,7 +34,35 @@ interface TemplateListProps {
   onlyShowGrouped?: boolean;
   className?: string;
   disabled?: boolean;
+  // Show the child templates of the selected hierarchical template as indented rows below it.
+  // Other hierarchical templates show a chevron to indicate that they expand when selected.
+  showChildren?: boolean;
+  selectedChildId?: string | null;
+  onSelectChild?: (template: Template, child: ChildTemplate) => void;
 }
+
+const getDetails = (template: Template): [string, boolean] => {
+  const hasNoValid =
+    !template?.validCondition ||
+    (Array.isArray(template.validCondition) && template.validCondition.length === 0);
+  if (hasNoValid) {
+    return ["Incomplete configuration! No validity condition set.", true];
+  }
+
+  const parts = [formatTemplateValidCondition(template)];
+  if (template.addCondition !== null) {
+    parts.push(formatTemplateAddCondition(template));
+  }
+  const fieldsDescription = formatTemplateFields(template);
+  if (fieldsDescription) {
+    parts.push(fieldsDescription);
+  }
+  const hierarchyDescription = formatTemplateHierarchy(template);
+  if (hierarchyDescription) {
+    parts.push(hierarchyDescription);
+  }
+  return [parts.join(" "), false];
+};
 
 const getListItems = (
   data: Array<Template>,
@@ -26,38 +71,46 @@ const getListItems = (
   onlyShowGrouped?: boolean,
   disabled?: boolean,
   selectedTemplate: Template | null = null,
-): Array<ListDataItem<{ templateItem?: Template }>> => {
-  const getDetails = (template: Template): [string, boolean] => {
-    const hasNoValid =
-      !template?.validCondition ||
-      (Array.isArray(template.validCondition) && template.validCondition.length === 0);
-    if (hasNoValid) {
-      return ["Incomplete configuration! No validity condition set.", true];
-    }
-
-    let description = formatTemplateValidCondition(template);
-
-    if (template.addCondition !== null) {
-      description += " " + formatTemplateAddCondition(template);
-    }
-    const fieldsDescription = formatTemplateFields(template);
-    if (fieldsDescription) {
-      description += " " + fieldsDescription;
-    }
-    return [description, false];
-  };
-
-  const makeListItem = (template: Template): ListDataItem<{ templateItem?: Template }> => {
+  showChildren?: boolean,
+): Array<TemplateListItem> => {
+  const makeListItems = (template: Template): Array<TemplateListItem> => {
     const [details, hasWarning] = getDetails(template);
-    return {
-      disabled: template.id === selectedTemplate?.id ? false : disabled,
-      key: template.id,
-      rgItemType: 2,
-      label: template.name,
-      details: details,
-      templateItem: template,
-      rightGlyph: hasWarning ? WarningIcon : undefined,
-    };
+    const isSelected = template.id === selectedTemplate?.id;
+    const itemDisabled = isSelected ? false : disabled;
+    const expandable = showChildren && template.hierarchical;
+    // The warning takes precedence over the expand chevron on the right side.
+    let rightGlyph;
+    if (hasWarning) {
+      rightGlyph = WarningIcon;
+    } else if (expandable) {
+      rightGlyph = isSelected ? ChevronDownIcon : ChevronLeftIcon;
+    }
+    const items: Array<TemplateListItem> = [
+      {
+        disabled: itemDisabled,
+        key: template.id,
+        rgItemType: 2,
+        label: template.name,
+        details: details,
+        templateItem: template,
+        rightGlyph: rightGlyph,
+      },
+    ];
+    if (expandable && isSelected) {
+      for (const { child, depth } of flattenChildTemplates(getChildTemplates(template))) {
+        items.push({
+          disabled: itemDisabled,
+          key: child.id,
+          rgItemType: 2,
+          level: (depth + 1) * LEVELS_PER_DEPTH,
+          label: child.name,
+          details: formatChildTemplate(child),
+          templateItem: template,
+          childTemplateItem: child,
+        });
+      }
+    }
+    return items;
   };
 
   const templatesInGroups: Record<string, Template[]> = {};
@@ -82,7 +135,7 @@ const getListItems = (
   const groupOrderAll = [...groupOrderLocal, ...remainingGroups];
 
   // Add grouped templates.
-  const items: Array<ListDataItem<{ templateItem?: Template }>> = [];
+  const items: Array<TemplateListItem> = [];
   for (const group of groupOrderAll) {
     const templatesInGroup = templatesInGroups[group];
     if (templatesInGroup.length === 0) {
@@ -92,7 +145,7 @@ const getListItems = (
       rgItemType: 5,
       label: group,
     });
-    items.push(...templatesInGroup.map(makeListItem));
+    items.push(...templatesInGroup.flatMap(makeListItems));
   }
 
   if (onlyShowGrouped) {
@@ -106,9 +159,25 @@ const getListItems = (
       label: "Other templates",
     });
   }
-  items.push(...nonGroupedTemplates.map(makeListItem));
+  items.push(...nonGroupedTemplates.flatMap(makeListItems));
 
   return items;
+};
+
+const findActiveIndex = (
+  items: Array<TemplateListItem>,
+  selectedTemplate: Template | null,
+  selectedChildId: string | null | undefined,
+): number => {
+  if (selectedTemplate === null || selectedTemplate.id === "") {
+    return -1;
+  }
+  if (selectedChildId) {
+    return items.findIndex((item) => item?.childTemplateItem?.id === selectedChildId);
+  }
+  return items.findIndex(
+    (item) => item?.templateItem?.id === selectedTemplate.id && !item.childTemplateItem,
+  );
 };
 
 const TemplateList: React.FunctionComponent<TemplateListProps> = ({
@@ -120,6 +189,9 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
   onlyShowGrouped,
   className,
   disabled,
+  showChildren,
+  selectedChildId,
+  onSelectChild,
 }) => {
   const listItems = useMemo(
     () =>
@@ -130,22 +202,30 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
         onlyShowGrouped,
         disabled,
         selectedTemplate,
+        showChildren,
       ),
-    [templates, templateIdGroupMap, groupOrder, onlyShowGrouped, disabled, selectedTemplate],
+    [
+      templates,
+      templateIdGroupMap,
+      groupOrder,
+      onlyShowGrouped,
+      disabled,
+      selectedTemplate,
+      showChildren,
+    ],
   );
 
   return (
     <List
       data={listItems}
-      activeIndex={
-        selectedTemplate != null && selectedTemplate.id !== ""
-          ? listItems.findIndex(
-              (item) => item?.templateItem && item.templateItem.id === selectedTemplate?.id,
-            )
-          : -1
-      }
-      onSelect={(item: ListDataItem<{ templateItem?: Template }>) => {
-        if (item.templateItem) {
+      activeIndex={findActiveIndex(listItems, selectedTemplate, selectedChildId)}
+      onSelect={(item: TemplateListItem) => {
+        if (!item.templateItem) {
+          return;
+        }
+        if (item.childTemplateItem) {
+          onSelectChild?.(item.templateItem, item.childTemplateItem);
+        } else {
           setSelectedTemplate(item.templateItem);
         }
       }}

@@ -93,10 +93,48 @@ const applyTemplateFields = (issue, template) => {
   }
 };
 
+// Field add-conditions of the templates that match the current change (or the new issue).
+const getMatchedActionFields = (issue, validTemplates) => {
+  const validActionFields = validTemplates
+    .filter((t) => (t?.addCondition ? t?.addCondition?.when === "field_becomes" : false))
+    .map((t) => ({
+      name: t.addCondition.fieldName,
+      value: t.addCondition.fieldValue,
+    }));
+  if (issue.isNew) {
+    return validActionFields.filter((f) => issue.fields[f.name]?.name === f.value);
+  }
+  return validActionFields.filter(
+    (f) => issue.isChanged(f.name) && issue.fields.becomes(f.name, f.value),
+  );
+};
+
+// Tag add-conditions of the templates that match the current change (or the new issue).
+const getMatchedActionTags = (issue, validTemplates) => {
+  const validActionTags = validTemplates
+    .filter((t) => (t?.addCondition ? t?.addCondition?.when === "tag_added" : false))
+    .map((t) => ({
+      tagName: t.addCondition.tagName,
+    }));
+  if (issue.isNew) {
+    return validActionTags.filter((t) => issue.tags.find((tag) => tag.name === t.tagName));
+  }
+  return validActionTags.filter(
+    (t) =>
+      issue.tags.added.find((tag) => tag.name === t.tagName) ||
+      issue.tags.removed.find((tag) => tag.name === t.tagName),
+  );
+};
+
 exports.rule = entities.Issue.onChange({
   title: "Apply ticket template",
   guard: function guard(ctx) {
     const issue = ctx.issue;
+    // Subtasks created from a template hierarchy get their content and fields from the
+    // hierarchy; do not auto-apply templates to them on creation.
+    if (issue.isNew && issue.extensionProperties.createdFromChildTemplateId) {
+      return false;
+    }
     const validTemplates = getValidTemplates(ctx, issue);
 
     log("Issue " + issue.id + " valid templates issue: " + JSON.stringify(validTemplates));
@@ -104,20 +142,7 @@ exports.rule = entities.Issue.onChange({
       return false;
     }
 
-    const validActionFields = validTemplates
-      .filter((t) => (t?.addCondition ? t?.addCondition?.when === "field_becomes" : false))
-      .map((t) => ({
-        name: t.addCondition.fieldName,
-        value: t.addCondition.fieldValue,
-      }));
-    let matchedActionFields = [];
-    if (issue.isNew) {
-      matchedActionFields = validActionFields.filter((f) => issue.fields[f.name]?.name === f.value);
-    } else {
-      matchedActionFields = validActionFields.filter(
-        (f) => issue.isChanged(f.name) && issue.fields.becomes(f.name, f.value),
-      );
-    }
+    const matchedActionFields = getMatchedActionFields(issue, validTemplates);
     log(
       `Issue ${issue.id}${issue.isNew ? " (new)" : ""} fields matched issue: ${JSON.stringify(matchedActionFields)}`,
     );
@@ -125,23 +150,7 @@ exports.rule = entities.Issue.onChange({
       return true;
     }
 
-    const validActionTags = validTemplates
-      .filter((t) => (t?.addCondition ? t?.addCondition?.when === "tag_added" : false))
-      .map((t) => ({
-        tagName: t.addCondition.tagName,
-      }));
-    let matchedActionTags = [];
-    if (issue.isNew) {
-      matchedActionTags = validActionTags.filter((t) =>
-        issue.tags.find((tag) => tag.name === t.tagName),
-      );
-    } else {
-      matchedActionTags = validActionTags.filter(
-        (t) =>
-          issue.tags.added.find((tag) => tag.name === t.tagName) ||
-          issue.tags.removed.find((tag) => tag.name === t.tagName),
-      );
-    }
+    const matchedActionTags = getMatchedActionTags(issue, validTemplates);
     log(
       `Issue ${issue.id}${issue.isNew ? " (new)" : ""} tags matched issue: ${JSON.stringify(matchedActionTags)}`,
     );

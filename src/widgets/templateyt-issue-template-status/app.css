@@ -31,3 +31,28 @@
 .template-fields-form-actions {
   padding: var(--ring-unit) 0 0 0;
 }
+
+.template-status-row-actions {
+  display: flex;
+  gap: var(--ring-unit);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.template-hierarchy-list {
+  gap: calc(var(--ring-unit) * 1.5);
+}
+
+.template-hierarchy-child {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit) / 2);
+}
+
+.template-hierarchy-child-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit) / 2);
+  padding-left: var(--ring-unit);
+  border-left: 2px solid var(--ring-line-color);
+}

@@ -1,11 +1,12 @@
-import AddIcon from "@jetbrains/icons/add-12px";
 import ArticleIcon from "@jetbrains/icons/article";
 import ConditionIcon from "@jetbrains/icons/buildType-12px";
+import ImportIcon from "@jetbrains/icons/download";
 import EditIcon from "@jetbrains/icons/pencil";
 import FieldIcon from "@jetbrains/icons/settings-12px";
 import TrashIcon from "@jetbrains/icons/trash";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
+import Checkbox from "@jetbrains/ring-ui-built/components/checkbox/checkbox";
 import Confirm from "@jetbrains/ring-ui-built/components/confirm/confirm";
 import DropdownMenu from "@jetbrains/ring-ui-built/components/dropdown-menu/dropdown-menu";
 import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
@@ -17,21 +18,28 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { isConditionField, type ProjectFieldInfo, type TagInfo } from "../../@types/project-info";
 import {
   createNullTemplate,
+  findChildTemplate,
+  flattenChildTemplates,
   formatAddCondition,
   formatTemplateField,
+  formatTemplateHierarchy,
   formatValidCondition,
+  getChildTemplates,
   getTemplateFields,
   getValidConditions,
-  hasUserInputFields,
+  mergeImportedChildren,
+  validateChildTemplates,
   validateTemplateFields,
+  type ImportedArticle,
   type Template,
   type ValidCondition,
 } from "../../@types/template";
 import type { TemplateArticle } from "../../@types/template-article";
+import ChildTemplateEdit from "./child-template-edit";
 import EntityTypeConditionInput from "./entity-type-condition-input";
 import FieldConditionInput from "./field-condition-input";
 import TagConditionInput from "./tag-condition-input";
-import TemplateFieldInput from "./template-field-input";
+import TemplateFieldsPanel from "./template-fields-panel";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
@@ -133,6 +141,18 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
       </div>
       <div className="template-edit-field-panel">
         <Text size={Text.Size.S} info>
+          Condition when template is added automatically
+        </Text>
+        {template.addCondition == null ? (
+          <Text size={Text.Size.M}>No automatic condition set.</Text>
+        ) : (
+          <Text size={Text.Size.M}>
+            <Icon glyph={ConditionIcon}/> {formatAddCondition(template.addCondition, true)}
+          </Text>
+        )}
+      </div>
+      <div className="template-edit-field-panel">
+        <Text size={Text.Size.S} info>
           Ticket fields set by template
         </Text>
         {templateFields.length === 0 ? (
@@ -149,83 +169,95 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
       </div>
       <div className="template-edit-field-panel">
         <Text size={Text.Size.S} info>
-          Condition when template is added automatically
+          Ticket hierarchy
         </Text>
-        {template.addCondition == null ? (
-          <Text size={Text.Size.M}>No automatic condition set.</Text>
-        ) : (
-          <Text size={Text.Size.M}>
-            <Icon glyph={ConditionIcon}/> {formatAddCondition(template.addCondition, true)}
-          </Text>
-        )}
+        <Text size={Text.Size.M}>{formatTemplateHierarchy(template) || "Not hierarchical."}</Text>
       </div>
     </>
   );
 };
 
-interface TemplateFieldsPanelProps {
+interface HierarchyPanelProps {
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
-  projectFields: Array<ProjectFieldInfo>;
 }
 
-// Editable list of the ticket fields a template sets.
-const TemplateFieldsPanel: React.FunctionComponent<TemplateFieldsPanelProps> = ({
-  template,
-  setTemplate,
-  projectFields,
-}) => {
-  const templateFields = getTemplateFields(template);
-  const hasFieldTrigger = template.addCondition?.when === "field_becomes";
+type ChildArticlesResponse = ImportedArticle & { success?: boolean; message?: string };
 
-  const addField = () =>
-    setTemplate((prev) => ({
-      ...prev,
-      fields: [...getTemplateFields(prev), { fieldName: "", mode: "fixed", fieldValue: "" }],
-    }));
+// Hierarchy settings of a template: the enable checkbox and the child article import.
+const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({ template, setTemplate }) => {
+  const [importing, setImporting] = useState<boolean>(false);
+  const [importMessage, setImportMessage] = useState<string>("");
+  const childCount = flattenChildTemplates(getChildTemplates(template)).length;
 
-  const removeField = (idx: number) =>
-    setTemplate((prev) => {
-      const updated = [...getTemplateFields(prev)];
-      updated.splice(idx, 1);
-      return { ...prev, fields: updated };
-    });
+  const importChildren = async () => {
+    setImporting(true);
+    setImportMessage("");
+    try {
+      const result = await host.fetchApp<ChildArticlesResponse>("backend/getChildArticles", {
+        scope: true,
+        method: "POST",
+        body: { articleId: template.articleId },
+      });
+      console.log("Child articles", result);
+      if (result.success === false) {
+        setImportMessage(result.message || "Failed to import child articles.");
+        return;
+      }
+      setTemplate((prev) => ({
+        ...prev,
+        children: mergeImportedChildren(getChildTemplates(prev), result.children),
+      }));
+      setImportMessage("Child articles imported.");
+    } catch (error) {
+      console.error("Failed to import child articles", error);
+      setImportMessage("Failed to import child articles.");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   return (
     <div className="template-edit-field-panel">
       <Text size={Text.Size.S} info>
-        Ticket fields set by template
+        Ticket hierarchy
       </Text>
-      {templateFields.length === 0 && <Text size={Text.Size.M}>No fields set yet.</Text>}
-      {templateFields.map((field, idx) => (
-        // Fields are keyed by position: the field name is user-editable and may be empty or
-        // temporarily duplicated while editing, and the inputs are fully controlled by `template`.
-        // eslint-disable-next-line react/no-array-index-key
-        <div key={`template-field-${idx}`} style={{ display: "flex", gap: 8 }}>
-          <TemplateFieldInput
-            fields={projectFields}
-            template={template}
-            setTemplate={setTemplate}
-            fieldIndex={idx}
-          />
-          <Button onClick={() => removeField(idx)} icon={TrashIcon} title="Remove field"/>
-        </div>
-      ))}
-      <div>
-        <Button onClick={addField} icon={AddIcon} inline>
-          Add field
-        </Button>
-      </div>
-      {hasUserInputFields(template) && (
-        <Text size={Text.Size.S} info>
-          Fields with a value chosen by the user are only set when the template is applied manually
-          from the Apply template menu of a ticket.
-        </Text>
-      )}
-      {hasFieldTrigger && templateFields.length > 0 && (
-        <Text size={Text.Size.S} info>
-          The field used in the automatic add condition can only be set to the triggering value.
-        </Text>
+      <Checkbox
+        label="Enable hierarchical template"
+        checked={template.hierarchical}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+          const hierarchical = e.target.checked;
+          setTemplate((prev) => ({ ...prev, hierarchical }));
+        }}
+      />
+      {template.hierarchical && (
+        <>
+          <div>
+            <Button
+              onClick={importChildren}
+              disabled={!template.articleId || importing}
+              loader={importing}
+              icon={ImportIcon}
+              inline
+            >
+              Import child articles
+            </Button>
+          </div>
+          <Text size={Text.Size.M}>
+            {childCount === 0
+              ? "No child templates yet. Import the child articles of the template article."
+              : `${childCount} child template${childCount === 1 ? "" : "s"}. Select one in the list to configure it.`}
+          </Text>
+          {importMessage && (
+            <Text size={Text.Size.S} info>
+              {importMessage}
+            </Text>
+          )}
+          <Text size={Text.Size.S} info>
+            Ticket hierarchies are created manually for tickets, from the Apply template menu or the
+            Applied templates panel. Child templates have no conditions.
+          </Text>
+        </>
       )}
     </div>
   );
@@ -405,7 +437,6 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
           }}
         />
       </div>
-      <TemplateFieldsPanel template={template} setTemplate={setTemplate} projectFields={projectFields}/>
       <div className="template-edit-field-panel">
         <Select
           clear
@@ -437,6 +468,14 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
           />
         )}
       </div>
+      <TemplateFieldsPanel
+        title="Ticket fields set by template"
+        fields={getTemplateFields(template)}
+        onFieldsChange={(fields) => setTemplate((prev) => ({ ...prev, fields }))}
+        projectFields={projectFields}
+        addCondition={template.addCondition}
+      />
+      <HierarchyPanel template={template} setTemplate={setTemplate}/>
     </>
   );
 };
@@ -450,6 +489,9 @@ interface TemplateEditProps {
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
   setTemplates?: React.Dispatch<React.SetStateAction<Array<Template>>>;
+  // Child template selected in the list, shown instead of the template itself.
+  selectedChildId: string | null;
+  setSelectedChildId: (childId: string | null) => void;
 }
 
 const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
@@ -461,6 +503,8 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   template,
   setTemplate,
   setTemplates,
+  selectedChildId,
+  setSelectedChildId,
 }) => {
   const [projectFields, setProjectFields] = useState<Array<ProjectFieldInfo>>([]);
   const [projectTags, setProjectTags] = useState<Array<TagInfo>>([]);
@@ -553,6 +597,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       setEditFailMessage({ mode: "error", message: fieldsError });
       return;
     }
+    const childrenError = validateChildTemplates(templateToStore);
+    if (childrenError !== null) {
+      setEditFailMessage({ mode: "error", message: childrenError });
+      return;
+    }
 
     const result = await host.fetchApp<{
       success: boolean;
@@ -630,9 +679,24 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     [templateArticles],
   );
 
-  return (
-    <div className="template-edit">
-      {editing ? (
+  const selectedChild =
+    selectedChildId !== null ? findChildTemplate(template, selectedChildId) : null;
+
+  const renderBody = () => {
+    if (selectedChild !== null) {
+      return (
+        <ChildTemplateEdit
+          template={template}
+          child={selectedChild}
+          editing={editing}
+          setTemplate={setTemplate}
+          projectFields={projectFields}
+          onBack={() => setSelectedChildId(null)}
+        />
+      );
+    }
+    if (editing) {
+      return (
         <TemplateEditForm
           template={template}
           setTemplate={setTemplate}
@@ -644,9 +708,16 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           onTagsFilter={onTagsFilter}
           onTagsLoadMore={onTagsLoadMore}
         />
-      ) : (
-        <TemplateView template={template} templateArticleSelectItems={templateArticleSelectItems}/>
-      )}
+      );
+    }
+    return (
+      <TemplateView template={template} templateArticleSelectItems={templateArticleSelectItems}/>
+    );
+  };
+
+  return (
+    <div className="template-edit">
+      {renderBody()}
       {editFailMessage !== null && (
         <Banner
           mode={editFailMessage.mode}

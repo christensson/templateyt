@@ -39,6 +39,28 @@ export type TemplateUserInputField = {
 export type TemplateField = TemplateFixedField | TemplateUserInputField;
 export type TemplateFieldMode = TemplateField["mode"];
 
+// Anything that carries a template field list: a template or a child template.
+export type HasFields = { fields?: Array<TemplateField> };
+
+// A child article of the template article, turned into a subtask when the ticket hierarchy of a
+// hierarchical template is created. Child templates have no conditions.
+export type ChildTemplate = {
+  id: string; // Stable across re-imports of the child articles.
+  articleId: string;
+  name: string; // Summary of the created subtask.
+  fields: Array<TemplateField>;
+  // Copy the values of the fields the parent template configures from the parent ticket.
+  inheritParentFields: boolean;
+  children: Array<ChildTemplate>;
+};
+
+// Article tree as returned by the backend when importing child articles.
+export type ImportedArticle = {
+  articleId: string;
+  summary: string;
+  children: Array<ImportedArticle>;
+};
+
 export type Template = {
   id: string;
   name: string;
@@ -46,6 +68,8 @@ export type Template = {
   validCondition: Array<ValidCondition>;
   addCondition: AddCondition | null;
   fields: Array<TemplateField>;
+  hierarchical: boolean;
+  children: Array<ChildTemplate>;
 };
 
 const capitalizeFirst = (str: string): string =>
@@ -55,11 +79,75 @@ const capitalizeFirst = (str: string): string =>
 export const getValidConditions = (template: Template): Array<ValidCondition> =>
   Array.isArray(template?.validCondition) ? template.validCondition : [];
 
-export const getTemplateFields = (template: Template): Array<TemplateField> =>
+export const getTemplateFields = (template: HasFields): Array<TemplateField> =>
   Array.isArray(template?.fields) ? template.fields : [];
 
-export const hasUserInputFields = (template: Template): boolean =>
+export const hasUserInputFields = (template: HasFields): boolean =>
   getTemplateFields(template).some((field) => field.mode === "user_input");
+
+export const getChildTemplates = (parent: { children?: Array<ChildTemplate> }): Array<ChildTemplate> =>
+  Array.isArray(parent?.children) ? parent.children : [];
+
+export type FlatChildTemplate = {
+  child: ChildTemplate;
+  depth: number;
+};
+
+// Child templates in tree order with their depth, for rendering trees as lists.
+export const flattenChildTemplates = (
+  children: Array<ChildTemplate>,
+  depth: number = 0,
+): Array<FlatChildTemplate> =>
+  children.flatMap((child) => [
+    { child, depth },
+    ...flattenChildTemplates(getChildTemplates(child), depth + 1),
+  ]);
+
+export const findChildTemplate = (template: Template, childId: string): ChildTemplate | null =>
+  flattenChildTemplates(getChildTemplates(template)).find((flat) => flat.child.id === childId)
+    ?.child ?? null;
+
+const updateChildInList = (
+  children: Array<ChildTemplate>,
+  childId: string,
+  updater: (child: ChildTemplate) => ChildTemplate,
+): Array<ChildTemplate> =>
+  children.map((child) =>
+    child.id === childId
+      ? updater(child)
+      : { ...child, children: updateChildInList(getChildTemplates(child), childId, updater) },
+  );
+
+// Returns a copy of the template with one child template replaced by updater(child).
+export const updateChildTemplate = (
+  template: Template,
+  childId: string,
+  updater: (child: ChildTemplate) => ChildTemplate,
+): Template => ({
+  ...template,
+  children: updateChildInList(getChildTemplates(template), childId, updater),
+});
+
+// Merges a freshly imported article tree into the existing child templates: articles already
+// present keep their id, fields and inherit flag, new articles get defaults, missing ones go.
+export const mergeImportedChildren = (
+  existing: Array<ChildTemplate>,
+  imported: Array<ImportedArticle>,
+): Array<ChildTemplate> =>
+  imported.map((article) => {
+    const current = existing.find((child) => child.articleId === article.articleId);
+    return {
+      id: current?.id ?? uuidv4(),
+      articleId: article.articleId,
+      name: article.summary,
+      fields: current ? getTemplateFields(current) : [],
+      inheritParentFields: current?.inheritParentFields ?? false,
+      children: mergeImportedChildren(current ? getChildTemplates(current) : [], article.children),
+    };
+  });
+
+export const hierarchyHasUserInputFields = (template: Template): boolean =>
+  flattenChildTemplates(getChildTemplates(template)).some((flat) => hasUserInputFields(flat.child));
 
 export const formatValidCondition = (
   validCond: ValidCondition,
@@ -131,7 +219,7 @@ export const formatTemplateAddCondition = (template: Template): string => {
 };
 
 // Short summary of the fields a template sets, or empty string when it sets none.
-export const formatTemplateFields = (template: Template): string => {
+export const formatTemplateFields = (template: HasFields): string => {
   const fields = getTemplateFields(template);
   if (fields.length === 0) {
     return "";
@@ -139,22 +227,53 @@ export const formatTemplateFields = (template: Template): string => {
   return `Sets fields: ${fields.map((field) => field.fieldName).join(", ")}.`;
 };
 
+export const formatTemplateHierarchy = (template: Template): string => {
+  if (!template.hierarchical) {
+    return "";
+  }
+  const count = flattenChildTemplates(getChildTemplates(template)).length;
+  return `Hierarchical with ${count} child template${count === 1 ? "" : "s"}.`;
+};
+
+export const formatChildTemplate = (child: ChildTemplate): string => {
+  const parts: Array<string> = [];
+  if (child.inheritParentFields) {
+    parts.push("Inherits fields from parent.");
+  }
+  const fields = formatTemplateFields(child);
+  if (fields) {
+    parts.push(fields);
+  }
+  return parts.length > 0 ? parts.join(" ") : "No fields set.";
+};
+
+// Validates a field list. `subject` prefixes the messages, e.g. `Template` or
+// `Child template "Name"`. Returns an error message, or null when valid.
+// Keep in sync with validateFieldList in backend.js.
+export const validateFieldList = (fields: Array<TemplateField>, subject: string): string | null => {
+  const seen = new Set<string>();
+  for (const field of fields) {
+    if (!field.fieldName) {
+      return `${subject} field is missing a field name, please select a field.`;
+    }
+    if (seen.has(field.fieldName)) {
+      return `${subject} field "${field.fieldName}" is listed more than once.`;
+    }
+    seen.add(field.fieldName);
+    if (field.mode === "fixed" && !field.fieldValue) {
+      return `${subject} field "${field.fieldName}" is missing a value.`;
+    }
+  }
+  return null;
+};
+
 // Validates the template field list. Returns an error message, or null when valid.
 // Keep in sync with validateTemplateFields in backend.js.
 export const validateTemplateFields = (template: Template): string | null => {
   const fields = getTemplateFields(template);
-  const seen = new Set<string>();
-  for (const field of fields) {
-    if (!field.fieldName) {
-      return "Template field is missing a field name, please select a field.";
-    }
-    if (seen.has(field.fieldName)) {
-      return `Template field "${field.fieldName}" is listed more than once.`;
-    }
-    seen.add(field.fieldName);
-    if (field.mode === "fixed" && !field.fieldValue) {
-      return `Template field "${field.fieldName}" is missing a value.`;
-    }
+  const listError = validateFieldList(fields, "Template");
+  if (listError !== null) {
+    return listError;
   }
 
   // A template must never set its own trigger field to another value than the one that
@@ -173,6 +292,28 @@ export const validateTemplateFields = (template: Template): string | null => {
   return null;
 };
 
+// Validates the child templates of a hierarchical template. Returns an error message, or null.
+// Keep in sync with validateChildTemplates in backend.js.
+export const validateChildTemplates = (template: Template): string | null => {
+  if (!template.hierarchical) {
+    return null;
+  }
+  const flat = flattenChildTemplates(getChildTemplates(template));
+  if (flat.length === 0) {
+    return "Hierarchical template has no child templates, import child articles first.";
+  }
+  for (const { child } of flat) {
+    if (!child.name || child.name.trim() === "") {
+      return `Child template for article ${child.articleId} needs a name.`;
+    }
+    const error = validateFieldList(getTemplateFields(child), `Child template "${child.name}"`);
+    if (error !== null) {
+      return error;
+    }
+  }
+  return null;
+};
+
 export const createEmptyTemplate = (): Template => ({
   id: uuidv4(),
   name: "",
@@ -180,6 +321,8 @@ export const createEmptyTemplate = (): Template => ({
   validCondition: [],
   addCondition: null,
   fields: [],
+  hierarchical: false,
+  children: [],
 });
 
 export const createNullTemplate = (): Template => ({
@@ -189,4 +332,6 @@ export const createNullTemplate = (): Template => ({
   validCondition: [],
   addCondition: null,
   fields: [],
+  hierarchical: false,
+  children: [],
 });

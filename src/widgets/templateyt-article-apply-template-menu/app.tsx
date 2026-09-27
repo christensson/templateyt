@@ -1,5 +1,8 @@
+import MoreOptionsIcon from "@jetbrains/icons/more-options";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
+import DropdownMenu from "@jetbrains/ring-ui-built/components/dropdown-menu/dropdown-menu";
+import type { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
@@ -8,6 +11,16 @@ import TemplateList from "../../components/template-list";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
+
+// Secondary actions for a template, shown in a "..." menu to keep the button row compact.
+const getMoreActions = (template: Template): Array<ListDataItem> => [
+  {
+    rgItemType: 1,
+    label: `Open article ${template.articleId}`,
+    href: `/articles/${template.articleId}`,
+    target: "_blank",
+  },
+];
 
 type ArticleTemplateInfo = {
   usedTemplateIds: Array<string>;
@@ -213,9 +226,10 @@ const AppComponent: React.FunctionComponent = () => {
           {"Remove template"}
         </Button>
         {selectedTemplate !== null && (
-          <Button secondary href={`/articles/${selectedTemplate.articleId}`}>
-            {`Open article ${selectedTemplate.articleId}`}
-          </Button>
+          <DropdownMenu
+            anchor={<Button icon={MoreOptionsIcon} title="More actions"/>}
+            data={getMoreActions(selectedTemplate)}
+          />
         )}
       </Panel>
     </div>
