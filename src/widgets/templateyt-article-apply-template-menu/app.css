@@ -3,7 +3,7 @@
   flex-direction: column;
   gap: calc(var(--ring-unit) * 2);
   margin: calc(var(--ring-unit) / 2);
-  height: 380px;
+  height: 480px;
 }
 
 .article-template-row {
@@ -12,7 +12,7 @@
 }
 
 .article-template-used-templates-list {
-  max-height: 320px;
+  max-height: 420px;
   overflow-y: auto;
 }
 
