@@ -3,7 +3,7 @@
   flex-direction: column;
   gap: calc(var(--ring-unit) * 2);
   margin: calc(var(--ring-unit) / 2);
-  height: 280px;
+  height: 380px;
 }
 
 .article-template-config {

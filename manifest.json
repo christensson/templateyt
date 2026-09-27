@@ -47,8 +47,8 @@
       "iconPath": "icon-small.svg",
       "description": "Apply a ticket template to the current ticket.",
       "expectedDimensions": {
-        "height": 400,
-        "width": 480
+        "width": 600,
+        "height": 500
       },
       "permissions": [
         "UPDATE_ISSUE"
@@ -75,8 +75,8 @@
       "description": "Apply a template to the current article.",
       "guard": "({entity}) => entity.extensionProperties?.isTemplate !== true",
       "expectedDimensions": {
-        "width": 480,
-        "height": 400
+        "width": 600,
+        "height": 500
       },
       "permissions": [
         "UPDATE_ARTICLE"
