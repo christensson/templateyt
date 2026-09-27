@@ -1,5 +1,5 @@
 import ChevronDownIcon from "@jetbrains/icons/chevron-down";
-import ChevronLeftIcon from "@jetbrains/icons/chevron-left";
+import ChevronRightIcon from "@jetbrains/icons/chevron-right";
 import WarningIcon from "@jetbrains/icons/warning-empty";
 import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import React, { useMemo } from "react";
@@ -18,6 +18,19 @@ import {
 // Ring UI indents list items by one --ring-unit (8px) per level; use several per tree depth so
 // the hierarchy is visible at a glance.
 const LEVELS_PER_DEPTH = 3;
+
+// Invisible glyph of the same size as the chevrons, so that rows without a chevron keep the
+// same label indent as expandable rows.
+const BLANK_GLYPH =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"></svg>';
+
+// Left glyph of a template row in tree mode: chevron for hierarchical templates, blank otherwise.
+const getTreeGlyph = (template: Template, isSelected: boolean): string => {
+  if (!template.hierarchical) {
+    return BLANK_GLYPH;
+  }
+  return isSelected ? ChevronDownIcon : ChevronRightIcon;
+};
 
 type TemplateListItem = ListDataItem<{
   templateItem?: Template;
@@ -78,13 +91,6 @@ const getListItems = (
     const isSelected = template.id === selectedTemplate?.id;
     const itemDisabled = isSelected ? false : disabled;
     const expandable = showChildren && template.hierarchical;
-    // The warning takes precedence over the expand chevron on the right side.
-    let rightGlyph;
-    if (hasWarning) {
-      rightGlyph = WarningIcon;
-    } else if (expandable) {
-      rightGlyph = isSelected ? ChevronDownIcon : ChevronLeftIcon;
-    }
     const items: Array<TemplateListItem> = [
       {
         disabled: itemDisabled,
@@ -93,7 +99,8 @@ const getListItems = (
         label: template.name,
         details: details,
         templateItem: template,
-        rightGlyph: rightGlyph,
+        glyph: showChildren ? getTreeGlyph(template, isSelected) : undefined,
+        rightGlyph: hasWarning ? WarningIcon : undefined,
       },
     ];
     if (expandable && isSelected) {
@@ -103,6 +110,7 @@ const getListItems = (
           key: child.id,
           rgItemType: 2,
           level: (depth + 1) * LEVELS_PER_DEPTH,
+          glyph: BLANK_GLYPH,
           label: child.name,
           details: formatChildTemplate(child),
           templateItem: template,
