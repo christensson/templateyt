@@ -2,6 +2,7 @@ import ArticleIcon from "@jetbrains/icons/article";
 import ConditionIcon from "@jetbrains/icons/buildType-12px";
 import ImportIcon from "@jetbrains/icons/download";
 import EditIcon from "@jetbrains/icons/pencil";
+import ReplaceIcon from "@jetbrains/icons/pencil-12px";
 import FieldIcon from "@jetbrains/icons/settings-12px";
 import TrashIcon from "@jetbrains/icons/trash";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
@@ -21,14 +22,17 @@ import {
   findChildTemplate,
   flattenChildTemplates,
   formatAddCondition,
+  formatReplacement,
   formatTemplateField,
   formatTemplateHierarchy,
   formatValidCondition,
   getChildTemplates,
   getTemplateFields,
+  getTemplateReplacements,
   getValidConditions,
   mergeImportedChildren,
   validateChildTemplates,
+  validateReplacements,
   validateTemplateFields,
   type ImportedArticle,
   type Template,
@@ -40,6 +44,7 @@ import EntityTypeConditionInput from "./entity-type-condition-input";
 import FieldConditionInput from "./field-condition-input";
 import TagConditionInput from "./tag-condition-input";
 import TemplateFieldsPanel from "./template-fields-panel";
+import TemplateReplacementsPanel from "./template-replacements-panel";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
@@ -166,6 +171,19 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
             ))}
           </div>
         )}
+      </div>
+      <div className="template-edit-field-panel">
+        <Text size={Text.Size.S} info>
+          Text replacements
+        </Text>
+        {getTemplateReplacements(template).length === 0 && (
+          <Text size={Text.Size.M}>No text replacements.</Text>
+        )}
+        {getTemplateReplacements(template).map((replacement) => (
+          <Text size={Text.Size.M} key={`replacement-text-${replacement.search}`}>
+            <Icon glyph={ReplaceIcon}/> {formatReplacement(replacement)}
+          </Text>
+        ))}
       </div>
       <div className="template-edit-field-panel">
         <Text size={Text.Size.S} info>
@@ -475,6 +493,11 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
         projectFields={projectFields}
         addCondition={template.addCondition}
       />
+      <TemplateReplacementsPanel
+        replacements={getTemplateReplacements(template)}
+        onReplacementsChange={(replacements) => setTemplate((prev) => ({ ...prev, replacements }))}
+        projectFields={projectFields}
+      />
       <HierarchyPanel template={template} setTemplate={setTemplate}/>
     </>
   );
@@ -600,6 +623,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     const childrenError = validateChildTemplates(templateToStore);
     if (childrenError !== null) {
       setEditFailMessage({ mode: "error", message: childrenError });
+      return;
+    }
+    const replacementsError = validateReplacements(templateToStore);
+    if (replacementsError !== null) {
+      setEditFailMessage({ mode: "error", message: replacementsError });
       return;
     }
 

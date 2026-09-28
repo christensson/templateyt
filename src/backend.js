@@ -187,6 +187,70 @@ const validateChildList = (children, ownerName) => {
   return null;
 };
 
+const REPLACEMENT_MODES = ["user_input", "field"];
+
+// Validates the text replacements of a template. Returns an error message or null.
+// Keep in sync with validateReplacements in @types/template.ts.
+const validateReplacements = (template) => {
+  const replacements = template.replacements;
+  if (replacements === undefined) {
+    return null;
+  }
+  if (!Array.isArray(replacements)) {
+    return "Template replacements is not an array.";
+  }
+  const seen = [];
+  for (const replacement of replacements) {
+    const search = replacement && typeof replacement.search === "string" ? replacement.search : "";
+    if (search.trim() === "") {
+      return "Text replacement is missing the word to replace.";
+    }
+    if (/\s/.test(search)) {
+      return `Text replacement "${search}" must be a single word without spaces.`;
+    }
+    if (seen.includes(search)) {
+      return `Text replacement "${search}" is listed more than once.`;
+    }
+    seen.push(search);
+    if (!REPLACEMENT_MODES.includes(replacement.mode)) {
+      return `Text replacement "${search}" has unknown mode "${replacement.mode}".`;
+    }
+    if (
+      replacement.mode === "field" &&
+      (typeof replacement.fieldName !== "string" || replacement.fieldName === "")
+    ) {
+      return `Text replacement "${search}" is missing the root ticket field.`;
+    }
+  }
+  return null;
+};
+
+// Error text for a resolveReplacements result, or null when everything resolved.
+const getReplacementError = (resolved) => {
+  if (resolved.errors.length > 0) {
+    return resolved.errors.join(" ");
+  }
+  if (resolved.missingInputs.length > 0) {
+    return resolved.missingInputs.map((search) => `Text for ${search} is required.`).join(" ");
+  }
+  return null;
+};
+
+// Assigns summary and description only when the replacements changed them.
+const applyReplacementsToIssue = (issue, values) => {
+  if (values.length === 0) {
+    return;
+  }
+  const newSummary = utils.applyReplacements(issue.summary || "", values);
+  if (newSummary !== (issue.summary || "")) {
+    issue.summary = newSummary;
+  }
+  const newDescription = utils.applyReplacements(issue.description || "", values);
+  if (newDescription !== (issue.description || "")) {
+    issue.description = newDescription;
+  }
+};
+
 // Validates the hierarchy settings of a template. Returns an error message or null.
 // Keep in sync with validateChildTemplates in @types/template.ts.
 const validateChildTemplates = (template) => {
@@ -245,13 +309,11 @@ const validateTemplate = (template) => {
       return error;
     }
   }
-  const fieldsError = validateTemplateFields(template);
-  if (fieldsError !== null) {
-    return fieldsError;
-  }
-  const childrenError = validateChildTemplates(template);
-  if (childrenError !== null) {
-    return childrenError;
+  for (const validate of [validateTemplateFields, validateChildTemplates, validateReplacements]) {
+    const error = validate(template);
+    if (error !== null) {
+      return error;
+    }
   }
   const articleId = template?.articleId;
   if (articleId === undefined || articleId === "") {
@@ -491,6 +553,7 @@ exports.httpHandler = {
           validTemplateIds: validTemplateIds,
           fields: fields,
           currentFieldValues: utils.getIssueFieldValues(issue, fields),
+          currentFieldPresentations: utils.getIssueFieldPresentations(issue, fields),
           pendingTemplateIds: utils.getPendingTemplateIds(issue),
           createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(issue),
         });
@@ -555,13 +618,26 @@ exports.httpHandler = {
           badRequest(ctx, `Failed to add template: ${resolved.errors.join(" ")}`);
           return;
         }
+        const replacements = utils.resolveReplacements(
+          issue,
+          template,
+          body.replacementTexts,
+          true,
+        );
+        const replacementError = getReplacementError(replacements);
+        if (replacementError !== null) {
+          badRequest(ctx, `Failed to add template: ${replacementError}`);
+          return;
+        }
 
-        // Add template to ticket description.
+        // Add template to ticket description, with replacements applied to the ticket summary
+        // and to the template content.
+        applyReplacementsToIssue(issue, replacements.values);
         let newDescription = issue.description ? issue.description.trim() : "";
         if (newDescription.length > 0) {
           newDescription += "\n\n";
         }
-        newDescription += templateContent.trim();
+        newDescription += utils.applyReplacements(templateContent.trim(), replacements.values);
         issue.description = newDescription;
 
         // Set ticket fields defined by template.
@@ -623,7 +699,20 @@ exports.httpHandler = {
           badRequest(ctx, `Failed to set fields from template: ${resolved.errors.join(" ")}`);
           return;
         }
+        const replacements = utils.resolveReplacements(
+          issue,
+          template,
+          body.replacementTexts,
+          true,
+        );
+        const replacementError = getReplacementError(replacements);
+        if (replacementError !== null) {
+          badRequest(ctx, `Failed to set fields from template: ${replacementError}`);
+          return;
+        }
         utils.applyFieldAssignments(issue, resolved.assignments);
+        // Replace placeholder words still present in the ticket (e.g. left by the workflow).
+        applyReplacementsToIssue(issue, replacements.values);
         // The user has been asked for the user-input fields; the template is no longer pending.
         utils.clearTemplatePending(issue, template.id);
 
@@ -668,6 +757,18 @@ exports.httpHandler = {
           badRequest(ctx, `Failed to create hierarchy: ${plan.errors.join(" ")}`);
           return;
         }
+        // Replacements of the root template apply to every subtask's summary and description.
+        const replacements = utils.resolveReplacements(
+          issue,
+          template,
+          body.replacementTexts,
+          true,
+        );
+        const replacementError = getReplacementError(replacements);
+        if (replacementError !== null) {
+          badRequest(ctx, `Failed to create hierarchy: ${replacementError}`);
+          return;
+        }
 
         const createdIssueIds = [];
         const skippedChildIds = [];
@@ -679,8 +780,12 @@ exports.httpHandler = {
               continue;
             }
             const prepared = plan.byChildId[child.id];
-            const ticket = new entities.Issue(ctx.currentUser, issue.project, child.name);
-            ticket.description = prepared.content;
+            const ticket = new entities.Issue(
+              ctx.currentUser,
+              issue.project,
+              utils.applyReplacements(child.name, replacements.values),
+            );
+            ticket.description = utils.applyReplacements(prepared.content, replacements.values);
             // Lets the template workflow skip auto-application on creation.
             ticket.extensionProperties.createdFromChildTemplateId = child.id;
             const inheritedNames = child.inheritParentFields ? parentManagedFields : [];
@@ -859,12 +964,20 @@ exports.httpHandler = {
           return;
         }
 
+        // Articles have no root ticket: only user-input replacements are available.
+        const replacements = utils.resolveReplacements(null, template, body.replacementTexts, true);
+        const replacementError = getReplacementError(replacements);
+        if (replacementError !== null) {
+          badRequest(ctx, `Failed to add template: ${replacementError}`);
+          return;
+        }
+
         // Add template to article content.
         let newDescription = article.content ? article.content.trim() : "";
         if (newDescription.length > 0) {
           newDescription += "\n\n";
         }
-        newDescription += templateContent.trim();
+        newDescription += utils.applyReplacements(templateContent.trim(), replacements.values);
         article.content = newDescription;
 
         // Add template to used templates.

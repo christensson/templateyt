@@ -20,3 +20,14 @@
   padding: calc(var(--ring-unit) * 2) 0 0 0;
   margin-top: auto;
 }
+
+.template-fields-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ring-unit);
+}
+
+.template-fields-form-actions {
+  padding: calc(var(--ring-unit) * 2) 0 0 0;
+  margin-top: auto;
+}

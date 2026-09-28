@@ -87,9 +87,25 @@ const applyTemplateFields = (issue, template) => {
   for (const assignment of resolved.assignments) {
     log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) set field ${assignment.fieldName}`);
   }
-  if (utils.templateHasUserInputFields(template)) {
+  if (utils.templateHasUserInput(template)) {
     utils.markTemplatePending(issue, template.id);
     log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) waits for user input`);
+  }
+};
+
+// Texts of the field replacements of a template for the issue. User-input replacements are only
+// available on manual application; unresolvable field replacements are logged and skipped.
+const resolveReplacementValues = (issue, template) => {
+  const replacements = utils.resolveReplacements(issue, template, {}, false);
+  for (const error of replacements.errors) {
+    log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) replacement skipped: ${error}`);
+  }
+  return replacements.values;
+};
+
+const setSummaryIfChanged = (issue, newSummary) => {
+  if (newSummary !== (issue.summary || "")) {
+    issue.summary = newSummary;
   }
 };
 
@@ -204,6 +220,7 @@ exports.rule = entities.Issue.onChange({
 
     const articles = loadTemplateArticles([...newTemplates, ...oldTemplates]);
     let newDescription = issue.description ? issue.description.trim() : "";
+    let newSummary = issue.summary || "";
 
     // Remove any old (or new) non-modified templates.
     for (const template of oldTemplates) {
@@ -231,14 +248,19 @@ exports.rule = entities.Issue.onChange({
       if (usedTemplateIds.includes(template.id)) {
         continue;
       }
+      const replacementValues = resolveReplacementValues(issue, template);
       const article = articles[template.articleId];
-      const templateContent = article ? article.content.trim() : "";
+      const templateContent = utils.applyReplacements(
+        article ? article.content.trim() : "",
+        replacementValues,
+      );
       if (templateContent) {
         if (newDescription !== "") {
           newDescription += "\n\n";
         }
         newDescription += templateContent;
       }
+      newSummary = utils.applyReplacements(newSummary, replacementValues);
       applyTemplateFields(issue, template);
       usedTemplateIds.push(template.id);
       log(
@@ -248,6 +270,7 @@ exports.rule = entities.Issue.onChange({
     if (newDescription) {
       issue.description = newDescription;
     }
+    setSummaryIfChanged(issue, newSummary);
     issue.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
   },
   requirements: {},

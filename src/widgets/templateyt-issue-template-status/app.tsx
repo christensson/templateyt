@@ -6,7 +6,7 @@ import Button from "@jetbrains/ring-ui-built/components/button/button";
 import LoaderInline from "@jetbrains/ring-ui-built/components/loader-inline/loader-inline";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { memo, useCallback, useEffect, useState } from "react";
-import { getTemplateFields, type Template } from "../../../@types/template";
+import { getTemplateFields, getTemplateReplacements, type Template } from "../../../@types/template";
 import { HierarchyForm, TemplateFieldsForm } from "../../components/template-fields-form";
 import {
   canCreateHierarchy,
@@ -14,12 +14,14 @@ import {
   fetchIssueTemplateInfo,
   getInitialChildFieldValues,
   getInitialFieldValues,
+  getInitialReplacementTexts,
   pickChosenChildValues,
   pickChosenValues,
   submitTemplateFields,
   type ChildFieldValues,
   type FieldValues,
   type IssueTemplateInfo,
+  type ReplacementTexts,
 } from "../../template-client";
 
 // The host never notifies an issue widget that the ticket changed (onRefresh is only invoked
@@ -72,7 +74,9 @@ const TemplateRow: React.FunctionComponent<TemplateRowProps> = ({
   onCreateHierarchy,
 }) => {
   const { template, pending, hierarchyCreated } = row;
-  const hasFields = template !== null && getTemplateFields(template).length > 0;
+  const hasFields =
+    template !== null &&
+    (getTemplateFields(template).length > 0 || getTemplateReplacements(template).length > 0);
   return (
     <div className="template-status-row">
       <Text size={Text.Size.S}>{row.name}</Text>
@@ -118,6 +122,7 @@ const AppComponent: React.FunctionComponent = () => {
   const [expanded, setExpanded] = useState<Expanded | null>(null);
   const [formValues, setFormValues] = useState<FieldValues>({});
   const [childValues, setChildValues] = useState<ChildFieldValues>({});
+  const [replacementTexts, setReplacementTexts] = useState<ReplacementTexts>({});
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [failMessage, setFailMessage] = useState<string>("");
 
@@ -151,6 +156,7 @@ const AppComponent: React.FunctionComponent = () => {
         return;
       }
       setFormValues(getInitialFieldValues(template, info.currentFieldValues));
+      setReplacementTexts(getInitialReplacementTexts(template));
       setFailMessage("");
       setExpanded({ kind: "fields", template });
     },
@@ -163,6 +169,7 @@ const AppComponent: React.FunctionComponent = () => {
         return;
       }
       setChildValues(getInitialChildFieldValues(template, info.currentFieldValues));
+      setReplacementTexts(getInitialReplacementTexts(template));
       setFailMessage("");
       setExpanded({ kind: "hierarchy", template });
     },
@@ -194,20 +201,33 @@ const AppComponent: React.FunctionComponent = () => {
       return;
     }
     runAction(
-      () => submitTemplateFields(host, "fields", expanded.template.id, pickChosenValues(formValues)),
+      () =>
+        submitTemplateFields(
+          host,
+          "fields",
+          expanded.template.id,
+          pickChosenValues(formValues),
+          replacementTexts,
+        ),
       "Failed to set fields.",
     );
-  }, [expanded, formValues, runAction]);
+  }, [expanded, formValues, replacementTexts, runAction]);
 
   const confirmHierarchy = useCallback(() => {
     if (expanded === null) {
       return;
     }
     runAction(
-      () => createHierarchy(host, expanded.template.id, pickChosenChildValues(childValues)),
+      () =>
+        createHierarchy(
+          host,
+          expanded.template.id,
+          pickChosenChildValues(childValues),
+          replacementTexts,
+        ),
       "Failed to create hierarchy.",
     );
-  }, [expanded, childValues, runAction]);
+  }, [expanded, childValues, replacementTexts, runAction]);
 
   const failBanner = failMessage && (
     <Banner mode="error" withIcon>
@@ -226,6 +246,9 @@ const AppComponent: React.FunctionComponent = () => {
           fieldInfos={info.fields}
           values={formValues}
           setValues={setFormValues}
+          texts={replacementTexts}
+          setTexts={setReplacementTexts}
+          currentFieldPresentations={info.currentFieldPresentations}
           submitting={submitting}
           onConfirm={confirmFields}
           onBack={collapse}
@@ -247,8 +270,11 @@ const AppComponent: React.FunctionComponent = () => {
           template={expanded.template}
           fieldInfos={info.fields}
           currentFieldValues={info.currentFieldValues}
+          currentFieldPresentations={info.currentFieldPresentations}
           values={childValues}
           setValues={setChildValues}
+          texts={replacementTexts}
+          setTexts={setReplacementTexts}
           alreadyCreated={info.createdHierarchyTemplateIds.includes(expanded.template.id)}
           submitting={submitting}
           onConfirm={confirmHierarchy}

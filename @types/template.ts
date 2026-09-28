@@ -42,6 +42,12 @@ export type TemplateFieldMode = TemplateField["mode"];
 // Anything that carries a template field list: a template or a child template.
 export type HasFields = { fields?: Array<TemplateField> };
 
+// A whole-word text replacement applied to summaries and contents when a template is applied,
+// with text entered by the user or the display text of a root ticket field.
+export type UserInputReplacement = { search: string; mode: "user_input" };
+export type FieldReplacement = { search: string; mode: "field"; fieldName: string };
+export type TextReplacement = UserInputReplacement | FieldReplacement;
+
 // A child article of the template article, turned into a subtask when the ticket hierarchy of a
 // hierarchical template is created. Child templates have no conditions.
 export type ChildTemplate = {
@@ -70,6 +76,7 @@ export type Template = {
   validCondition: Array<ValidCondition>;
   addCondition: AddCondition | null;
   fields: Array<TemplateField>;
+  replacements: Array<TextReplacement>;
   hierarchical: boolean;
   children: Array<ChildTemplate>;
 };
@@ -86,6 +93,16 @@ export const getTemplateFields = (template: HasFields): Array<TemplateField> =>
 
 export const hasUserInputFields = (template: HasFields): boolean =>
   getTemplateFields(template).some((field) => field.mode === "user_input");
+
+export const getTemplateReplacements = (template: Template): Array<TextReplacement> =>
+  Array.isArray(template?.replacements) ? template.replacements : [];
+
+export const hasUserInputReplacements = (template: Template): boolean =>
+  getTemplateReplacements(template).some((replacement) => replacement.mode === "user_input");
+
+// Whether applying the template needs input from the user: field values or replacement texts.
+export const hasUserInput = (template: Template): boolean =>
+  hasUserInputFields(template) || hasUserInputReplacements(template);
 
 export const getChildTemplates = (parent: { children?: Array<ChildTemplate> }): Array<ChildTemplate> =>
   Array.isArray(parent?.children) ? parent.children : [];
@@ -231,6 +248,43 @@ export const formatTemplateFields = (template: HasFields): string => {
     return "";
   }
   return `Sets fields: ${fields.map((field) => field.fieldName).join(", ")}.`;
+};
+
+export const formatReplacement = (replacement: TextReplacement): string =>
+  replacement.mode === "user_input"
+    ? `Replaces ${replacement.search} with text entered by user.`
+    : `Replaces ${replacement.search} with root ticket field ${replacement.fieldName}.`;
+
+// Short summary of the words a template replaces, or empty string when it has none.
+export const formatTemplateReplacements = (template: Template): string => {
+  const replacements = getTemplateReplacements(template);
+  if (replacements.length === 0) {
+    return "";
+  }
+  return `Replaces: ${replacements.map((replacement) => replacement.search).join(", ")}.`;
+};
+
+// Validates the text replacements. Returns an error message, or null when valid.
+// Keep in sync with validateReplacements in backend.js.
+export const validateReplacements = (template: Template): string | null => {
+  const seen = new Set<string>();
+  for (const replacement of getTemplateReplacements(template)) {
+    const search = replacement.search ?? "";
+    if (search.trim() === "") {
+      return "Text replacement is missing the word to replace.";
+    }
+    if (/\s/.test(search)) {
+      return `Text replacement "${search}" must be a single word without spaces.`;
+    }
+    if (seen.has(search)) {
+      return `Text replacement "${search}" is listed more than once.`;
+    }
+    seen.add(search);
+    if (replacement.mode === "field" && !replacement.fieldName) {
+      return `Text replacement "${search}" is missing the root ticket field.`;
+    }
+  }
+  return null;
 };
 
 export const formatTemplateHierarchy = (template: Template): string => {
@@ -403,6 +457,7 @@ export const createEmptyTemplate = (): Template => ({
   validCondition: [],
   addCondition: null,
   fields: [],
+  replacements: [],
   hierarchical: false,
   children: [],
 });
@@ -414,6 +469,7 @@ export const createNullTemplate = (): Template => ({
   validCondition: [],
   addCondition: null,
   fields: [],
+  replacements: [],
   hierarchical: false,
   children: [],
 });

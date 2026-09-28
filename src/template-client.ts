@@ -4,6 +4,7 @@ import {
   flattenChildTemplates,
   getChildTemplates,
   getTemplateFields,
+  getTemplateReplacements,
   hasUserInputFields,
   type HasFields,
   type Template,
@@ -17,6 +18,8 @@ export type IssueTemplateInfo = {
   validTemplateIds: Array<string>;
   fields: Array<ProjectFieldInfo>;
   currentFieldValues: Record<string, string | null>;
+  // Display texts of the same fields, for previewing field replacements.
+  currentFieldPresentations: Record<string, string | null>;
   // Applied templates whose user-input fields have not been set yet.
   pendingTemplateIds: Array<string>;
   // Applied templates whose ticket hierarchy has been created below the ticket.
@@ -31,6 +34,26 @@ export type FieldValues = Record<string, string | null>;
 
 // User-input values of the child templates of a hierarchy, keyed by child template id.
 export type ChildFieldValues = Record<string, FieldValues>;
+
+// Texts entered by the user for user-input replacements, keyed by the word to replace.
+export type ReplacementTexts = Record<string, string>;
+
+export const getInitialReplacementTexts = (template: Template): ReplacementTexts => {
+  const texts: ReplacementTexts = {};
+  for (const replacement of getTemplateReplacements(template)) {
+    if (replacement.mode === "user_input") {
+      texts[replacement.search] = "";
+    }
+  }
+  return texts;
+};
+
+// True when a user-input replacement has no text yet; texts are required.
+export const hasMissingReplacementTexts = (template: Template, texts: ReplacementTexts): boolean =>
+  getTemplateReplacements(template).some(
+    (replacement) =>
+      replacement.mode === "user_input" && (texts[replacement.search] ?? "").trim() === "",
+  );
 
 export type TemplateActionResult = {
   success: boolean;
@@ -125,22 +148,36 @@ export const submitTemplateFields = (
   mode: ApplyMode,
   templateId: string,
   fieldValues: FieldValues,
+  replacementTexts: ReplacementTexts,
 ): Promise<TemplateActionResult> =>
   host.fetchApp<TemplateActionResult>(ENDPOINTS[mode], {
     scope: true,
     method: "POST",
-    body: { templateId, fieldValues },
+    body: { templateId, fieldValues, replacementTexts },
   });
 
 export const createHierarchy = (
   host: HostAPI,
   templateId: string,
   childFieldValues: ChildFieldValues,
+  replacementTexts: ReplacementTexts,
 ): Promise<CreateHierarchyResult> =>
   host.fetchApp<CreateHierarchyResult>("backend/createHierarchy", {
     scope: true,
     method: "POST",
-    body: { templateId, childFieldValues },
+    body: { templateId, childFieldValues, replacementTexts },
+  });
+
+// Applies a template to the current article (article-scoped addTemplate).
+export const addTemplateToArticle = (
+  host: HostAPI,
+  templateId: string,
+  replacementTexts: ReplacementTexts,
+): Promise<TemplateActionResult> =>
+  host.fetchApp<TemplateActionResult>("backend/addTemplate", {
+    scope: true,
+    method: "POST",
+    body: { templateId, replacementTexts },
   });
 
 export const removeTemplate = (host: HostAPI, templateId: string): Promise<TemplateActionResult> =>

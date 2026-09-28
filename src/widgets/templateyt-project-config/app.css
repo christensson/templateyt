@@ -85,3 +85,10 @@
 .align-right {
   margin-left: auto;
 }
+/* Keep the replacement sentence on one line: the Ring UI Input is block-level on its own. */
+.template-replacement-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--ring-unit) / 2);
+}

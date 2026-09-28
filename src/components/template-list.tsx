@@ -11,6 +11,7 @@ import {
   formatTemplateAddCondition,
   formatTemplateFields,
   formatTemplateHierarchy,
+  formatTemplateReplacements,
   formatTemplateValidCondition,
   getChildTemplates,
 } from "../../@types/template";
@@ -69,6 +70,10 @@ const getDetails = (template: Template): [string, boolean] => {
   const fieldsDescription = formatTemplateFields(template);
   if (fieldsDescription) {
     parts.push(fieldsDescription);
+  }
+  const replacementsDescription = formatTemplateReplacements(template);
+  if (replacementsDescription) {
+    parts.push(replacementsDescription);
   }
   const hierarchyDescription = formatTemplateHierarchy(template);
   if (hierarchyDescription) {

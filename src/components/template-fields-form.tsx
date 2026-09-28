@@ -1,5 +1,6 @@
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
+import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
@@ -11,6 +12,7 @@ import {
   flattenChildTemplates,
   getChildTemplates,
   getTemplateFields,
+  getTemplateReplacements,
   hasUserInputFields,
   hierarchyHasUserInputFields,
   type ChildInclusion,
@@ -21,10 +23,66 @@ import {
 import {
   ACTION_LABELS,
   formatPendingTitle,
+  hasMissingReplacementTexts,
   type ChildFieldValues,
   type FieldValues,
   type PendingApply,
+  type ReplacementTexts,
 } from "../template-client";
+
+interface ReplacementInputsProps {
+  template: Template;
+  texts: ReplacementTexts;
+  setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
+  // Display texts of the root ticket's fields; null values mean the field is empty. Undefined
+  // when there is no root ticket (articles).
+  currentFieldPresentations?: Record<string, string | null>;
+}
+
+// What a template's text replacements will insert: field replacements as text, user-input
+// replacements as required text inputs.
+export const ReplacementInputs: React.FunctionComponent<ReplacementInputsProps> = ({
+  template,
+  texts,
+  setTexts,
+  currentFieldPresentations,
+}) => {
+  const replacements = getTemplateReplacements(template);
+  if (replacements.length === 0) {
+    return null;
+  }
+  const describeFieldReplacement = (search: string, fieldName: string): string => {
+    if (currentFieldPresentations === undefined) {
+      return `Cannot replace ${search}: root ticket field ${fieldName} is not available for articles.`;
+    }
+    const text = currentFieldPresentations[fieldName];
+    return text
+      ? `Will replace ${search} with ${text}.`
+      : `Cannot replace ${search}: root ticket field ${fieldName} is empty.`;
+  };
+  return (
+    <>
+      {replacements.map((replacement) =>
+        replacement.mode === "field" ? (
+          <Text size={Text.Size.M} info key={`replacement-${replacement.search}`}>
+            {describeFieldReplacement(replacement.search, replacement.fieldName)}
+          </Text>
+        ) : (
+          <Input
+            key={`replacement-${replacement.search}`}
+            label={`Text for ${replacement.search}`}
+            value={texts[replacement.search] ?? ""}
+            size={Size.M}
+            onChange={(e) => {
+              const value = e.target.value;
+              setTexts((prev) => ({ ...prev, [replacement.search]: value }));
+            }}
+          />
+        ),
+      )}
+    </>
+  );
+};
 
 interface UserInputFieldSelectProps {
   field: TemplateField;
@@ -101,6 +159,9 @@ interface TemplateFieldsFormProps {
   fieldInfos: Array<ProjectFieldInfo>;
   values: FieldValues;
   setValues: React.Dispatch<React.SetStateAction<FieldValues>>;
+  texts: ReplacementTexts;
+  setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
+  currentFieldPresentations?: Record<string, string | null>;
   submitting: boolean;
   onConfirm: () => void;
   onBack: () => void;
@@ -116,6 +177,9 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
   fieldInfos,
   values,
   setValues,
+  texts,
+  setTexts,
+  currentFieldPresentations,
   submitting,
   onConfirm,
   onBack,
@@ -127,6 +191,7 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
       setValues((prev) => ({ ...prev, [fieldName]: value })),
     [setValues],
   );
+  const confirmDisabled = submitting || hasMissingReplacementTexts(pending.template, texts);
 
   return (
     <>
@@ -143,9 +208,15 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
             Fields left empty are not changed.
           </Text>
         )}
+        <ReplacementInputs
+          template={pending.template}
+          texts={texts}
+          setTexts={setTexts}
+          currentFieldPresentations={currentFieldPresentations}
+        />
       </div>
       <Panel className="template-fields-form-actions">
-        <Button primary loader={submitting} disabled={submitting} onClick={onConfirm}>
+        <Button primary loader={submitting} disabled={confirmDisabled} onClick={onConfirm}>
           {ACTION_LABELS[pending.mode]}
         </Button>
         <Button disabled={submitting} onClick={onBack}>
@@ -244,8 +315,11 @@ interface HierarchyFormProps {
   fieldInfos: Array<ProjectFieldInfo>;
   // Current field values of the root ticket, used to preview which subtasks will be created.
   currentFieldValues: FieldValues;
+  currentFieldPresentations: Record<string, string | null>;
   values: ChildFieldValues;
   setValues: React.Dispatch<React.SetStateAction<ChildFieldValues>>;
+  texts: ReplacementTexts;
+  setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
   // A hierarchy for this template was created for the ticket before.
   alreadyCreated: boolean;
   submitting: boolean;
@@ -269,8 +343,11 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   template,
   fieldInfos,
   currentFieldValues,
+  currentFieldPresentations,
   values,
   setValues,
+  texts,
+  setTexts,
   alreadyCreated,
   submitting,
   onConfirm,
@@ -280,6 +357,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   const flat = flattenChildTemplates(getChildTemplates(template));
   const inclusion = evaluateChildInclusion(template, currentFieldValues);
   const createdCount = flat.filter(({ child }) => inclusion[child.id]?.created).length;
+  const confirmDisabled = submitting || hasMissingReplacementTexts(template, texts);
   const onChange = useCallback(
     (childId: string, fieldName: string, value: string | null) =>
       setValues((prev) => ({
@@ -317,9 +395,15 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
             Fields left empty are not set.
           </Text>
         )}
+        <ReplacementInputs
+          template={template}
+          texts={texts}
+          setTexts={setTexts}
+          currentFieldPresentations={currentFieldPresentations}
+        />
       </div>
       <Panel className="template-fields-form-actions">
-        <Button primary loader={submitting} disabled={submitting} onClick={onConfirm}>
+        <Button primary loader={submitting} disabled={confirmDisabled} onClick={onConfirm}>
           {alreadyCreated ? "Create hierarchy again" : "Create hierarchy"}
         </Button>
         <Button disabled={submitting} onClick={onBack}>

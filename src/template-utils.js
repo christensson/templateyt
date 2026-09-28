@@ -79,6 +79,10 @@ const getTemplates = (ctx) => {
     if (!Array.isArray(t.fields)) {
       t.fields = [];
     }
+    // Templates stored before replacement support have no replacements.
+    if (!Array.isArray(t.replacements)) {
+      t.replacements = [];
+    }
     // Templates stored before hierarchy support have no children.
     t.hierarchical = t.hierarchical === true;
     t.children = normalizeChildTemplates(t.children);
@@ -168,6 +172,16 @@ const getIssueFieldValues = (issue, fieldInfos) => {
   return values;
 };
 
+// Display texts of the given fields on an issue, keyed by field name (null when empty).
+const getIssueFieldPresentations = (issue, fieldInfos) => {
+  const values = {};
+  for (const info of fieldInfos) {
+    const value = issue.fields[info.name];
+    values[info.name] = value ? getFieldValuePresentation(info.typeName, value) : null;
+  }
+  return values;
+};
+
 const findProjectField = (project, fieldName) => {
   try {
     return project.findFieldByName(fieldName) || null;
@@ -239,12 +253,110 @@ const applyFieldAssignments = (issue, assignments) => {
 const templateHasUserInputFields = (template) =>
   Array.isArray(template.fields) && template.fields.some((field) => field.mode === "user_input");
 
+const templateHasUserInputReplacements = (template) =>
+  Array.isArray(template.replacements) &&
+  template.replacements.some((replacement) => replacement.mode === "user_input");
+
+// Whether applying the template needs input from the user: field values or replacement texts.
+const templateHasUserInput = (template) =>
+  templateHasUserInputFields(template) || templateHasUserInputReplacements(template);
+
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Regex matching `search` as a whole word: delimited by start/end, whitespace or punctuation,
+// where letters, digits, underscore and hyphen are word characters (so VERSION does not match in
+// VERSION-1 or MY_VERSION). Uses Unicode letter classes when the engine supports them.
+const buildWordRegex = (search) => {
+  const escaped = escapeRegex(search);
+  try {
+    return new RegExp(`(^|[^\\p{L}\\p{N}_-])(${escaped})(?=$|[^\\p{L}\\p{N}_-])`, "gu");
+  } catch {
+    return new RegExp(`(^|[^\\w\\u00C0-\\uFFFF-])(${escaped})(?=$|[^\\w\\u00C0-\\uFFFF-])`, "g");
+  }
+};
+
+// Replaces every whole-word occurrence of each { search, value } in text.
+const applyReplacements = (text, values) => {
+  if (!text) {
+    return text;
+  }
+  let result = text;
+  for (const replacement of values) {
+    if (!replacement.search || replacement.value == null) {
+      continue;
+    }
+    // A function replacer keeps "$" in the value literal.
+    result = result.replace(buildWordRegex(replacement.search), (match, prefix) => prefix + replacement.value);
+  }
+  return result;
+};
+
+// Display text of a root ticket field for a field replacement: { value, error }.
+const resolveFieldReplacement = (rootIssue, replacement) => {
+  if (rootIssue === null) {
+    return {
+      value: null,
+      error: `Replacement of ${replacement.search} uses root ticket field ${replacement.fieldName}, which is not available for articles.`,
+    };
+  }
+  const projectField = findProjectField(rootIssue.project, replacement.fieldName);
+  if (projectField === null) {
+    return { value: null, error: `Root ticket field "${replacement.fieldName}" does not exist in project.` };
+  }
+  if (!SUPPORTED_FIELD_TYPES.includes(projectField.typeName)) {
+    return {
+      value: null,
+      error: `Root ticket field "${replacement.fieldName}" has unsupported type ${projectField.typeName}.`,
+    };
+  }
+  const value = rootIssue.fields[replacement.fieldName];
+  if (!value) {
+    return { value: null, error: `Root ticket field "${replacement.fieldName}" is empty.` };
+  }
+  return { value: getFieldValuePresentation(projectField.typeName, value), error: null };
+};
+
 // True when any user-input field of the template has no value in userValues.
 const hasMissingUserInput = (template, userValues) => {
   const fields = Array.isArray(template.fields) ? template.fields : [];
   return fields.some(
     (field) => field.mode === "user_input" && !(userValues && userValues[field.fieldName]),
   );
+};
+
+// Resolves the texts a template's replacements insert. Field replacements read the root issue
+// (null for articles); user-input replacements use userTexts (keyed by search word) and are
+// skipped when includeUserInput is false. Returns { values: [{ search, value }], errors,
+// missingInputs: [search] }.
+const resolveReplacements = (rootIssue, template, userTexts, includeUserInput) => {
+  const values = [];
+  const errors = [];
+  const missingInputs = [];
+  const replacements = Array.isArray(template.replacements) ? template.replacements : [];
+  for (const replacement of replacements) {
+    if (replacement.mode === "user_input") {
+      if (!includeUserInput) {
+        continue;
+      }
+      const text =
+        userTexts && typeof userTexts[replacement.search] === "string"
+          ? userTexts[replacement.search]
+          : "";
+      if (text.trim() === "") {
+        missingInputs.push(replacement.search);
+        continue;
+      }
+      values.push({ search: replacement.search, value: text });
+      continue;
+    }
+    const fieldValue = resolveFieldReplacement(rootIssue, replacement);
+    if (fieldValue.error !== null) {
+      errors.push(fieldValue.error);
+    } else {
+      values.push({ search: replacement.search, value: fieldValue.value });
+    }
+  }
+  return { values: values, errors: errors, missingInputs: missingInputs };
 };
 
 // Templates applied to the issue whose user-input fields have not been set yet.
@@ -294,6 +406,10 @@ module.exports = {
   isTemplateValidForArticle,
   getProjectFieldInfo,
   getIssueFieldValues,
+  getIssueFieldPresentations,
+  templateHasUserInput,
+  applyReplacements,
+  resolveReplacements,
   resolveTemplateFieldValues,
   applyFieldAssignments,
   parseIdList,

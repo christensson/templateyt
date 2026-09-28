@@ -77,6 +77,27 @@ automatically to tickets or articles, and which ticket fields the template sets.
 [^2]: *Single-value state, enum, user, version and owned fields are supported. Users are picked
 from the users configured for the field.*
 
+### Text replacements
+
+A template can replace placeholder words when it is applied, both in the ticket summary and in
+the template content, and for hierarchical templates in every subtask summary and description.
+Configure them in the template's *"Text replacements"* panel. Each replacement names the word to
+replace and what to insert:
+
+- *Text entered by user*: asked for when the template is applied manually, and required.
+- *Root ticket field*: the display text of a field of the ticket the template is applied to (for a
+  hierarchy, the ticket it is created from). Applying manually with an empty field is rejected.
+
+Only whole words are replaced, on every occurrence. Words are delimited by whitespace, line breaks
+and punctuation such as commas, colons or brackets; hyphens and underscores do not delimit, so
+`VERSION` matches in `Release VERSION.` but not in `VERSION-1` or `MY_VERSION`.
+
+When a template is added automatically, field replacements are applied and user-entered
+placeholders stay in place; the template is then marked as waiting for input in the
+*"Applied templates"* panel, and *"Set fields"* asks for the texts and replaces the words in the
+ticket. An empty field is skipped and logged. Article templates support user-entered replacements
+on manual application only.
+
 ### Hierarchical templates
 
 A template whose template article has child articles can create a ticket hierarchy: one subtask

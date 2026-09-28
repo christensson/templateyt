@@ -6,7 +6,12 @@ import type { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list
 import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { getTemplateFields, hasUserInputFields, type Template } from "../../../@types/template";
+import {
+  getTemplateFields,
+  getTemplateReplacements,
+  hasUserInput,
+  type Template,
+} from "../../../@types/template";
 import { HierarchyForm, TemplateFieldsForm } from "../../components/template-fields-form";
 import TemplateList from "../../components/template-list";
 import {
@@ -16,6 +21,7 @@ import {
   fetchIssueTemplateInfo,
   getInitialChildFieldValues,
   getInitialFieldValues,
+  getInitialReplacementTexts,
   pickChosenChildValues,
   pickChosenValues,
   removeTemplate,
@@ -25,6 +31,7 @@ import {
   type FieldValues,
   type IssueTemplateInfo,
   type PendingApply,
+  type ReplacementTexts,
 } from "../../template-client";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
@@ -63,7 +70,10 @@ const TemplateActions: React.FunctionComponent<TemplateActionsProps> = ({
   onRemove,
 }) => {
   const hasSelection = selectedTemplate !== null;
-  const selectedHasFields = hasSelection && getTemplateFields(selectedTemplate).length > 0;
+  const selectedHasFields =
+    hasSelection &&
+    (getTemplateFields(selectedTemplate).length > 0 ||
+      getTemplateReplacements(selectedTemplate).length > 0);
   return (
     <Panel className="issue-template-config-bottom-panel">
       <Button primary disabled={!hasSelection || isSelectedUsed || submitting} onClick={onAdd}>
@@ -118,6 +128,7 @@ const AppComponent: React.FunctionComponent = () => {
   const [failMessage, setFailMessage] = useState<string>("");
   const [pending, setPending] = useState<PendingApply | null>(null);
   const [pendingValues, setPendingValues] = useState<FieldValues>({});
+  const [replacementTexts, setReplacementTexts] = useState<ReplacementTexts>({});
   // Template whose hierarchy creation form is shown in place of the list.
   const [hierarchyTemplate, setHierarchyTemplate] = useState<Template | null>(null);
   const [childValues, setChildValues] = useState<ChildFieldValues>({});
@@ -153,15 +164,20 @@ const AppComponent: React.FunctionComponent = () => {
     [issueTemplateInfo],
   );
 
-  // Applies a template, or only its fields, with the given user-input values.
+  // Applies a template, or only its fields, with the given user-input values and texts.
   const submitTemplate = useCallback(
-    async (mode: ApplyMode, template: Template, fieldValues: FieldValues): Promise<boolean> => {
+    async (
+      mode: ApplyMode,
+      template: Template,
+      fieldValues: FieldValues,
+      texts: ReplacementTexts,
+    ): Promise<boolean> => {
       if (!checkTemplate(template, mode === "add" ? "add" : "set fields from")) {
         return false;
       }
       setSubmitting(true);
       try {
-        const result = await submitTemplateFields(host, mode, template.id, fieldValues);
+        const result = await submitTemplateFields(host, mode, template.id, fieldValues, texts);
         console.log(`${ACTION_LABELS[mode]} ${template.id} result`, result);
         if (!result.success) {
           setFailMessage(result.message || `Failed to ${ACTION_LABELS[mode].toLowerCase()}.`);
@@ -185,15 +201,16 @@ const AppComponent: React.FunctionComponent = () => {
         setFailMessage("No template selected.");
         return;
       }
-      if (hasUserInputFields(selectedTemplate)) {
+      if (hasUserInput(selectedTemplate)) {
         setFailMessage("");
         setPendingValues(
           getInitialFieldValues(selectedTemplate, issueTemplateInfo.currentFieldValues),
         );
+        setReplacementTexts(getInitialReplacementTexts(selectedTemplate));
         setPending({ mode, template: selectedTemplate });
         return;
       }
-      submitTemplate(mode, selectedTemplate, {});
+      submitTemplate(mode, selectedTemplate, {}, {});
     },
     [selectedTemplate, issueTemplateInfo, submitTemplate],
   );
@@ -202,11 +219,16 @@ const AppComponent: React.FunctionComponent = () => {
     if (pending === null) {
       return;
     }
-    const ok = await submitTemplate(pending.mode, pending.template, pickChosenValues(pendingValues));
+    const ok = await submitTemplate(
+      pending.mode,
+      pending.template,
+      pickChosenValues(pendingValues),
+      replacementTexts,
+    );
     if (ok) {
       setPending(null);
     }
-  }, [pending, pendingValues, submitTemplate]);
+  }, [pending, pendingValues, replacementTexts, submitTemplate]);
 
   // The hierarchy form is always shown: it presents the subtasks to be created.
   const startCreateHierarchy = useCallback(() => {
@@ -218,6 +240,7 @@ const AppComponent: React.FunctionComponent = () => {
     setChildValues(
       getInitialChildFieldValues(selectedTemplate, issueTemplateInfo.currentFieldValues),
     );
+    setReplacementTexts(getInitialReplacementTexts(selectedTemplate));
     setHierarchyTemplate(selectedTemplate);
   }, [selectedTemplate, issueTemplateInfo]);
 
@@ -231,6 +254,7 @@ const AppComponent: React.FunctionComponent = () => {
         host,
         hierarchyTemplate.id,
         pickChosenChildValues(childValues),
+        replacementTexts,
       );
       console.log(`Create hierarchy ${hierarchyTemplate.id} result`, result);
       if (!result.success) {
@@ -243,7 +267,7 @@ const AppComponent: React.FunctionComponent = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [hierarchyTemplate, childValues, checkTemplate, fetchTemplateInfo]);
+  }, [hierarchyTemplate, childValues, replacementTexts, checkTemplate, fetchTemplateInfo]);
 
   const removeTemplateFromIssue = useCallback(
     async (template: Template | null) => {
@@ -281,6 +305,9 @@ const AppComponent: React.FunctionComponent = () => {
           fieldInfos={issueTemplateInfo.fields}
           values={pendingValues}
           setValues={setPendingValues}
+          texts={replacementTexts}
+          setTexts={setReplacementTexts}
+          currentFieldPresentations={issueTemplateInfo.currentFieldPresentations}
           submitting={submitting}
           onConfirm={confirmPending}
           onBack={() => setPending(null)}
@@ -297,8 +324,11 @@ const AppComponent: React.FunctionComponent = () => {
           template={hierarchyTemplate}
           fieldInfos={issueTemplateInfo.fields}
           currentFieldValues={issueTemplateInfo.currentFieldValues}
+          currentFieldPresentations={issueTemplateInfo.currentFieldPresentations}
           values={childValues}
           setValues={setChildValues}
+          texts={replacementTexts}
+          setTexts={setReplacementTexts}
           alreadyCreated={issueTemplateInfo.createdHierarchyTemplateIds.includes(
             hierarchyTemplate.id,
           )}
