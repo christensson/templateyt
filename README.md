@@ -96,10 +96,9 @@ and punctuation such as commas, colons or brackets; hyphens and underscores do n
 `VERSION` matches in `Release VERSION.` but not in `VERSION-1` or `MY_VERSION`.
 
 When a template is added automatically, field replacements are applied and user-entered
-placeholders stay in place; the template is then marked as waiting for input in the
-*"Applied templates"* panel, and *"Set fields"* asks for the texts and replaces the words in the
-ticket. An empty field is skipped and logged. Article templates support user-entered replacements
-on manual application only.
+placeholders stay in place; *"Set fields"* in the *"Apply template"* menu then asks for the texts
+and replaces the words in the ticket. An empty field is skipped and logged. Article templates
+support user-entered replacements on manual application only.
 
 ### Hierarchical templates
 
@@ -120,8 +119,7 @@ content as description.
   checks against the ticket the hierarchy is created from. It is created when any condition
   matches, or always when it has none. A skipped child template takes its own children with it.
 - The hierarchy is created manually, for tickets only, from *"Create hierarchy"* in the
-  *"Apply template"* menu or in the *"Applied templates"* panel, once the template has been
-  applied to the ticket. The form shows the subtasks that will be created, marks the ones that
+  *"Apply template"* menu, once the template has been applied to the ticket. The form shows the subtasks that will be created, marks the ones that
   will not be created and why, and asks for the values of user-chosen fields. Creating the
   hierarchy again is possible after a warning and adds another set of subtasks.
 - Subtasks created this way do not get templates added automatically on creation, even if their
@@ -145,18 +143,6 @@ If a template is configured to be valid for tickets, the template can be added m
 offers *"Set fields"*, which sets (or re-sets) only the fields defined by the selected template
 without touching the description. This is how values chosen by the user are filled in for
 templates that were added automatically.
-
-The *"Applied templates"* panel below the ticket fields lists the templates applied to the ticket.
-Templates that set fields have a *"Set fields"* button that shows what will be set and applies
-(or re-applies) the fields directly in the panel. The button carries a warning icon while
-user-chosen fields have not been set yet (because the template was added automatically, or the
-values were left empty when adding it); the mark is cleared once the fields have been confirmed or
-the template is removed.
-
-> [!IMPORTANT]
-> YouTrack does not notify app widgets when a ticket changes, so the *"Applied templates"* panel
-> shows the state from when the ticket page was opened. Use the refresh icon in the panel after a
-> template has been added or removed automatically.
 
 > [!IMPORTANT]
 > The usability of templates applied to articles can be improved. When a template is added to

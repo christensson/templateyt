@@ -55,18 +55,6 @@
       ]
     },
     {
-      "key": "templateyt-issue-template-status",
-      "name": "Applied templates",
-      "indexPath": "templateyt-issue-template-status/index.html",
-      "extensionPoint": "ISSUE_FIELD_PANEL_LAST",
-      "iconPath": "icon-small.svg",
-      "description": "Shows templates applied to the ticket and highlights templates waiting for user input.",
-      "guard": "({entity}) => entity.isDraft !== true",
-      "permissions": [
-        "UPDATE_ISSUE"
-      ]
-    },
-    {
       "key": "templateyt-article-apply-template-menu",
       "name": "Apply template",
       "indexPath": "templateyt-article-apply-template-menu/index.html",

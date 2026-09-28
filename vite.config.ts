@@ -47,11 +47,6 @@ export default defineConfig({
 
         templateytIssueMenu: resolve(__dirname, "src/widgets/templateyt-issue-menu/index.html"),
 
-        templateytIssueTemplateStatus: resolve(
-          __dirname,
-          "src/widgets/templateyt-issue-template-status/index.html"
-        ),
-
         templateytArticleMenu: resolve(__dirname, "src/widgets/templateyt-article-menu/index.html"),
 
         templateytProjectConfig: resolve(
