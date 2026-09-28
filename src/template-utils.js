@@ -50,6 +50,7 @@ const normalizeChildTemplates = (children) =>
     fields: Array.isArray(child.fields) ? child.fields : [],
     addConditions: Array.isArray(child.addConditions) ? child.addConditions : [],
     inheritParentFields: child.inheritParentFields === true,
+    inheritRootFields: child.inheritRootFields === true,
     children: normalizeChildTemplates(child.children),
   }));
 

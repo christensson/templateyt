@@ -323,7 +323,12 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
             Inherits template controlled fields from parent.
           </Text>
         )}
-        {fields.length === 0 && !child.inheritParentFields && (
+        {child.inheritRootFields && (
+          <Text size={Text.Size.S} info>
+            Inherits template controlled fields from root ticket.
+          </Text>
+        )}
+        {fields.length === 0 && !child.inheritParentFields && !child.inheritRootFields && (
           <Text size={Text.Size.S} info>
             No fields set.
           </Text>

@@ -62,6 +62,9 @@ export type ChildTemplate = {
   addConditions: Array<FieldStateCondition>;
   // Copy the values of the fields the parent template configures from the parent ticket.
   inheritParentFields: boolean;
+  // Copy the values of the fields the root template configures from the root ticket.
+  // Precedence when both are set: own fields, then the closest parent, then the root ticket.
+  inheritRootFields: boolean;
   children: Array<ChildTemplate>;
 };
 
@@ -168,6 +171,7 @@ export const mergeImportedChildren = (
       fields: current ? getTemplateFields(current) : [],
       addConditions: current ? getChildAddConditions(current) : [],
       inheritParentFields: current?.inheritParentFields ?? false,
+      inheritRootFields: current?.inheritRootFields ?? false,
       children: mergeImportedChildren(current ? getChildTemplates(current) : [], article.children),
     };
   });
@@ -376,6 +380,9 @@ export const formatChildTemplate = (child: ChildTemplate): string => {
   }
   if (child.inheritParentFields) {
     parts.push("Inherits fields from parent.");
+  }
+  if (child.inheritRootFields) {
+    parts.push("Inherits fields from root ticket.");
   }
   const fields = formatTemplateFields(child);
   if (fields) {

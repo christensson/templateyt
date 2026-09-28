@@ -112,9 +112,10 @@ content as description.
   articles already imported.
 - Select a child template in the list to configure it: its name (the subtask summary), whether it
   *inherits fields from parent* (the fields configured by the parent template are copied from the
-  parent ticket when the hierarchy is created), and its own ticket fields, which work like the
-  fields of a template and take precedence over inherited ones. Child templates have no
-  conditions.
+  parent ticket when the hierarchy is created) and/or *inherits fields from root ticket* (the
+  fields configured by the root template are copied from the root ticket), and its own ticket
+  fields, which work like the fields of a template. Precedence is own fields first, then the
+  closest parent, then the root ticket.
 - A child template can have *conditions when it is added*: one or more "ticket field is value"
   checks against the ticket the hierarchy is created from. It is created when any condition
   matches, or always when it has none. A skipped child template takes its own children with it.

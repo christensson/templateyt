@@ -141,6 +141,18 @@ const validateChildAddConditions = (child) => {
   return null;
 };
 
+const CHILD_FLAGS = ["inheritParentFields", "inheritRootFields"];
+
+// Validates the optional boolean flags of a child template. Returns an error message or null.
+const validateChildFlags = (child) => {
+  for (const flag of CHILD_FLAGS) {
+    if (child[flag] !== undefined && typeof child[flag] !== "boolean") {
+      return `Child template "${child.name}" ${flag} must be a boolean.`;
+    }
+  }
+  return null;
+};
+
 // Validates the own properties of one child template (not its children).
 const validateChildOwnProperties = (child) => {
   if (!child || typeof child.id !== "string" || child.id === "") {
@@ -163,10 +175,7 @@ const validateChildOwnProperties = (child) => {
   if (conditionsError !== null) {
     return conditionsError;
   }
-  if (child.inheritParentFields !== undefined && typeof child.inheritParentFields !== "boolean") {
-    return `Child template "${child.name}" inheritParentFields must be a boolean.`;
-  }
-  return null;
+  return validateChildFlags(child);
 };
 
 // Validates a list of child templates recursively. Returns an error message or null.
@@ -775,6 +784,8 @@ exports.httpHandler = {
 
         const createdIssueIds = [];
         const skippedChildIds = [];
+        // Fields configured by the root template, inherited from the root ticket on request.
+        const rootManagedFields = template.fields.map((field) => field.fieldName);
         const createChildren = (parentIssue, parentManagedFields, children) => {
           for (const child of children) {
             // Skipped child templates take their whole subtree with them.
@@ -791,25 +802,26 @@ exports.httpHandler = {
             ticket.description = utils.applyReplacements(prepared.content, replacements.values);
             // Lets the template workflow skip auto-application on creation.
             ticket.extensionProperties.createdFromChildTemplateId = child.id;
+            // Precedence: own fields, then the closest parent, then the root ticket, so the
+            // values are applied in the opposite order.
+            const rootNames = child.inheritRootFields ? rootManagedFields : [];
+            for (const name of rootNames) {
+              utils.copyFieldValue(issue, ticket, name);
+            }
             const inheritedNames = child.inheritParentFields ? parentManagedFields : [];
             for (const name of inheritedNames) {
               utils.copyFieldValue(parentIssue, ticket, name);
             }
-            // Own fields win over inherited ones.
             utils.applyFieldAssignments(ticket, prepared.assignments);
             parentIssue.links["parent for"].add(ticket);
             createdIssueIds.push(ticket.id);
             const managedNames = uniqueNames(
-              inheritedNames.concat(child.fields.map((field) => field.fieldName)),
+              rootNames.concat(inheritedNames, child.fields.map((field) => field.fieldName)),
             );
             createChildren(ticket, managedNames, child.children);
           }
         };
-        createChildren(
-          issue,
-          template.fields.map((field) => field.fieldName),
-          template.children,
-        );
+        createChildren(issue, rootManagedFields, template.children);
         utils.markHierarchyCreated(issue, template.id);
 
         ctx.response.json({

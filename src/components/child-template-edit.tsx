@@ -152,24 +152,42 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
       />
       <div className="template-edit-field-panel">
         {editing ? (
-          <Checkbox
-            label="Inherit fields from parent"
-            checked={child.inheritParentFields}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-              const inheritParentFields = e.target.checked;
-              update((prev) => ({ ...prev, inheritParentFields }));
-            }}
-          />
+          <>
+            <Checkbox
+              label="Inherit fields from parent"
+              checked={child.inheritParentFields}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                const inheritParentFields = e.target.checked;
+                update((prev) => ({ ...prev, inheritParentFields }));
+              }}
+            />
+            <Checkbox
+              label="Inherit fields from root ticket"
+              checked={child.inheritRootFields}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                const inheritRootFields = e.target.checked;
+                update((prev) => ({ ...prev, inheritRootFields }));
+              }}
+            />
+          </>
         ) : (
-          <Text size={Text.Size.M}>
-            {child.inheritParentFields
-              ? "Inherits fields from parent."
-              : "Does not inherit fields from parent."}
-          </Text>
+          <>
+            <Text size={Text.Size.M}>
+              {child.inheritParentFields
+                ? "Inherits fields from parent."
+                : "Does not inherit fields from parent."}
+            </Text>
+            <Text size={Text.Size.M}>
+              {child.inheritRootFields
+                ? "Inherits fields from root ticket."
+                : "Does not inherit fields from root ticket."}
+            </Text>
+          </>
         )}
         <Text size={Text.Size.S} info>
-          Inherited fields are the fields configured by the parent template, copied from the parent
-          ticket when the hierarchy is created. Own fields take precedence.
+          Inherited fields are the fields configured by the parent template (copied from the parent
+          ticket) or by the root template (copied from the root ticket) when the hierarchy is
+          created. Precedence: own fields, then the closest parent, then the root ticket.
         </Text>
       </div>
       {editing ? (
