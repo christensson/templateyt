@@ -158,6 +158,21 @@ const FieldPreviewList: React.FunctionComponent<FieldPreviewListProps> = ({
   </>
 );
 
+interface FormSectionProps {
+  title: string;
+  children?: React.ReactNode;
+}
+
+// A titled part of a form; consecutive sections are separated by a line (see widget CSS).
+const FormSection: React.FunctionComponent<FormSectionProps> = ({ title, children }) => (
+  <div className="template-form-section">
+    <Text size={Text.Size.S} info>
+      {title}
+    </Text>
+    {children}
+  </div>
+);
+
 interface TemplateFieldsFormProps {
   pending: PendingApply;
   fieldInfos: Array<ProjectFieldInfo>;
@@ -196,28 +211,38 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
     [setValues],
   );
   const confirmDisabled = submitting || hasMissingReplacementTexts(pending.template, texts);
+  const fields = getTemplateFields(pending.template);
+  const hasReplacements = getTemplateReplacements(pending.template).length > 0;
 
   return (
     <>
       {showTitle && <Text size={Text.Size.M}>{formatPendingTitle(pending)}</Text>}
       <div className="template-fields-form">
-        <FieldPreviewList
-          fields={getTemplateFields(pending.template)}
-          fieldInfos={fieldInfos}
-          values={values}
-          onChange={onChange}
-        />
-        {hasUserInputFields(pending.template) && (
-          <Text size={Text.Size.S} info>
-            Fields left empty are not changed.
-          </Text>
+        {fields.length > 0 && (
+          <FormSection title="Fields">
+            <FieldPreviewList
+              fields={fields}
+              fieldInfos={fieldInfos}
+              values={values}
+              onChange={onChange}
+            />
+            {hasUserInputFields(pending.template) && (
+              <Text size={Text.Size.S} info>
+                Fields left empty are not changed.
+              </Text>
+            )}
+          </FormSection>
         )}
-        <ReplacementInputs
-          template={pending.template}
-          texts={texts}
-          setTexts={setTexts}
-          currentFieldPresentations={currentFieldPresentations}
-        />
+        {hasReplacements && (
+          <FormSection title="Text replacements">
+            <ReplacementInputs
+              template={pending.template}
+              texts={texts}
+              setTexts={setTexts}
+              currentFieldPresentations={currentFieldPresentations}
+            />
+          </FormSection>
+        )}
       </div>
       <Panel className="template-fields-form-actions">
         <Button primary loader={submitting} disabled={confirmDisabled} onClick={onConfirm}>
@@ -362,6 +387,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   const inclusion = evaluateChildInclusion(template, currentFieldValues);
   const createdCount = flat.filter(({ child }) => inclusion[child.id]?.created).length;
   const confirmDisabled = submitting || hasMissingReplacementTexts(template, texts);
+  const hasReplacements = getTemplateReplacements(template).length > 0;
   const onChange = useCallback(
     (childId: string, fieldName: string, value: string | null) =>
       setValues((prev) => ({
@@ -379,32 +405,37 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
           another set of subtasks.
         </Banner>
       )}
-      <Text size={Text.Size.S} info>
-        {formatCreatedCount(createdCount, flat.length)}
-      </Text>
-      <div className="template-fields-form template-hierarchy-list">
-        {flat.map(({ child, depth }) => (
-          <ChildTemplatePreview
-            key={child.id}
-            child={child}
-            depth={depth}
-            inclusion={inclusion[child.id] ?? { created: true, reason: null }}
-            fieldInfos={fieldInfos}
-            values={values[child.id] ?? {}}
-            onChange={onChange}
-          />
-        ))}
-        {hierarchyHasUserInputFields(template) && (
-          <Text size={Text.Size.S} info>
-            Fields left empty are not set.
-          </Text>
+      <div className="template-fields-form">
+        {hasReplacements && (
+          <FormSection title="Text replacements (applied to every subtask)">
+            <ReplacementInputs
+              template={template}
+              texts={texts}
+              setTexts={setTexts}
+              currentFieldPresentations={currentFieldPresentations}
+            />
+          </FormSection>
         )}
-        <ReplacementInputs
-          template={template}
-          texts={texts}
-          setTexts={setTexts}
-          currentFieldPresentations={currentFieldPresentations}
-        />
+        <FormSection title={formatCreatedCount(createdCount, flat.length)}>
+          <div className="template-hierarchy-list">
+            {flat.map(({ child, depth }) => (
+              <ChildTemplatePreview
+                key={child.id}
+                child={child}
+                depth={depth}
+                inclusion={inclusion[child.id] ?? { created: true, reason: null }}
+                fieldInfos={fieldInfos}
+                values={values[child.id] ?? {}}
+                onChange={onChange}
+              />
+            ))}
+          </div>
+          {hierarchyHasUserInputFields(template) && (
+            <Text size={Text.Size.S} info>
+              Fields left empty are not set.
+            </Text>
+          )}
+        </FormSection>
       </div>
       <Panel className="template-fields-form-actions">
         <Button primary loader={submitting} disabled={confirmDisabled} onClick={onConfirm}>

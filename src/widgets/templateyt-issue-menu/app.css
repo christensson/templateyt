@@ -35,6 +35,8 @@
 }
 
 .template-hierarchy-list {
+  display: flex;
+  flex-direction: column;
   gap: calc(var(--ring-unit) * 1.5);
 }
 
@@ -58,4 +60,15 @@
 
 .template-hierarchy-child-title-skipped {
   text-decoration: line-through;
+}
+
+.template-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ring-unit);
+}
+
+.template-form-section + .template-form-section {
+  border-top: 1px solid var(--ring-line-color);
+  padding-top: var(--ring-unit);
 }
