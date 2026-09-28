@@ -1,27 +1,118 @@
 import AddIcon from "@jetbrains/icons/add-12px";
 import ArrowLeftIcon from "@jetbrains/icons/arrow-left";
 import ArticleIcon from "@jetbrains/icons/article";
+import ArrowDownIcon from "@jetbrains/icons/chevron-down";
+import ArrowUpIcon from "@jetbrains/icons/chevron-up";
+import ImportIcon from "@jetbrains/icons/download";
 import FieldIcon from "@jetbrains/icons/settings-12px";
 import TrashIcon from "@jetbrains/icons/trash";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Checkbox from "@jetbrains/ring-ui-built/components/checkbox/checkbox";
 import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
+import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
+import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React from "react";
+import React, { useState } from "react";
 import type { ProjectFieldInfo } from "../../@types/project-info";
 import {
+  collectManualArticleIds,
+  findChildByArticleId,
   formatChildAddConditions,
   formatTemplateField,
   getChildAddConditions,
+  getChildTemplates,
+  getMoveTargets,
+  getSiblingPosition,
   getTemplateFields,
+  insertManualChild,
+  mergeImportedChildren,
+  moveChild,
+  moveChildUnder,
+  removeChild,
   updateChildTemplate,
   type ChildTemplate,
   type FieldStateCondition,
+  type ImportedArticle,
+  type InsertedArticle,
   type Template,
 } from "../../@types/template";
 import FieldValueConditionInput from "./field-value-condition-input";
 import TemplateFieldsPanel from "./template-fields-panel";
+
+export type ArticleTreeResponse = ImportedArticle & { success?: boolean; message?: string };
+
+// Reads an article's title and child article tree; provided by the widget that owns the host.
+export type ArticleTreeFetcher = (articleId: string) => Promise<ArticleTreeResponse>;
+
+const ROOT_TARGET_KEY = "__template__";
+
+interface InsertChildArticleProps {
+  template: Template;
+  fetchArticleTree: ArticleTreeFetcher;
+  onInsert: (article: InsertedArticle) => void;
+}
+
+// Inserts a knowledge base article, given by id, as a manually placed child template.
+export const InsertChildArticle: React.FunctionComponent<InsertChildArticleProps> = ({
+  template,
+  fetchArticleTree,
+  onInsert,
+}) => {
+  const [articleId, setArticleId] = useState<string>("");
+  const [busy, setBusy] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
+
+  const insert = async () => {
+    const id = articleId.trim();
+    if (id === "") {
+      setError("Enter an article id, e.g. KB-A-12.");
+      return;
+    }
+    if (id === template.articleId || findChildByArticleId(template, id) !== null) {
+      setError(`Article ${id} is already in the hierarchy.`);
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await fetchArticleTree(id);
+      if (result.success === false) {
+        setError(result.message || `Article ${id} not found.`);
+        return;
+      }
+      onInsert({ articleId: result.articleId, summary: result.summary });
+      setArticleId("");
+    } catch (fetchError) {
+      console.error("Failed to read article", fetchError);
+      setError(`Article ${id} could not be read.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="template-edit-field-panel">
+      <div className="template-replacement-row">
+        <Text size={Text.Size.M}>Insert article </Text>
+        <Input
+          value={articleId}
+          placeholder="Article id"
+          size={Size.S}
+          onChange={(e) => setArticleId(e.target.value)}
+        />
+        <Button onClick={insert} disabled={busy} loader={busy} icon={AddIcon} inline>
+          Insert as child template
+        </Button>
+      </div>
+      {error && (
+        <Text size={Text.Size.S} info>
+          {error}
+        </Text>
+      )}
+    </div>
+  );
+};
 
 interface ChildAddConditionsPanelProps {
   child: ChildTemplate;
@@ -90,6 +181,177 @@ const ChildAddConditionsPanel: React.FunctionComponent<ChildAddConditionsPanelPr
   );
 };
 
+interface ChildPositionPanelProps {
+  template: Template;
+  child: ChildTemplate;
+  setTemplate: React.Dispatch<React.SetStateAction<Template>>;
+  onRemoved: () => void;
+}
+
+// Moving and removing a manually inserted child template.
+const ChildPositionPanel: React.FunctionComponent<ChildPositionPanelProps> = ({
+  template,
+  child,
+  setTemplate,
+  onRemoved,
+}) => {
+  if (!child.manual) {
+    return (
+      <div className="template-edit-field-panel">
+        <Text size={Text.Size.S} info>
+          Position
+        </Text>
+        <Text size={Text.Size.M}>
+          Follows the article hierarchy. Re-import the child articles to refresh it.
+        </Text>
+      </div>
+    );
+  }
+  const position = getSiblingPosition(template, child.id);
+  const targets = getMoveTargets(template, child.id).map((target) => ({
+    key: target.id ?? ROOT_TARGET_KEY,
+    label: target.label,
+  }));
+  return (
+    <div className="template-edit-field-panel">
+      <Text size={Text.Size.S} info>
+        Position
+      </Text>
+      <div className="template-replacement-row">
+        <Button
+          icon={ArrowUpIcon}
+          disabled={position === null || position.index <= 0}
+          onClick={() => setTemplate((prev) => moveChild(prev, child.id, -1))}
+          inline
+        >
+          Move up
+        </Button>
+        <Button
+          icon={ArrowDownIcon}
+          disabled={position === null || position.index >= position.count - 1}
+          onClick={() => setTemplate((prev) => moveChild(prev, child.id, 1))}
+          inline
+        >
+          Move down
+        </Button>
+        <Select
+          label="Move under..."
+          type={Select.Type.INLINE}
+          size={Select.Size.AUTO}
+          data={targets}
+          selected={null}
+          onSelect={(item: SelectItem | null) => {
+            if (item) {
+              const key = String(item.key);
+              setTemplate((prev) =>
+                moveChildUnder(prev, child.id, key === ROOT_TARGET_KEY ? null : key),
+              );
+            }
+          }}
+        />
+        <Button
+          icon={TrashIcon}
+          danger
+          onClick={() => {
+            setTemplate((prev) => removeChild(prev, child.id));
+            onRemoved();
+          }}
+          inline
+        >
+          Remove child template
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+interface ChildArticlesPanelProps {
+  template: Template;
+  child: ChildTemplate;
+  setTemplate: React.Dispatch<React.SetStateAction<Template>>;
+  fetchArticleTree: ArticleTreeFetcher;
+}
+
+// Inserting articles below this child template and, for manually inserted ones, importing the
+// child articles of their article. Imported nodes get their children from the root import.
+const ChildArticlesPanel: React.FunctionComponent<ChildArticlesPanelProps> = ({
+  template,
+  child,
+  setTemplate,
+  fetchArticleTree,
+}) => {
+  const [importing, setImporting] = useState<boolean>(false);
+  const [message, setMessage] = useState<string>("");
+  const childCount = getChildTemplates(child).length;
+
+  const importChildren = async () => {
+    setImporting(true);
+    setMessage("");
+    try {
+      const result = await fetchArticleTree(child.articleId);
+      if (result.success === false) {
+        setMessage(result.message || "Failed to import child articles.");
+        return;
+      }
+      setTemplate((prev) =>
+        updateChildTemplate(prev, child.id, (current) => ({
+          ...current,
+          children: mergeImportedChildren(
+            getChildTemplates(current),
+            result.children,
+            collectManualArticleIds(prev),
+          ),
+        })),
+      );
+      setMessage("Child articles imported.");
+    } catch (error) {
+      console.error("Failed to import child articles", error);
+      setMessage("Failed to import child articles.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <div className="template-edit-field-panel">
+      <Text size={Text.Size.S} info>
+        Child templates below this one
+      </Text>
+      <Text size={Text.Size.M}>
+        {childCount === 0 ? "None." : `${childCount} direct child template${childCount === 1 ? "" : "s"}.`}
+      </Text>
+      {child.manual && (
+        <div>
+          <Button
+            onClick={importChildren}
+            disabled={importing}
+            loader={importing}
+            icon={ImportIcon}
+            inline
+          >
+            Import child articles of {child.articleId}
+          </Button>
+        </div>
+      )}
+      {!child.manual && (
+        <Text size={Text.Size.S} info>
+          Imported child templates get their child articles from the import at the template.
+        </Text>
+      )}
+      {message && (
+        <Text size={Text.Size.S} info>
+          {message}
+        </Text>
+      )}
+      <InsertChildArticle
+        template={template}
+        fetchArticleTree={fetchArticleTree}
+        onInsert={(article) => setTemplate((prev) => insertManualChild(prev, child.id, article))}
+      />
+    </div>
+  );
+};
+
 interface ChildTemplateEditProps {
   template: Template;
   child: ChildTemplate;
@@ -97,10 +359,12 @@ interface ChildTemplateEditProps {
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
   projectFields: Array<ProjectFieldInfo>;
   conditionFields: Array<ProjectFieldInfo>;
+  fetchArticleTree: ArticleTreeFetcher;
   onBack: () => void;
 }
 
-// Configuration of one child template of a hierarchical template: name, inheritance and fields.
+// Configuration of one child template of a hierarchical template: name, conditions,
+// inheritance, fields, position and its own child templates.
 const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
   template,
   child,
@@ -108,6 +372,7 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
   setTemplate,
   projectFields,
   conditionFields,
+  fetchArticleTree,
   onBack,
 }) => {
   const update = (updater: (prev: ChildTemplate) => ChildTemplate) =>
@@ -121,6 +386,9 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
           Back to template {template.name}
         </Button>
       </div>
+      <Text size={Text.Size.S} info>
+        {child.manual ? "Child template (inserted manually)" : "Child template (imported)"}
+      </Text>
       {editing ? (
         <Input
           label="Child template name (subtask summary)"
@@ -210,6 +478,22 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
             </Text>
           ))}
         </div>
+      )}
+      {editing && (
+        <ChildPositionPanel
+          template={template}
+          child={child}
+          setTemplate={setTemplate}
+          onRemoved={onBack}
+        />
+      )}
+      {editing && (
+        <ChildArticlesPanel
+          template={template}
+          child={child}
+          setTemplate={setTemplate}
+          fetchArticleTree={fetchArticleTree}
+        />
       )}
     </>
   );

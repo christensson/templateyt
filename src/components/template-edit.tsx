@@ -18,6 +18,7 @@ import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isConditionField, type ProjectFieldInfo, type TagInfo } from "../../@types/project-info";
 import {
+  collectManualArticleIds,
   createNullTemplate,
   findChildTemplate,
   flattenChildTemplates,
@@ -30,16 +31,20 @@ import {
   getTemplateFields,
   getTemplateReplacements,
   getValidConditions,
+  insertManualChild,
   mergeImportedChildren,
   validateChildTemplates,
   validateReplacements,
   validateTemplateFields,
-  type ImportedArticle,
   type Template,
   type ValidCondition,
 } from "../../@types/template";
 import type { TemplateArticle } from "../../@types/template-article";
-import ChildTemplateEdit from "./child-template-edit";
+import ChildTemplateEdit, {
+  InsertChildArticle,
+  type ArticleTreeFetcher,
+  type ArticleTreeResponse,
+} from "./child-template-edit";
 import EntityTypeConditionInput from "./entity-type-condition-input";
 import FieldConditionInput from "./field-condition-input";
 import TagConditionInput from "./tag-condition-input";
@@ -48,6 +53,14 @@ import TemplateReplacementsPanel from "./template-replacements-panel";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
+
+// Reads an article's title and child article tree from the backend (project scope).
+const fetchArticleTree: ArticleTreeFetcher = (articleId) =>
+  host.fetchApp<ArticleTreeResponse>("backend/getChildArticles", {
+    scope: true,
+    method: "POST",
+    body: { articleId },
+  });
 
 const TAG_PAGE_SIZE = 50;
 
@@ -200,8 +213,6 @@ interface HierarchyPanelProps {
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
 }
 
-type ChildArticlesResponse = ImportedArticle & { success?: boolean; message?: string };
-
 // Hierarchy settings of a template: the enable checkbox and the child article import.
 const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({ template, setTemplate }) => {
   const [importing, setImporting] = useState<boolean>(false);
@@ -212,11 +223,7 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({ template
     setImporting(true);
     setImportMessage("");
     try {
-      const result = await host.fetchApp<ChildArticlesResponse>("backend/getChildArticles", {
-        scope: true,
-        method: "POST",
-        body: { articleId: template.articleId },
-      });
+      const result = await fetchArticleTree(template.articleId);
       console.log("Child articles", result);
       if (result.success === false) {
         setImportMessage(result.message || "Failed to import child articles.");
@@ -224,7 +231,11 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({ template
       }
       setTemplate((prev) => ({
         ...prev,
-        children: mergeImportedChildren(getChildTemplates(prev), result.children),
+        children: mergeImportedChildren(
+          getChildTemplates(prev),
+          result.children,
+          collectManualArticleIds(prev),
+        ),
       }));
       setImportMessage("Child articles imported.");
     } catch (error) {
@@ -263,9 +274,14 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({ template
           </div>
           <Text size={Text.Size.M}>
             {childCount === 0
-              ? "No child templates yet. Import the child articles of the template article."
+              ? "No child templates yet. Import the child articles of the template article or insert an article."
               : `${childCount} child template${childCount === 1 ? "" : "s"}. Select one in the list to configure it.`}
           </Text>
+          <InsertChildArticle
+            template={template}
+            fetchArticleTree={fetchArticleTree}
+            onInsert={(article) => setTemplate((prev) => insertManualChild(prev, null, article))}
+          />
           {importMessage && (
             <Text size={Text.Size.S} info>
               {importMessage}
@@ -720,6 +736,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           setTemplate={setTemplate}
           projectFields={projectFields}
           conditionFields={conditionFields}
+          fetchArticleTree={fetchArticleTree}
           onBack={() => setSelectedChildId(null)}
         />
       );

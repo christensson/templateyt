@@ -141,7 +141,7 @@ const validateChildAddConditions = (child) => {
   return null;
 };
 
-const CHILD_FLAGS = ["inheritParentFields", "inheritRootFields"];
+const CHILD_FLAGS = ["inheritParentFields", "inheritRootFields", "manual"];
 
 // Validates the optional boolean flags of a child template. Returns an error message or null.
 const validateChildFlags = (child) => {

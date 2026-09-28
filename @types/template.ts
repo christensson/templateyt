@@ -57,6 +57,9 @@ export type ChildTemplate = {
   id: string; // Stable across re-imports of the child articles.
   articleId: string;
   name: string; // Summary of the created subtask.
+  // Inserted by hand rather than imported from the article tree: keeps its place on re-import
+  // and can be moved or removed.
+  manual: boolean;
   fields: Array<TemplateField>;
   // The subtask is created only when any of these match the root ticket; none means always.
   addConditions: Array<FieldStateCondition>;
@@ -156,25 +159,182 @@ export const updateChildTemplate = (
   children: updateChildInList(getChildTemplates(template), childId, updater),
 });
 
-// Merges a freshly imported article tree into the existing child templates: articles already
-// present keep their id, fields and inherit flag, new articles get defaults, missing ones go.
+// Article ids of all manually inserted nodes of the tree.
+export const collectManualArticleIds = (template: Template): Set<string> =>
+  new Set(
+    flattenChildTemplates(getChildTemplates(template))
+      .filter((flat) => flat.child.manual)
+      .map((flat) => flat.child.articleId),
+  );
+
+export const findChildByArticleId = (template: Template, articleId: string): ChildTemplate | null =>
+  flattenChildTemplates(getChildTemplates(template)).find(
+    (flat) => flat.child.articleId === articleId,
+  )?.child ?? null;
+
+// Merges a freshly imported article tree into the existing child templates: imported articles
+// already present keep their configuration, new articles get defaults, missing ones go. Articles
+// that exist as manually inserted nodes anywhere in the tree are not imported again, and manual
+// siblings keep their position and their whole subtree.
 export const mergeImportedChildren = (
   existing: Array<ChildTemplate>,
   imported: Array<ImportedArticle>,
-): Array<ChildTemplate> =>
-  imported.map((article) => {
-    const current = existing.find((child) => child.articleId === article.articleId);
-    return {
-      id: current?.id ?? uuidv4(),
-      articleId: article.articleId,
-      name: article.summary,
-      fields: current ? getTemplateFields(current) : [],
-      addConditions: current ? getChildAddConditions(current) : [],
-      inheritParentFields: current?.inheritParentFields ?? false,
-      inheritRootFields: current?.inheritRootFields ?? false,
-      children: mergeImportedChildren(current ? getChildTemplates(current) : [], article.children),
-    };
+  manualArticleIds: Set<string>,
+): Array<ChildTemplate> => {
+  const merged: Array<ChildTemplate> = imported
+    .filter((article) => !manualArticleIds.has(article.articleId))
+    .map((article) => {
+      const current = existing.find(
+        (child) => !child.manual && child.articleId === article.articleId,
+      );
+      return {
+        id: current?.id ?? uuidv4(),
+        articleId: article.articleId,
+        name: article.summary,
+        manual: false,
+        fields: current ? getTemplateFields(current) : [],
+        addConditions: current ? getChildAddConditions(current) : [],
+        inheritParentFields: current?.inheritParentFields ?? false,
+        inheritRootFields: current?.inheritRootFields ?? false,
+        children: mergeImportedChildren(
+          current ? getChildTemplates(current) : [],
+          article.children,
+          manualArticleIds,
+        ),
+      };
+    });
+  existing.forEach((child, index) => {
+    if (child.manual) {
+      merged.splice(Math.min(index, merged.length), 0, child);
+    }
   });
+  return merged;
+};
+
+export type InsertedArticle = { articleId: string; summary: string };
+
+const createManualChild = (article: InsertedArticle): ChildTemplate => ({
+  id: uuidv4(),
+  articleId: article.articleId,
+  name: article.summary,
+  manual: true,
+  fields: [],
+  addConditions: [],
+  inheritParentFields: false,
+  inheritRootFields: false,
+  children: [],
+});
+
+// Replaces the children of the template (parentId null) or of a child template.
+const updateSiblings = (
+  template: Template,
+  parentId: string | null,
+  updater: (children: Array<ChildTemplate>) => Array<ChildTemplate>,
+): Template =>
+  parentId === null
+    ? { ...template, children: updater(getChildTemplates(template)) }
+    : updateChildTemplate(template, parentId, (parent) => ({
+        ...parent,
+        children: updater(getChildTemplates(parent)),
+      }));
+
+// Appends a manually inserted child template below the template or below a child template.
+export const insertManualChild = (
+  template: Template,
+  parentId: string | null,
+  article: InsertedArticle,
+): Template => updateSiblings(template, parentId, (list) => [...list, createManualChild(article)]);
+
+// Id of the parent child template, null for a direct child of the template, undefined if absent.
+export const findParentId = (template: Template, childId: string): string | null | undefined => {
+  if (getChildTemplates(template).some((child) => child.id === childId)) {
+    return null;
+  }
+  const owner = flattenChildTemplates(getChildTemplates(template)).find((flat) =>
+    getChildTemplates(flat.child).some((child) => child.id === childId),
+  );
+  return owner ? owner.child.id : undefined;
+};
+
+// Position of a child template among its siblings, or null when it is not in the tree.
+export const getSiblingPosition = (
+  template: Template,
+  childId: string,
+): { index: number; count: number } | null => {
+  const parentId = findParentId(template, childId);
+  if (parentId === undefined) {
+    return null;
+  }
+  const parent = parentId === null ? null : findChildTemplate(template, parentId);
+  const list = parent === null ? getChildTemplates(template) : getChildTemplates(parent);
+  return { index: list.findIndex((child) => child.id === childId), count: list.length };
+};
+
+// Moves a child template one step among its siblings (delta -1 up, 1 down).
+export const moveChild = (template: Template, childId: string, delta: -1 | 1): Template => {
+  const parentId = findParentId(template, childId);
+  if (parentId === undefined) {
+    return template;
+  }
+  return updateSiblings(template, parentId, (list) => {
+    const index = list.findIndex((child) => child.id === childId);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= list.length) {
+      return list;
+    }
+    const copy = [...list];
+    copy[index] = list[target];
+    copy[target] = list[index];
+    return copy;
+  });
+};
+
+export const removeChild = (template: Template, childId: string): Template => {
+  const parentId = findParentId(template, childId);
+  if (parentId === undefined) {
+    return template;
+  }
+  return updateSiblings(template, parentId, (list) => list.filter((child) => child.id !== childId));
+};
+
+const isNodeOrDescendant = (node: ChildTemplate, childId: string): boolean =>
+  node.id === childId ||
+  flattenChildTemplates(getChildTemplates(node)).some((flat) => flat.child.id === childId);
+
+// Moves a child template (with its subtree) to the end of the template's children (null) or of
+// another child template's children; a node cannot be moved below itself.
+export const moveChildUnder = (
+  template: Template,
+  childId: string,
+  newParentId: string | null,
+): Template => {
+  const child = findChildTemplate(template, childId);
+  if (child === null) {
+    return template;
+  }
+  if (newParentId !== null) {
+    const target = findChildTemplate(template, newParentId);
+    if (target === null || isNodeOrDescendant(child, newParentId)) {
+      return template;
+    }
+  }
+  return updateSiblings(removeChild(template, childId), newParentId, (list) => [...list, child]);
+};
+
+export type MoveTarget = { id: string | null; label: string };
+
+// Where a child template can be moved: the template itself and every node outside its subtree.
+export const getMoveTargets = (template: Template, childId: string): Array<MoveTarget> => {
+  const child = findChildTemplate(template, childId);
+  const targets: Array<MoveTarget> = [{ id: null, label: `Template ${template.name}` }];
+  for (const { child: node, depth } of flattenChildTemplates(getChildTemplates(template))) {
+    if (child !== null && isNodeOrDescendant(child, node.id)) {
+      continue;
+    }
+    targets.push({ id: node.id, label: `${"\u00A0\u00A0".repeat(depth + 1)}${node.name}` });
+  }
+  return targets;
+};
 
 export const hierarchyHasUserInputFields = (template: Template): boolean =>
   flattenChildTemplates(getChildTemplates(template)).some((flat) => hasUserInputFields(flat.child));
@@ -375,6 +535,9 @@ export const evaluateChildInclusion = (
 
 export const formatChildTemplate = (child: ChildTemplate): string => {
   const parts: Array<string> = [];
+  if (child.manual) {
+    parts.push("Inserted manually.");
+  }
   if (getChildAddConditions(child).length > 0) {
     parts.push(formatChildAddConditions(child));
   }

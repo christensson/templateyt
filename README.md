@@ -116,6 +116,11 @@ content as description.
   fields configured by the root template are copied from the root ticket), and its own ticket
   fields, which work like the fields of a template. Precedence is own fields first, then the
   closest parent, then the root ticket.
+- Any knowledge base article can be *inserted* as a child template by its article id, below the
+  template or below any child template, without being part of the article tree. Inserted child
+  templates keep their place when child articles are re-imported, an inserted article is never
+  imported a second time, and they can be moved (up, down or under another node), removed, and
+  can import their own child articles. Imported child templates always follow the article tree.
 - A child template can have *conditions when it is added*: one or more "ticket field is value"
   checks against the ticket the hierarchy is created from. It is created when any condition
   matches, or always when it has none. A skipped child template takes its own children with it.
