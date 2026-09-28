@@ -691,6 +691,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           editing={editing}
           setTemplate={setTemplate}
           projectFields={projectFields}
+          conditionFields={conditionFields}
           onBack={() => setSelectedChildId(null)}
         />
       );

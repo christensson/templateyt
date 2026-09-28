@@ -32,6 +32,7 @@ const normalizeChildTemplates = (children) =>
   (Array.isArray(children) ? children : []).map((child) => ({
     ...child,
     fields: Array.isArray(child.fields) ? child.fields : [],
+    addConditions: Array.isArray(child.addConditions) ? child.addConditions : [],
     inheritParentFields: child.inheritParentFields === true,
     children: normalizeChildTemplates(child.children),
   }));
@@ -42,6 +43,18 @@ const flattenChildTemplates = (children, depth) =>
     { child: child, depth: depth || 0 },
     ...flattenChildTemplates(child.children, (depth || 0) + 1),
   ]);
+
+// A child template is added when it has no add conditions or any of them matches the root
+// ticket (the ticket the hierarchy is created from).
+const isChildTemplateAdded = (rootIssue, child) => {
+  const conditions = Array.isArray(child.addConditions) ? child.addConditions : [];
+  if (conditions.length === 0) {
+    return true;
+  }
+  return conditions.some(
+    (cond) => cond.when === "field_is" && rootIssue.is(cond.fieldName, cond.fieldValue),
+  );
+};
 
 // Article tree below an article, in the shape the config UI imports.
 const getArticleTree = (article) => ({
@@ -290,6 +303,7 @@ module.exports = {
   markTemplatePending,
   clearTemplatePending,
   flattenChildTemplates,
+  isChildTemplateAdded,
   getArticleTree,
   getCreatedHierarchyTemplateIds,
   markHierarchyCreated,

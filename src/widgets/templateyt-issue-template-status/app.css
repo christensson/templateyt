@@ -56,3 +56,11 @@
   padding-left: var(--ring-unit);
   border-left: 2px solid var(--ring-line-color);
 }
+
+.template-hierarchy-child-skipped {
+  color: var(--ring-secondary-color);
+}
+
+.template-hierarchy-child-title-skipped {
+  text-decoration: line-through;
+}

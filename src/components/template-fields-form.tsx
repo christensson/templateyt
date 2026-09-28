@@ -7,11 +7,13 @@ import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useCallback, useMemo } from "react";
 import type { ProjectFieldInfo } from "../../@types/project-info";
 import {
+  evaluateChildInclusion,
   flattenChildTemplates,
   getChildTemplates,
   getTemplateFields,
   hasUserInputFields,
   hierarchyHasUserInputFields,
+  type ChildInclusion,
   type ChildTemplate,
   type Template,
   type TemplateField,
@@ -160,6 +162,7 @@ const UNITS_PER_DEPTH = 3;
 interface ChildTemplatePreviewProps {
   child: ChildTemplate;
   depth: number;
+  inclusion: ChildInclusion;
   fieldInfos: Array<ProjectFieldInfo>;
   values: FieldValues;
   onChange: (childId: string, fieldName: string, value: string | null) => void;
@@ -168,6 +171,7 @@ interface ChildTemplatePreviewProps {
 const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> = ({
   child,
   depth,
+  inclusion,
   fieldInfos,
   values,
   onChange,
@@ -177,6 +181,29 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
     [child.id, onChange],
   );
   const fields = getTemplateFields(child);
+  const skippedClass = inclusion.created ? "" : " template-hierarchy-child-skipped";
+  if (!inclusion.created) {
+    return (
+      <div
+        className={`template-hierarchy-child${skippedClass}`}
+        style={{ marginLeft: `calc(var(--ring-unit) * ${depth * UNITS_PER_DEPTH})` }}
+      >
+        <div className="template-hierarchy-child-title">
+          <Text size={Text.Size.M} bold className="template-hierarchy-child-title-skipped">
+            {child.name}
+          </Text>{" "}
+          <Text size={Text.Size.S} info>
+            {child.articleId}
+          </Text>
+        </div>
+        <div className="template-hierarchy-child-body">
+          <Text size={Text.Size.S} info>
+            Not created: {inclusion.reason}
+          </Text>
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className="template-hierarchy-child"
@@ -215,6 +242,8 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
 interface HierarchyFormProps {
   template: Template;
   fieldInfos: Array<ProjectFieldInfo>;
+  // Current field values of the root ticket, used to preview which subtasks will be created.
+  currentFieldValues: FieldValues;
   values: ChildFieldValues;
   setValues: React.Dispatch<React.SetStateAction<ChildFieldValues>>;
   // A hierarchy for this template was created for the ticket before.
@@ -227,9 +256,19 @@ interface HierarchyFormProps {
 
 // Form for creating the ticket hierarchy of a template: shows the subtasks that will be created
 // with their fields and lets the user pick values for user-input fields.
+const formatCreatedCount = (created: number, total: number): string => {
+  if (created === total) {
+    return total === 1
+      ? "The following subtask will be created below the ticket:"
+      : `The following ${total} subtasks will be created below the ticket:`;
+  }
+  return `${created} of ${total} subtasks will be created below the ticket:`;
+};
+
 export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   template,
   fieldInfos,
+  currentFieldValues,
   values,
   setValues,
   alreadyCreated,
@@ -239,6 +278,8 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   cancelLabel = "Back",
 }) => {
   const flat = flattenChildTemplates(getChildTemplates(template));
+  const inclusion = evaluateChildInclusion(template, currentFieldValues);
+  const createdCount = flat.filter(({ child }) => inclusion[child.id]?.created).length;
   const onChange = useCallback(
     (childId: string, fieldName: string, value: string | null) =>
       setValues((prev) => ({
@@ -257,9 +298,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
         </Banner>
       )}
       <Text size={Text.Size.S} info>
-        {flat.length === 1
-          ? "The following subtask will be created below the ticket:"
-          : `The following ${flat.length} subtasks will be created below the ticket:`}
+        {formatCreatedCount(createdCount, flat.length)}
       </Text>
       <div className="template-fields-form template-hierarchy-list">
         {flat.map(({ child, depth }) => (
@@ -267,6 +306,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
             key={child.id}
             child={child}
             depth={depth}
+            inclusion={inclusion[child.id] ?? { created: true, reason: null }}
             fieldInfos={fieldInfos}
             values={values[child.id] ?? {}}
             onChange={onChange}

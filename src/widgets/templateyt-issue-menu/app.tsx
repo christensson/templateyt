@@ -296,6 +296,7 @@ const AppComponent: React.FunctionComponent = () => {
         <HierarchyForm
           template={hierarchyTemplate}
           fieldInfos={issueTemplateInfo.fields}
+          currentFieldValues={issueTemplateInfo.currentFieldValues}
           values={childValues}
           setValues={setChildValues}
           alreadyCreated={issueTemplateInfo.createdHierarchyTemplateIds.includes(

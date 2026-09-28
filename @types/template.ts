@@ -49,6 +49,8 @@ export type ChildTemplate = {
   articleId: string;
   name: string; // Summary of the created subtask.
   fields: Array<TemplateField>;
+  // The subtask is created only when any of these match the root ticket; none means always.
+  addConditions: Array<FieldStateCondition>;
   // Copy the values of the fields the parent template configures from the parent ticket.
   inheritParentFields: boolean;
   children: Array<ChildTemplate>;
@@ -87,6 +89,9 @@ export const hasUserInputFields = (template: HasFields): boolean =>
 
 export const getChildTemplates = (parent: { children?: Array<ChildTemplate> }): Array<ChildTemplate> =>
   Array.isArray(parent?.children) ? parent.children : [];
+
+export const getChildAddConditions = (child: ChildTemplate): Array<FieldStateCondition> =>
+  Array.isArray(child?.addConditions) ? child.addConditions : [];
 
 export type FlatChildTemplate = {
   child: ChildTemplate;
@@ -141,6 +146,7 @@ export const mergeImportedChildren = (
       articleId: article.articleId,
       name: article.summary,
       fields: current ? getTemplateFields(current) : [],
+      addConditions: current ? getChildAddConditions(current) : [],
       inheritParentFields: current?.inheritParentFields ?? false,
       children: mergeImportedChildren(current ? getChildTemplates(current) : [], article.children),
     };
@@ -235,8 +241,76 @@ export const formatTemplateHierarchy = (template: Template): string => {
   return `Hierarchical with ${count} child template${count === 1 ? "" : "s"}.`;
 };
 
+// Child add conditions are evaluated on the root ticket (the ticket the hierarchy is created
+// from), so their wording names it explicitly, unlike template conditions.
+export const formatChildAddCondition = (cond: FieldStateCondition): string =>
+  `root ticket field ${cond.fieldName} is ${cond.fieldValue}`;
+
+// "Always added." or "Added when root ticket field Type is Bug, or root ticket field Type is Task."
+export const formatChildAddConditions = (child: ChildTemplate): string => {
+  const conditions = getChildAddConditions(child);
+  if (conditions.length === 0) {
+    return "Always added.";
+  }
+  return `Added when ${conditions.map(formatChildAddCondition).join(", or ")}.`;
+};
+
+// Why unmet conditions skip a child, stating the root ticket's actual values, e.g.
+// "root ticket field Type is Feature, requires Bug or Task."
+const formatUnmetConditions = (
+  conditions: Array<FieldStateCondition>,
+  currentFieldValues: Record<string, string | null>,
+): string => {
+  const requiredByField = new Map<string, Array<string>>();
+  for (const cond of conditions) {
+    const required = requiredByField.get(cond.fieldName) ?? [];
+    required.push(cond.fieldValue);
+    requiredByField.set(cond.fieldName, required);
+  }
+  const parts = Array.from(requiredByField.entries()).map(
+    ([fieldName, required]) =>
+      `root ticket field ${fieldName} is ${currentFieldValues[fieldName] ?? "empty"}, requires ${required.join(" or ")}`,
+  );
+  return `${parts.join("; ")}.`;
+};
+
+// Whether each child template would be created for a root ticket with the given field values
+// (value names keyed by field name), keyed by child template id, with the reason when not.
+export type ChildInclusion = { created: boolean; reason: string | null };
+
+export const evaluateChildInclusion = (
+  template: Template,
+  currentFieldValues: Record<string, string | null>,
+): Record<string, ChildInclusion> => {
+  const result: Record<string, ChildInclusion> = {};
+  const visit = (children: Array<ChildTemplate>, parentCreated: boolean) => {
+    for (const child of children) {
+      let inclusion: ChildInclusion = { created: true, reason: null };
+      const conditions = getChildAddConditions(child);
+      if (!parentCreated) {
+        inclusion = { created: false, reason: "Parent subtask is not created." };
+      } else if (
+        conditions.length > 0 &&
+        !conditions.some((cond) => currentFieldValues[cond.fieldName] === cond.fieldValue)
+      ) {
+        inclusion = {
+          created: false,
+          reason: formatUnmetConditions(conditions, currentFieldValues),
+        };
+      }
+      result[child.id] = inclusion;
+      visit(getChildTemplates(child), inclusion.created);
+    }
+  };
+  visit(getChildTemplates(template), true);
+  return result;
+};
+
 export const formatChildTemplate = (child: ChildTemplate): string => {
   const parts: Array<string> = [];
+  if (getChildAddConditions(child).length > 0) {
+    parts.push(formatChildAddConditions(child));
+  }
   if (child.inheritParentFields) {
     parts.push("Inherits fields from parent.");
   }
@@ -305,6 +379,14 @@ export const validateChildTemplates = (template: Template): string | null => {
   for (const { child } of flat) {
     if (!child.name || child.name.trim() === "") {
       return `Child template for article ${child.articleId} needs a name.`;
+    }
+    for (const cond of getChildAddConditions(child)) {
+      if (!cond.fieldName) {
+        return `Child template "${child.name}" condition is missing a field name.`;
+      }
+      if (!cond.fieldValue) {
+        return `Child template "${child.name}" condition is missing a value.`;
+      }
     }
     const error = validateFieldList(getTemplateFields(child), `Child template "${child.name}"`);
     if (error !== null) {

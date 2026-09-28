@@ -114,6 +114,30 @@ const validateTemplateFields = (template) => {
   return null;
 };
 
+// Validates the add conditions of a child template. Returns an error message or null.
+// Keep in sync with validateChildTemplates in @types/template.ts.
+const validateChildAddConditions = (child) => {
+  const conditions = child.addConditions;
+  if (conditions === undefined) {
+    return null;
+  }
+  if (!Array.isArray(conditions)) {
+    return `Child template "${child.name}" addConditions is not an array.`;
+  }
+  for (const cond of conditions) {
+    if (!cond || cond.when !== "field_is") {
+      return `Child template "${child.name}" condition has an unknown type.`;
+    }
+    if (typeof cond.fieldName !== "string" || cond.fieldName === "") {
+      return `Child template "${child.name}" condition is missing a field name.`;
+    }
+    if (typeof cond.fieldValue !== "string" || cond.fieldValue === "") {
+      return `Child template "${child.name}" condition is missing a value.`;
+    }
+  }
+  return null;
+};
+
 // Validates the own properties of one child template (not its children).
 const validateChildOwnProperties = (child) => {
   if (!child || typeof child.id !== "string" || child.id === "") {
@@ -131,6 +155,10 @@ const validateChildOwnProperties = (child) => {
   const fieldsError = validateFieldList(child.fields || [], `Child template "${child.name}"`);
   if (fieldsError !== null) {
     return fieldsError;
+  }
+  const conditionsError = validateChildAddConditions(child);
+  if (conditionsError !== null) {
+    return conditionsError;
   }
   if (child.inheritParentFields !== undefined && typeof child.inheritParentFields !== "boolean") {
     return `Child template "${child.name}" inheritParentFields must be a boolean.`;
@@ -232,14 +260,23 @@ const validateTemplate = (template) => {
   return null;
 };
 
+// Child templates that will be created for the root issue, in tree order, skipping those whose
+// add conditions do not match together with their subtrees.
+const getAddedChildTemplates = (rootIssue, children) =>
+  (Array.isArray(children) ? children : []).flatMap((child) =>
+    utils.isChildTemplateAdded(rootIssue, child)
+      ? [child, ...getAddedChildTemplates(rootIssue, child.children)]
+      : [],
+  );
+
 // Resolves everything a hierarchy creation needs (articles and field values) without creating
 // anything, so that a bad value leaves the ticket untouched.
 // Returns { errors: [string], byChildId: { [childId]: { content, assignments } } }.
-const planHierarchy = (project, template, childFieldValues) => {
+const planHierarchy = (rootIssue, template, childFieldValues) => {
+  const project = rootIssue.project;
   const errors = [];
   const byChildId = {};
-  for (const flat of utils.flattenChildTemplates(template.children)) {
-    const child = flat.child;
+  for (const child of getAddedChildTemplates(rootIssue, template.children)) {
     const article = entities.Article.findById(child.articleId);
     if (article == null) {
       errors.push(`Article ${child.articleId} for child template "${child.name}" not found.`);
@@ -626,15 +663,21 @@ exports.httpHandler = {
           return;
         }
 
-        const plan = planHierarchy(issue.project, template, body.childFieldValues);
+        const plan = planHierarchy(issue, template, body.childFieldValues);
         if (plan.errors.length > 0) {
           badRequest(ctx, `Failed to create hierarchy: ${plan.errors.join(" ")}`);
           return;
         }
 
         const createdIssueIds = [];
+        const skippedChildIds = [];
         const createChildren = (parentIssue, parentManagedFields, children) => {
           for (const child of children) {
+            // Skipped child templates take their whole subtree with them.
+            if (!utils.isChildTemplateAdded(issue, child)) {
+              skippedChildIds.push(child.id);
+              continue;
+            }
             const prepared = plan.byChildId[child.id];
             const ticket = new entities.Issue(ctx.currentUser, issue.project, child.name);
             ticket.description = prepared.content;
@@ -664,6 +707,7 @@ exports.httpHandler = {
         ctx.response.json({
           success: true,
           createdIssueIds: createdIssueIds,
+          skippedChildIds: skippedChildIds,
           createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(issue),
         });
       },
