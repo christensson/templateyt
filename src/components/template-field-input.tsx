@@ -4,13 +4,30 @@ import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/sele
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useCallback, useMemo } from "react";
-import type { ProjectFieldInfo } from "../../@types/project-info";
+import { isMultiValueField, type ProjectFieldInfo } from "../../@types/project-info";
 import type { TemplateField } from "../../@types/template";
 
-const MODE_ITEMS = [
+const ADDITIVE_SUFFIX = "_additive";
+
+// Single-value fields are set; multi-value fields can also get an additional value.
+const SINGLE_MODE_ITEMS = [
   { key: "fixed", label: "to fixed value" },
   { key: "user_input", label: "to value chosen by user" },
 ];
+const MULTI_MODE_ITEMS = [
+  { key: "fixed", label: "to fixed value" },
+  { key: `fixed${ADDITIVE_SUFFIX}`, label: "to fixed additional value" },
+  { key: "user_input", label: "to value chosen by user" },
+  { key: `user_input${ADDITIVE_SUFFIX}`, label: "to additional value chosen by user" },
+];
+
+const getModeKey = (field: TemplateField): string =>
+  field.additive ? `${field.mode}${ADDITIVE_SUFFIX}` : field.mode;
+
+const makeField = (fieldName: string, mode: string, additive: boolean): TemplateField =>
+  mode === "user_input"
+    ? { fieldName, mode: "user_input", additive }
+    : { fieldName, mode: "fixed", fieldValue: "", additive };
 
 interface TemplateFieldInputProps {
   fields: Array<ProjectFieldInfo>;
@@ -26,20 +43,21 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
   onChange,
   disabled,
 }) => {
+  const fieldInfo = fields.find((candidate) => candidate.name === field.fieldName);
+  const isMulti = fieldInfo !== undefined && isMultiValueField(fieldInfo);
+
   const onSelectField = useCallback(
     (selected: SelectItem | null) => {
       if (!selected) {
         return;
       }
       const fieldName = String(selected.key);
-      // Changing field invalidates any chosen value.
-      onChange(
-        field.mode === "user_input"
-          ? { fieldName, mode: "user_input" }
-          : { fieldName, mode: "fixed", fieldValue: "" },
-      );
+      const info = fields.find((candidate) => candidate.name === fieldName);
+      // Changing field invalidates any chosen value; "additional" only applies to multi-value.
+      const additive = info !== undefined && isMultiValueField(info) && field.additive === true;
+      onChange(makeField(fieldName, field.mode, additive));
     },
-    [field.mode, onChange],
+    [fields, field.mode, field.additive, onChange],
   );
 
   const onSelectMode = useCallback(
@@ -47,11 +65,10 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
       if (!selected) {
         return;
       }
-      onChange(
-        selected.key === "user_input"
-          ? { fieldName: field.fieldName, mode: "user_input" }
-          : { fieldName: field.fieldName, mode: "fixed", fieldValue: "" },
-      );
+      const key = String(selected.key);
+      const additive = key.endsWith(ADDITIVE_SUFFIX);
+      const mode = additive ? key.slice(0, -ADDITIVE_SUFFIX.length) : key;
+      onChange(makeField(field.fieldName, mode, additive));
     },
     [field.fieldName, onChange],
   );
@@ -61,9 +78,14 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
       if (!selected) {
         return;
       }
-      onChange({ fieldName: field.fieldName, mode: "fixed", fieldValue: String(selected.key) });
+      onChange({
+        fieldName: field.fieldName,
+        mode: "fixed",
+        fieldValue: String(selected.key),
+        additive: field.additive === true,
+      });
     },
-    [field.fieldName, onChange],
+    [field.fieldName, field.additive, onChange],
   );
 
   const selectFieldItems = useMemo(
@@ -77,7 +99,8 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
   }, [fields, field.fieldName]);
 
   const selectedFieldItem = selectFieldItems.find((item) => item.key === field.fieldName) || null;
-  const selectedModeItem = MODE_ITEMS.find((item) => item.key === field.mode) || null;
+  const modeItems = isMulti ? MULTI_MODE_ITEMS : SINGLE_MODE_ITEMS;
+  const selectedModeItem = modeItems.find((item) => item.key === getModeKey(field)) || null;
   const selectedValueItem =
     field.mode === "fixed"
       ? selectValueItems.find((item) => item.key === field.fieldValue) || null
@@ -103,7 +126,7 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
         label="..."
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}
-        data={MODE_ITEMS}
+        data={modeItems}
         onSelect={onSelectMode}
         selected={selectedModeItem}
       />

@@ -27,14 +27,17 @@ export type AddCondition = FieldActionCondition | TagActionCondition;
 
 // A ticket field set by the template, either to a fixed value or to a value chosen by the user
 // when the template is applied manually.
+// For multi-value fields `additive` adds the value to the existing ones instead of replacing them.
 export type TemplateFixedField = {
   fieldName: string;
   mode: "fixed";
   fieldValue: string;
+  additive?: boolean;
 };
 export type TemplateUserInputField = {
   fieldName: string;
   mode: "user_input";
+  additive?: boolean;
 };
 export type TemplateField = TemplateFixedField | TemplateUserInputField;
 export type TemplateFieldMode = TemplateField["mode"];
@@ -205,10 +208,16 @@ export const formatAddCondition = (
 };
 
 export const formatTemplateField = (field: TemplateField, capitalize: boolean = false): string => {
-  const str =
-    field.mode === "fixed"
-      ? `sets ticket field ${field.fieldName} to ${field.fieldValue}.`
+  let str: string;
+  if (field.mode === "fixed") {
+    str = field.additive
+      ? `adds ${field.fieldValue} to ticket field ${field.fieldName}.`
+      : `sets ticket field ${field.fieldName} to ${field.fieldValue}.`;
+  } else {
+    str = field.additive
+      ? `asks for an additional value of ticket field ${field.fieldName} when applied manually.`
       : `asks for ticket field ${field.fieldName} when applied manually.`;
+  }
   return capitalize ? capitalizeFirst(str) : str;
 };
 

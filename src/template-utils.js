@@ -1,10 +1,26 @@
-// Field types whose values a template can set. Single-value fields with a list of values only.
-const SUPPORTED_FIELD_TYPES = ["state[1]", "enum[1]", "user[1]", "version[1]", "ownedField[1]"];
+// Field types whose values a template can set: fields with a list of values, single-value ([1])
+// or multi-value ([*]).
+const SUPPORTED_FIELD_TYPES = [
+  "state[1]",
+  "enum[1]",
+  "user[1]",
+  "version[1]",
+  "build[1]",
+  "ownedField[1]",
+  "enum[*]",
+  "user[*]",
+  "version[*]",
+  "build[*]",
+  "ownedField[*]",
+];
 
 // Field types that can be used in template conditions (must match @types/project-info.ts).
 const CONDITION_FIELD_TYPES = ["state[1]", "enum[1]"];
 
-const USER_FIELD_TYPE = "user[1]";
+const isUserType = (typeName) => typeof typeName === "string" && typeName.indexOf("user[") === 0;
+
+// Multi-value fields hold a Set of values.
+const isMultiValueType = (typeName) => typeof typeName === "string" && typeName.endsWith("[*]");
 
 // The YT workflow API Set data-structure somehow doesn't support .map for
 // iterating over the items in old self-hosted YT versions. This is a
@@ -142,11 +158,29 @@ const isTemplateValidForArticle = (ytArticle, template) => {
 };
 
 // Identifier stored for a field value: the login for users, otherwise the value name.
-const getFieldValueName = (typeName, value) =>
-  typeName === USER_FIELD_TYPE ? value.login : value.name;
+const getFieldValueName = (typeName, value) => (isUserType(typeName) ? value.login : value.name);
 
 const getFieldValuePresentation = (typeName, value) =>
-  typeName === USER_FIELD_TYPE ? value.fullName : value.presentation;
+  isUserType(typeName) ? value.fullName : value.presentation;
+
+// The values of an issue field as an array: the elements of a multi-value field, or the single
+// value; empty when the field is empty.
+const getIssueFieldValueList = (issue, typeName, fieldName) => {
+  const value = issue.fields[fieldName];
+  if (!value) {
+    return [];
+  }
+  return isMultiValueType(typeName) ? toArray(value) : [value];
+};
+
+// Display text of an issue field: all values comma separated, or null when empty.
+const getFieldPresentationText = (issue, typeName, fieldName) => {
+  const values = getIssueFieldValueList(issue, typeName, fieldName);
+  if (values.length === 0) {
+    return null;
+  }
+  return values.map((value) => getFieldValuePresentation(typeName, value)).join(", ");
+};
 
 // Info about the project fields a template can set or use in conditions, in the shape
 // of ProjectFieldInfo in @types/project-info.ts.
@@ -162,12 +196,13 @@ const getProjectFieldInfo = (project) =>
       })),
     }));
 
-// Current values of the given fields on an issue, keyed by field name (null when empty).
+// Current values of the given fields on an issue, keyed by field name (null when empty). For
+// multi-value fields this is the first value, used to preselect a single choice.
 const getIssueFieldValues = (issue, fieldInfos) => {
   const values = {};
   for (const info of fieldInfos) {
-    const value = issue.fields[info.name];
-    values[info.name] = value ? getFieldValueName(info.typeName, value) : null;
+    const list = getIssueFieldValueList(issue, info.typeName, info.name);
+    values[info.name] = list.length > 0 ? getFieldValueName(info.typeName, list[0]) : null;
   }
   return values;
 };
@@ -176,8 +211,7 @@ const getIssueFieldValues = (issue, fieldInfos) => {
 const getIssueFieldPresentations = (issue, fieldInfos) => {
   const values = {};
   for (const info of fieldInfos) {
-    const value = issue.fields[info.name];
-    values[info.name] = value ? getFieldValuePresentation(info.typeName, value) : null;
+    values[info.name] = getFieldPresentationText(issue, info.typeName, info.name);
   }
   return values;
 };
@@ -192,10 +226,9 @@ const findProjectField = (project, fieldName) => {
 
 const findFieldValue = (projectField, valueName) => {
   try {
-    const value =
-      projectField.typeName === USER_FIELD_TYPE
-        ? projectField.findValueByLogin(valueName)
-        : projectField.findValueByName(valueName);
+    const value = isUserType(projectField.typeName)
+      ? projectField.findValueByLogin(valueName)
+      : projectField.findValueByName(valueName);
     return value || null;
   } catch {
     return null;
@@ -239,15 +272,42 @@ const resolveTemplateFieldValues = (project, template, userValues, includeUserIn
       errors.push(`Value "${valueName}" not found for field "${field.fieldName}".`);
       continue;
     }
-    assignments.push({ fieldName: field.fieldName, value: value });
+    assignments.push({
+      fieldName: field.fieldName,
+      value: value,
+      multi: isMultiValueType(projectField.typeName),
+      additive: field.additive === true,
+    });
   }
   return { assignments: assignments, errors: errors };
 };
 
+// Single-value fields are assigned; multi-value fields get the value added, after clearing the
+// existing values unless the assignment is additive.
 const applyFieldAssignments = (issue, assignments) => {
   for (const assignment of assignments) {
-    issue.fields[assignment.fieldName] = assignment.value;
+    if (!assignment.multi) {
+      issue.fields[assignment.fieldName] = assignment.value;
+      continue;
+    }
+    const set = issue.fields[assignment.fieldName];
+    if (!assignment.additive) {
+      set.clear();
+    }
+    set.add(assignment.value);
   }
+};
+
+// Copies a field value between issues; multi-value fields (Sets) are copied element by element.
+const copyFieldValue = (fromIssue, toIssue, fieldName) => {
+  const value = fromIssue.fields[fieldName];
+  if (value && typeof value.forEach === "function") {
+    const target = toIssue.fields[fieldName];
+    target.clear();
+    value.forEach((element) => target.add(element));
+    return;
+  }
+  toIssue.fields[fieldName] = value;
 };
 
 const templateHasUserInputFields = (template) =>
@@ -309,11 +369,11 @@ const resolveFieldReplacement = (rootIssue, replacement) => {
       error: `Root ticket field "${replacement.fieldName}" has unsupported type ${projectField.typeName}.`,
     };
   }
-  const value = rootIssue.fields[replacement.fieldName];
-  if (!value) {
+  const text = getFieldPresentationText(rootIssue, projectField.typeName, replacement.fieldName);
+  if (text === null) {
     return { value: null, error: `Root ticket field "${replacement.fieldName}" is empty.` };
   }
-  return { value: getFieldValuePresentation(projectField.typeName, value), error: null };
+  return { value: text, error: null };
 };
 
 // True when any user-input field of the template has no value in userValues.
@@ -412,6 +472,7 @@ module.exports = {
   resolveReplacements,
   resolveTemplateFieldValues,
   applyFieldAssignments,
+  copyFieldValue,
   parseIdList,
   templateHasUserInputFields,
   hasMissingUserInput,

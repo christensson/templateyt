@@ -21,3 +21,7 @@ export const CONDITION_FIELD_TYPES = ["state[1]", "enum[1]"];
 
 export const isConditionField = (field: ProjectFieldInfo): boolean =>
   CONDITION_FIELD_TYPES.includes(field.typeName);
+
+// Multi-value fields (e.g. "version[*]") hold a set of values; templates can replace or add.
+export const isMultiValueField = (field: ProjectFieldInfo): boolean =>
+  field.typeName.endsWith("[*]");

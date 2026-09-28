@@ -79,6 +79,9 @@ const validateFieldList = (fields, subject) => {
     if (field.mode === "fixed" && (typeof field.fieldValue !== "string" || field.fieldValue === "")) {
       return `${subject} field "${field.fieldName}" is missing a value.`;
     }
+    if (field.additive !== undefined && typeof field.additive !== "boolean") {
+      return `${subject} field "${field.fieldName}" additive must be a boolean.`;
+    }
   }
   return null;
 };
@@ -790,7 +793,7 @@ exports.httpHandler = {
             ticket.extensionProperties.createdFromChildTemplateId = child.id;
             const inheritedNames = child.inheritParentFields ? parentManagedFields : [];
             for (const name of inheritedNames) {
-              ticket.fields[name] = parentIssue.fields[name];
+              utils.copyFieldValue(parentIssue, ticket, name);
             }
             // Own fields win over inherited ones.
             utils.applyFieldAssignments(ticket, prepared.assignments);

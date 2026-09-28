@@ -104,7 +104,9 @@ const UserInputFieldSelect: React.FunctionComponent<UserInputFieldSelectProps> =
   const selected = items.find((item) => item.key === value) || null;
   return (
     <div>
-      <Text size={Text.Size.M}>Set {field.fieldName} to </Text>
+      <Text size={Text.Size.M}>
+        {field.additive ? `Add to ${field.fieldName} ` : `Set ${field.fieldName} to `}
+      </Text>
       <Select
         clear
         filter
@@ -139,7 +141,9 @@ const FieldPreviewList: React.FunctionComponent<FieldPreviewListProps> = ({
     {fields.map((field) =>
       field.mode === "fixed" ? (
         <Text size={Text.Size.M} info key={field.fieldName}>
-          Will set {field.fieldName} to {field.fieldValue}.
+          {field.additive
+            ? `Will add ${field.fieldValue} to ${field.fieldName}.`
+            : `Will set ${field.fieldName} to ${field.fieldValue}.`}
         </Text>
       ) : (
         <UserInputFieldSelect

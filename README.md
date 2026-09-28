@@ -66,6 +66,8 @@ automatically to tickets or articles, and which ticket fields the template sets.
       applied manually using *"Apply template"*. Leaving a value empty leaves the ticket field
       untouched. These fields are skipped when the template is added automatically; use
       *"Set fields"* in the *"Apply template"* menu to fill them in afterwards.
+    For multi-value fields such as *Fix versions*, each entry can either replace the field's
+    values or add an *additional value*, both for fixed values and values chosen by the user.
   - *Optional condition when template is added automatically*:
     - Added when ticket *field*[^1] is assigned a specific value.
     - Added when ticket or article is tagged with a specific *tag*.
@@ -74,8 +76,8 @@ automatically to tickets or articles, and which ticket fields the template sets.
     may not set that field to any other value.
 
 [^1]: *Note! Currently only state and enum fields are supported in conditions.*
-[^2]: *Single-value state, enum, user, version and owned fields are supported. Users are picked
-from the users configured for the field.*
+[^2]: *State, enum, user, version, build and owned fields are supported, single-value and
+multi-value. Users are picked from the users configured for the field.*
 
 ### Text replacements
 
@@ -86,7 +88,8 @@ replace and what to insert:
 
 - *Text entered by user*: asked for when the template is applied manually, and required.
 - *Root ticket field*: the display text of a field of the ticket the template is applied to (for a
-  hierarchy, the ticket it is created from). Applying manually with an empty field is rejected.
+  hierarchy, the ticket it is created from); a multi-value field inserts all its values separated
+  by commas. Applying manually with an empty field is rejected.
 
 Only whole words are replaced, on every occurrence. Words are delimited by whitespace, line breaks
 and punctuation such as commas, colons or brackets; hyphens and underscores do not delimit, so
