@@ -789,11 +789,6 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           </Button>
         )}
         {editing && <Button onClick={() => cancelEdit()}>Cancel edit</Button>}
-        {editing && !isDraft && (
-          <Button onClick={() => setConfirmRemoveOpen(true)} icon={TrashIcon} danger>
-            Remove template
-          </Button>
-        )}
         {!editing && (
           <Button
             onClick={() => {
@@ -809,7 +804,18 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         <DropdownMenu
           className="template-edit-more-actions"
           anchor={<Button icon={MoreOptionsIcon} title="More actions"/>}
-          data={[{ label: "Show JSON", glyph: CodeIcon, onClick: () => setJsonDialogOpen(true) }]}
+          data={[
+            { label: "Show JSON", glyph: CodeIcon, onClick: () => setJsonDialogOpen(true) },
+            ...(editing && !isDraft
+              ? [
+                  {
+                    label: "Remove template",
+                    glyph: TrashIcon,
+                    onClick: () => setConfirmRemoveOpen(true),
+                  },
+                ]
+              : []),
+          ]}
         />
       </div>
       {editing && !isDraft && (
