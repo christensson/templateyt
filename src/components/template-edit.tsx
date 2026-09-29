@@ -1,6 +1,8 @@
 import ArticleIcon from "@jetbrains/icons/article";
 import ConditionIcon from "@jetbrains/icons/buildType-12px";
+import CodeIcon from "@jetbrains/icons/code";
 import ImportIcon from "@jetbrains/icons/download";
+import MoreOptionsIcon from "@jetbrains/icons/more-options";
 import EditIcon from "@jetbrains/icons/pencil";
 import ReplaceIcon from "@jetbrains/icons/pencil-12px";
 import FieldIcon from "@jetbrains/icons/settings-12px";
@@ -49,6 +51,7 @@ import EntityTypeConditionInput from "./entity-type-condition-input";
 import FieldConditionInput from "./field-condition-input";
 import TagConditionInput from "./tag-condition-input";
 import TemplateFieldsPanel from "./template-fields-panel";
+import TemplateJsonDialog from "./template-json-dialog";
 import TemplateReplacementsPanel from "./template-replacements-panel";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
@@ -554,6 +557,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   const [editFailMessage, setEditFailMessage] = useState<FailMessage | null>(null);
   const [templateSnapshot, setTemplateSnapshot] = useState<Template>(template);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState<boolean>(false);
+  const [jsonDialogOpen, setJsonDialogOpen] = useState<boolean>(false);
 
   // Keep a fresh snapshot when parent `template` changes and we're not editing.
   useEffect(() => {
@@ -802,6 +806,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
             Edit template
           </Button>
         )}
+        <DropdownMenu
+          className="template-edit-more-actions"
+          anchor={<Button icon={MoreOptionsIcon} title="More actions"/>}
+          data={[{ label: "Show JSON", glyph: CodeIcon, onClick: () => setJsonDialogOpen(true) }]}
+        />
       </div>
       {editing && !isDraft && (
         <Confirm
@@ -814,6 +823,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           rejectLabel="Cancel"
         />
       )}
+      <TemplateJsonDialog
+        template={template}
+        show={jsonDialogOpen}
+        onClose={() => setJsonDialogOpen(false)}
+      />
     </div>
   );
 };

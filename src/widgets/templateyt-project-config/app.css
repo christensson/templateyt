@@ -82,6 +82,13 @@
   gap: calc(var(--ring-unit) / 2);
 }
 
+/* Doubles the gap before the "..." menu, setting it apart from the main actions. Flex makes
+   the anchor button a block box like its siblings instead of sitting on an inline baseline. */
+.template-edit-more-actions {
+  display: flex;
+  margin-left: calc(var(--ring-unit) / 2);
+}
+
 .align-right {
   margin-left: auto;
 }
@@ -91,4 +98,14 @@
   align-items: center;
   flex-wrap: wrap;
   gap: calc(var(--ring-unit) / 2);
+}
+
+.template-json-dialog {
+  width: min(90vw, 800px);
+}
+
+/* Long templates scroll inside the dialog instead of growing it past the viewport. */
+.template-json-code {
+  max-height: 60vh;
+  overflow: auto;
 }
