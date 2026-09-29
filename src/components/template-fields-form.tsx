@@ -68,16 +68,17 @@ export const ReplacementInputs: React.FunctionComponent<ReplacementInputsProps> 
             {describeFieldReplacement(replacement.search, replacement.fieldName)}
           </Text>
         ) : (
-          <Input
-            key={`replacement-${replacement.search}`}
-            label={`Text for ${replacement.search}`}
-            value={texts[replacement.search] ?? ""}
-            size={Size.M}
-            onChange={(e) => {
-              const value = e.target.value;
-              setTexts((prev) => ({ ...prev, [replacement.search]: value }));
-            }}
-          />
+          <div className="template-replacement-input-row" key={`replacement-${replacement.search}`}>
+            <Text size={Text.Size.M}>Text for {replacement.search}</Text>
+            <Input
+              value={texts[replacement.search] ?? ""}
+              size={Size.M}
+              onChange={(e) => {
+                const value = e.target.value;
+                setTexts((prev) => ({ ...prev, [replacement.search]: value }));
+              }}
+            />
+          </div>
         ),
       )}
     </>

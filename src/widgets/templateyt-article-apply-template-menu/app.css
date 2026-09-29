@@ -42,3 +42,10 @@
   border-top: 1px solid var(--ring-line-color);
   padding-top: var(--ring-unit);
 }
+
+/* Keep the replacement label and its input on one line: the Ring UI Input is block-level on its own. */
+.template-replacement-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ring-unit);
+}
