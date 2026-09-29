@@ -13,7 +13,7 @@ import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { ProjectFieldInfo } from "../../@types/project-info";
 import {
   collectManualArticleIds,
@@ -38,6 +38,7 @@ import {
   type Template,
 } from "../../@types/template";
 import FieldValueConditionInput from "./field-value-condition-input";
+import type { TemplateArticleSelectItem } from "./template-article-select-items";
 import TemplateFieldsPanel from "./template-fields-panel";
 
 export type ArticleTreeResponse = ImportedArticle & { success?: boolean; message?: string };
@@ -49,65 +50,56 @@ const ROOT_TARGET_KEY = "__template__";
 
 interface InsertChildArticleProps {
   template: Template;
-  fetchArticleTree: ArticleTreeFetcher;
+  templateArticleSelectItems: Array<TemplateArticleSelectItem>;
   onInsert: (article: InsertedArticle) => void;
 }
 
-// Inserts a knowledge base article, given by id, as a manually placed child template.
+// Inserts a template article, picked from a filterable list, as a manually placed child template.
+// Articles already in the hierarchy are left out.
 export const InsertChildArticle: React.FunctionComponent<InsertChildArticleProps> = ({
   template,
-  fetchArticleTree,
+  templateArticleSelectItems,
   onInsert,
 }) => {
-  const [articleId, setArticleId] = useState<string>("");
-  const [busy, setBusy] = useState<boolean>(false);
-  const [error, setError] = useState<string>("");
+  const [selected, setSelected] = useState<TemplateArticleSelectItem | null>(null);
+  const items = useMemo(
+    () =>
+      templateArticleSelectItems.filter(
+        (item) =>
+          item.templateArticleItem.articleId !== template.articleId &&
+          findChildByArticleId(template, item.templateArticleItem.articleId) === null,
+      ),
+    [templateArticleSelectItems, template],
+  );
 
-  const insert = async () => {
-    const id = articleId.trim();
-    if (id === "") {
-      setError("Enter an article id, e.g. KB-A-12.");
+  const insert = () => {
+    if (selected === null) {
       return;
     }
-    if (id === template.articleId || findChildByArticleId(template, id) !== null) {
-      setError(`Article ${id} is already in the hierarchy.`);
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const result = await fetchArticleTree(id);
-      if (result.success === false) {
-        setError(result.message || `Article ${id} not found.`);
-        return;
-      }
-      onInsert({ articleId: result.articleId, summary: result.summary });
-      setArticleId("");
-    } catch (fetchError) {
-      console.error("Failed to read article", fetchError);
-      setError(`Article ${id} could not be read.`);
-    } finally {
-      setBusy(false);
-    }
+    onInsert(selected.templateArticleItem);
+    setSelected(null);
   };
 
   return (
     <div className="template-edit-field-panel">
       <div className="template-replacement-row">
         <Text size={Text.Size.M}>Insert article </Text>
-        <Input
-          value={articleId}
-          placeholder="Article id"
-          size={Size.S}
-          onChange={(e) => setArticleId(e.target.value)}
+        <Select
+          filter
+          clear
+          size={Select.Size.M}
+          label="Select template article..."
+          data={items}
+          selected={selected}
+          onChange={(item: TemplateArticleSelectItem | null) => setSelected(item)}
         />
-        <Button onClick={insert} disabled={busy} loader={busy} icon={AddIcon} inline>
+        <Button onClick={insert} disabled={selected === null} icon={AddIcon} inline>
           Insert as child template
         </Button>
       </div>
-      {error && (
+      {items.length === 0 && (
         <Text size={Text.Size.S} info>
-          {error}
+          No other template articles available.
         </Text>
       )}
     </div>
@@ -270,6 +262,7 @@ interface ChildArticlesPanelProps {
   child: ChildTemplate;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
   fetchArticleTree: ArticleTreeFetcher;
+  templateArticleSelectItems: Array<TemplateArticleSelectItem>;
 }
 
 // Inserting articles below this child template and, for manually inserted ones, importing the
@@ -279,6 +272,7 @@ const ChildArticlesPanel: React.FunctionComponent<ChildArticlesPanelProps> = ({
   child,
   setTemplate,
   fetchArticleTree,
+  templateArticleSelectItems,
 }) => {
   const [importing, setImporting] = useState<boolean>(false);
   const [message, setMessage] = useState<string>("");
@@ -345,7 +339,7 @@ const ChildArticlesPanel: React.FunctionComponent<ChildArticlesPanelProps> = ({
       )}
       <InsertChildArticle
         template={template}
-        fetchArticleTree={fetchArticleTree}
+        templateArticleSelectItems={templateArticleSelectItems}
         onInsert={(article) => setTemplate((prev) => insertManualChild(prev, child.id, article))}
       />
     </div>
@@ -360,6 +354,7 @@ interface ChildTemplateEditProps {
   projectFields: Array<ProjectFieldInfo>;
   conditionFields: Array<ProjectFieldInfo>;
   fetchArticleTree: ArticleTreeFetcher;
+  templateArticleSelectItems: Array<TemplateArticleSelectItem>;
   onBack: () => void;
 }
 
@@ -373,6 +368,7 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
   projectFields,
   conditionFields,
   fetchArticleTree,
+  templateArticleSelectItems,
   onBack,
 }) => {
   const update = (updater: (prev: ChildTemplate) => ChildTemplate) =>
@@ -493,6 +489,7 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
           child={child}
           setTemplate={setTemplate}
           fetchArticleTree={fetchArticleTree}
+          templateArticleSelectItems={templateArticleSelectItems}
         />
       )}
     </>

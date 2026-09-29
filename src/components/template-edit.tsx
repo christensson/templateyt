@@ -50,6 +50,10 @@ import ChildTemplateEdit, {
 import EntityTypeConditionInput from "./entity-type-condition-input";
 import FieldConditionInput from "./field-condition-input";
 import TagConditionInput from "./tag-condition-input";
+import {
+  getTemplateArticleSelectItems,
+  type TemplateArticleSelectItem,
+} from "./template-article-select-items";
 import TemplateFieldsPanel from "./template-fields-panel";
 import TemplateJsonDialog from "./template-json-dialog";
 import TemplateReplacementsPanel from "./template-replacements-panel";
@@ -79,8 +83,6 @@ const SELECT_ACTION_DATA = [
   { key: "tag_added", label: "Added when ticket or article tagged with a specific tag" },
 ];
 
-type TemplateArticleSelectItem = SelectItem<{ templateArticleItem: TemplateArticle }>;
-
 type FailMessage = {
   mode: "info" | "error" | "success" | "warning" | "purple" | "grey";
   message: string;
@@ -95,16 +97,6 @@ const createValidCondition = (key: string): ValidCondition => {
   }
   return { when: "tag_is", tagName: "" };
 };
-
-const getTemplateArticleSelectItems = (
-  data: Array<TemplateArticle>,
-): Array<TemplateArticleSelectItem> =>
-  data.map((templateArticle: TemplateArticle) => ({
-    key: templateArticle.articleId,
-    rgItemType: 2,
-    label: `${templateArticle.articleId}: ${templateArticle.summary}`,
-    templateArticleItem: templateArticle,
-  }));
 
 interface TemplateViewProps {
   template: Template;
@@ -213,11 +205,16 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
 
 interface HierarchyPanelProps {
   template: Template;
+  templateArticleSelectItems: Array<TemplateArticleSelectItem>;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
 }
 
 // Hierarchy settings of a template: the enable checkbox and the child article import.
-const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({ template, setTemplate }) => {
+const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({
+  template,
+  templateArticleSelectItems,
+  setTemplate,
+}) => {
   const [importing, setImporting] = useState<boolean>(false);
   const [importMessage, setImportMessage] = useState<string>("");
   const childCount = flattenChildTemplates(getChildTemplates(template)).length;
@@ -282,7 +279,7 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({ template
           </Text>
           <InsertChildArticle
             template={template}
-            fetchArticleTree={fetchArticleTree}
+            templateArticleSelectItems={templateArticleSelectItems}
             onInsert={(article) => setTemplate((prev) => insertManualChild(prev, null, article))}
           />
           {importMessage && (
@@ -517,7 +514,11 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
         onReplacementsChange={(replacements) => setTemplate((prev) => ({ ...prev, replacements }))}
         projectFields={projectFields}
       />
-      <HierarchyPanel template={template} setTemplate={setTemplate}/>
+      <HierarchyPanel
+        template={template}
+        templateArticleSelectItems={templateArticleSelectItems}
+        setTemplate={setTemplate}
+      />
     </>
   );
 };
@@ -741,6 +742,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           projectFields={projectFields}
           conditionFields={conditionFields}
           fetchArticleTree={fetchArticleTree}
+          templateArticleSelectItems={templateArticleSelectItems}
           onBack={() => setSelectedChildId(null)}
         />
       );
