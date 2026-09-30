@@ -6,6 +6,7 @@ import MoreOptionsIcon from "@jetbrains/icons/more-options";
 import EditIcon from "@jetbrains/icons/pencil";
 import ReplaceIcon from "@jetbrains/icons/pencil-12px";
 import FieldIcon from "@jetbrains/icons/settings-12px";
+import TagIcon from "@jetbrains/icons/tag-12px";
 import TrashIcon from "@jetbrains/icons/trash";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
@@ -27,10 +28,12 @@ import {
   formatAddCondition,
   formatReplacement,
   formatTemplateField,
+  formatTemplateTag,
   formatTemplateHierarchy,
   formatValidCondition,
   getChildTemplates,
   getTemplateFields,
+  getTemplateTags,
   getTemplateReplacements,
   getValidConditions,
   insertManualChild,
@@ -57,6 +60,7 @@ import {
 import TemplateFieldsPanel from "./template-fields-panel";
 import TemplateJsonDialog from "./template-json-dialog";
 import TemplateReplacementsPanel from "./template-replacements-panel";
+import TemplateTagsPanel from "./template-tags-panel";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
@@ -179,6 +183,17 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
             ))}
           </div>
         )}
+      </div>
+      <div className="template-edit-field-panel">
+        <Text size={Text.Size.S} info>
+          Tags added by template
+        </Text>
+        {getTemplateTags(template).length === 0 && <Text size={Text.Size.M}>No tags set.</Text>}
+        {getTemplateTags(template).map((tag) => (
+          <Text size={Text.Size.M} key={`tag-text-${tag}`}>
+            <Icon glyph={TagIcon}/> {formatTemplateTag(tag)}
+          </Text>
+        ))}
       </div>
       <div className="template-edit-field-panel">
         <Text size={Text.Size.S} info>
@@ -509,6 +524,16 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
         projectFields={projectFields}
         addCondition={template.addCondition}
       />
+      <TemplateTagsPanel
+        title="Tags added by template"
+        tags={getTemplateTags(template)}
+        onTagsChange={(tags) => setTemplate((prev) => ({ ...prev, tags }))}
+        projectTags={projectTags}
+        tagsLoading={tagsLoading}
+        onTagsFilter={onTagsFilter}
+        onTagsLoadMore={onTagsLoadMore}
+        hint="Tags are only added when the template is applied manually from the Apply template menu of a ticket."
+      />
       <TemplateReplacementsPanel
         replacements={getTemplateReplacements(template)}
         onReplacementsChange={(replacements) => setTemplate((prev) => ({ ...prev, replacements }))}
@@ -743,6 +768,10 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           conditionFields={conditionFields}
           fetchArticleTree={fetchArticleTree}
           templateArticleSelectItems={templateArticleSelectItems}
+          projectTags={projectTags}
+          tagsLoading={tagsLoading}
+          onTagsFilter={onTagsFilter}
+          onTagsLoadMore={onTagsLoadMore}
           onBack={() => setSelectedChildId(null)}
         />
       );

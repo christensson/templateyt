@@ -1,3 +1,5 @@
+var entities = require("@jetbrains/youtrack-scripting-api/entities");
+
 // Field types whose values a template can set: fields with a list of values, single-value ([1])
 // or multi-value ([*]).
 const SUPPORTED_FIELD_TYPES = [
@@ -48,6 +50,7 @@ const normalizeChildTemplates = (children) =>
   (Array.isArray(children) ? children : []).map((child) => ({
     ...child,
     fields: Array.isArray(child.fields) ? child.fields : [],
+    tags: Array.isArray(child.tags) ? child.tags : [],
     addConditions: Array.isArray(child.addConditions) ? child.addConditions : [],
     inheritParentFields: child.inheritParentFields === true,
     inheritRootFields: child.inheritRootFields === true,
@@ -96,6 +99,10 @@ const getTemplates = (ctx) => {
     // Templates stored before field support have no fields.
     if (!Array.isArray(t.fields)) {
       t.fields = [];
+    }
+    // Templates stored before tag support have no tags.
+    if (!Array.isArray(t.tags)) {
+      t.tags = [];
     }
     // Templates stored before replacement support have no replacements.
     if (!Array.isArray(t.replacements)) {
@@ -300,6 +307,28 @@ const applyFieldAssignments = (issue, assignments) => {
   }
 };
 
+// Resolves the tags a template adds without modifying anything. Only existing tags visible to the
+// current user are used: Issue.addTag would otherwise create a new private tag.
+// Returns { tagNames: [string], errors: [string] }.
+const resolveTemplateTags = (template) => {
+  const tagNames = [];
+  const errors = [];
+  for (const name of Array.isArray(template.tags) ? template.tags : []) {
+    if (entities.Tag.findTagByName(name) == null) {
+      errors.push(`Tag "${name}" not found.`);
+      continue;
+    }
+    tagNames.push(name);
+  }
+  return { tagNames: tagNames, errors: errors };
+};
+
+const applyTags = (issue, tagNames) => {
+  for (const name of tagNames) {
+    issue.addTag(name);
+  }
+};
+
 // Copies a field value between issues; multi-value fields (Sets) are copied element by element.
 const copyFieldValue = (fromIssue, toIssue, fieldName) => {
   const value = fromIssue.fields[fieldName];
@@ -474,6 +503,8 @@ module.exports = {
   resolveReplacements,
   resolveTemplateFieldValues,
   applyFieldAssignments,
+  resolveTemplateTags,
+  applyTags,
   copyFieldValue,
   parseIdList,
   templateHasUserInputFields,

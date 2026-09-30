@@ -5,6 +5,7 @@ import ArrowDownIcon from "@jetbrains/icons/chevron-down";
 import ArrowUpIcon from "@jetbrains/icons/chevron-up";
 import ImportIcon from "@jetbrains/icons/download";
 import FieldIcon from "@jetbrains/icons/settings-12px";
+import TagIcon from "@jetbrains/icons/tag-12px";
 import TrashIcon from "@jetbrains/icons/trash";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Checkbox from "@jetbrains/ring-ui-built/components/checkbox/checkbox";
@@ -14,17 +15,19 @@ import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/sele
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useMemo, useState } from "react";
-import type { ProjectFieldInfo } from "../../@types/project-info";
+import type { ProjectFieldInfo, TagInfo } from "../../@types/project-info";
 import {
   collectManualArticleIds,
   findChildByArticleId,
   formatChildAddConditions,
   formatTemplateField,
+  formatTemplateTag,
   getChildAddConditions,
   getChildTemplates,
   getMoveTargets,
   getSiblingPosition,
   getTemplateFields,
+  getTemplateTags,
   insertManualChild,
   mergeImportedChildren,
   moveChild,
@@ -40,6 +43,7 @@ import {
 import FieldValueConditionInput from "./field-value-condition-input";
 import type { TemplateArticleSelectItem } from "./template-article-select-items";
 import TemplateFieldsPanel from "./template-fields-panel";
+import TemplateTagsPanel from "./template-tags-panel";
 
 export type ArticleTreeResponse = ImportedArticle & { success?: boolean; message?: string };
 
@@ -355,6 +359,10 @@ interface ChildTemplateEditProps {
   conditionFields: Array<ProjectFieldInfo>;
   fetchArticleTree: ArticleTreeFetcher;
   templateArticleSelectItems: Array<TemplateArticleSelectItem>;
+  projectTags: Array<TagInfo>;
+  tagsLoading: boolean;
+  onTagsFilter: (filter: string) => void;
+  onTagsLoadMore: () => void;
   onBack: () => void;
 }
 
@@ -369,11 +377,16 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
   conditionFields,
   fetchArticleTree,
   templateArticleSelectItems,
+  projectTags,
+  tagsLoading,
+  onTagsFilter,
+  onTagsLoadMore,
   onBack,
 }) => {
   const update = (updater: (prev: ChildTemplate) => ChildTemplate) =>
     setTemplate((prev) => updateChildTemplate(prev, child.id, updater));
   const childFields = getTemplateFields(child);
+  const childTags = getTemplateTags(child);
 
   return (
     <>
@@ -471,6 +484,29 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
           {childFields.map((field) => (
             <Text size={Text.Size.M} key={`child-field-text-${field.fieldName}`}>
               <Icon glyph={FieldIcon}/> {formatTemplateField(field, true)}
+            </Text>
+          ))}
+        </div>
+      )}
+      {editing ? (
+        <TemplateTagsPanel
+          title="Tags added by child template"
+          tags={childTags}
+          onTagsChange={(tags) => update((prev) => ({ ...prev, tags }))}
+          projectTags={projectTags}
+          tagsLoading={tagsLoading}
+          onTagsFilter={onTagsFilter}
+          onTagsLoadMore={onTagsLoadMore}
+        />
+      ) : (
+        <div className="template-edit-field-panel">
+          <Text size={Text.Size.S} info>
+            Tags added by child template
+          </Text>
+          {childTags.length === 0 && <Text size={Text.Size.M}>No tags set.</Text>}
+          {childTags.map((tag) => (
+            <Text size={Text.Size.M} key={`child-tag-text-${tag}`}>
+              <Icon glyph={TagIcon}/> {formatTemplateTag(tag)}
             </Text>
           ))}
         </div>

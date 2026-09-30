@@ -45,6 +45,9 @@ export type TemplateFieldMode = TemplateField["mode"];
 // Anything that carries a template field list: a template or a child template.
 export type HasFields = { fields?: Array<TemplateField> };
 
+// Anything that carries tag names added to the ticket: a template or a child template.
+export type HasTags = { tags?: Array<string> };
+
 // A whole-word text replacement applied to summaries and contents when a template is applied,
 // with text entered by the user or the display text of a root ticket field.
 export type UserInputReplacement = { search: string; mode: "user_input" };
@@ -61,6 +64,8 @@ export type ChildTemplate = {
   // and can be moved or removed.
   manual: boolean;
   fields: Array<TemplateField>;
+  // Tags added to the subtask when it is created.
+  tags?: Array<string>;
   // The subtask is created only when any of these match the root ticket; none means always.
   addConditions: Array<FieldStateCondition>;
   // Copy the values of the fields the parent template configures from the parent ticket.
@@ -85,6 +90,8 @@ export type Template = {
   validCondition: Array<ValidCondition>;
   addCondition: AddCondition | null;
   fields: Array<TemplateField>;
+  // Tags added to the ticket when the template is applied manually; not when added automatically.
+  tags?: Array<string>;
   replacements: Array<TextReplacement>;
   hierarchical: boolean;
   children: Array<ChildTemplate>;
@@ -99,6 +106,9 @@ export const getValidConditions = (template: Template): Array<ValidCondition> =>
 
 export const getTemplateFields = (template: HasFields): Array<TemplateField> =>
   Array.isArray(template?.fields) ? template.fields : [];
+
+export const getTemplateTags = (template: HasTags): Array<string> =>
+  Array.isArray(template?.tags) ? template.tags : [];
 
 export const hasUserInputFields = (template: HasFields): boolean =>
   getTemplateFields(template).some((field) => field.mode === "user_input");
@@ -422,6 +432,8 @@ export const formatTemplateFields = (template: HasFields): string => {
   }
   return `Sets fields: ${fields.map((field) => field.fieldName).join(", ")}.`;
 };
+
+export const formatTemplateTag = (tag: string): string => `Adds tag ${tag} to ticket.`;
 
 export const formatReplacement = (replacement: TextReplacement): string =>
   replacement.mode === "user_input"

@@ -1,12 +1,10 @@
 import ConditionIcon from "@jetbrains/icons/buildType-12px";
-import SearchIcon from "@jetbrains/icons/search";
 import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
-import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
-import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback } from "react";
 import type { TagInfo } from "../../@types/project-info";
 import type { TagActionCondition, TagStateCondition, Template } from "../../@types/template";
+import TagSelect from "./tag-select";
 
 interface TagConditionInputProps {
   tags: Array<TagInfo>;
@@ -34,8 +32,8 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
   conditionIndex,
 }) => {
   const onSelectTag = useCallback(
-    (selected: SelectItem | null) => {
-      if (selected) {
+    (tagName: string | null) => {
+      if (tagName) {
         setTemplate((prevTemplate) => {
           const newTemplate = {
             ...prevTemplate,
@@ -47,14 +45,14 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
             const idx = conditionIndex ?? list.length;
             list[idx] = {
               when: "tag_is",
-              tagName: selected.key as string,
+              tagName: tagName,
             } as TagStateCondition;
             newTemplate.validCondition = list;
           } else if (conditionType === "add") {
             newTemplate.addCondition = {
               ...prevTemplate?.addCondition,
               when: "tag_added",
-              tagName: selected.key as string,
+              tagName: tagName,
             } as TagActionCondition;
           }
           return newTemplate;
@@ -64,24 +62,17 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
     [setTemplate, conditionType, conditionIndex],
   );
 
-  const selectTagItems = useMemo(
-    () => tags.map((tag) => ({ key: tag.name, label: tag.name })),
-    [tags],
-  );
-
-  const selectedTagItem = useMemo(() => {
+  const getSelectedTagName = (): string | null => {
     if (conditionType === "valid") {
       const list = Array.isArray(template?.validCondition) ? template.validCondition : [];
-      const idx = conditionIndex ?? 0;
-      const condition = list[idx] as TagStateCondition | undefined;
-      if (!condition || condition.when !== "tag_is") {return null;}
-      return selectTagItems.find((field) => field.key === condition.tagName) || null;
-    } else if (conditionType === "add" && template?.addCondition?.when === "tag_added") {
-      const condition = template.addCondition as TagActionCondition;
-      return selectTagItems.find((field) => field.key === condition?.tagName) || null;
+      const condition = list[conditionIndex ?? 0] as TagStateCondition | undefined;
+      return condition && condition.when === "tag_is" ? condition.tagName : null;
+    }
+    if (conditionType === "add" && template?.addCondition?.when === "tag_added") {
+      return (template.addCondition as TagActionCondition).tagName ?? null;
     }
     return null;
-  }, [template, conditionType, conditionIndex, selectTagItems]);
+  };
 
   return (
     <div>
@@ -89,20 +80,14 @@ const TagConditionInput: React.FunctionComponent<TagConditionInputProps> = ({
       <Text size={Text.Size.M}>
         {(whenTitle ?? (conditionType === "add" ? "Add when tag" : "When tag")) + " "}
       </Text>
-      <Select
-        clear
-        filter
-        loading={tagsLoading}
-        disabled={disabled}
-        label="..."
-        filterIcon={SearchIcon}
-        type={Select.Type.INLINE}
-        size={Select.Size.AUTO}
-        data={selectTagItems}
+      <TagSelect
+        tags={tags}
+        tagsLoading={tagsLoading}
         onFilter={onFilter}
         onLoadMore={onLoadMore}
+        selected={getSelectedTagName()}
         onSelect={onSelectTag}
-        selected={selectedTagItem}
+        disabled={disabled}
       />
       .
     </div>

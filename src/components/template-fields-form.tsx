@@ -13,6 +13,7 @@ import {
   getChildTemplates,
   getTemplateFields,
   getTemplateReplacements,
+  getTemplateTags,
   hasUserInputFields,
   hierarchyHasUserInputFields,
   type ChildInclusion,
@@ -159,6 +160,21 @@ const FieldPreviewList: React.FunctionComponent<FieldPreviewListProps> = ({
   </>
 );
 
+interface TagPreviewListProps {
+  tags: Array<string>;
+}
+
+// What a template will add besides fields: its tags.
+const TagPreviewList: React.FunctionComponent<TagPreviewListProps> = ({ tags }) => (
+  <>
+    {tags.map((tag) => (
+      <Text size={Text.Size.M} info key={`tag-${tag}`}>
+        Will add tag {tag}.
+      </Text>
+    ))}
+  </>
+);
+
 interface FormSectionProps {
   title: string;
   children?: React.ReactNode;
@@ -213,20 +229,22 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
   );
   const confirmDisabled = submitting || hasMissingReplacementTexts(pending.template, texts);
   const fields = getTemplateFields(pending.template);
+  const tags = getTemplateTags(pending.template);
   const hasReplacements = getTemplateReplacements(pending.template).length > 0;
 
   return (
     <>
       {showTitle && <Text size={Text.Size.M}>{formatPendingTitle(pending)}</Text>}
       <div className="template-fields-form">
-        {fields.length > 0 && (
-          <FormSection title="Fields">
+        {(fields.length > 0 || tags.length > 0) && (
+          <FormSection title={tags.length > 0 ? "Fields and tags" : "Fields"}>
             <FieldPreviewList
               fields={fields}
               fieldInfos={fieldInfos}
               values={values}
               onChange={onChange}
             />
+            <TagPreviewList tags={tags}/>
             {hasUserInputFields(pending.template) && (
               <Text size={Text.Size.S} info>
                 Fields left empty are not changed.
@@ -282,6 +300,7 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
     [child.id, onChange],
   );
   const fields = getTemplateFields(child);
+  const tags = getTemplateTags(child);
   const skippedClass = inclusion.created ? "" : " template-hierarchy-child-skipped";
   if (!inclusion.created) {
     return (
@@ -329,7 +348,10 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
             Inherits template controlled fields from root ticket.
           </Text>
         )}
-        {fields.length === 0 && !child.inheritParentFields && !child.inheritRootFields && (
+        {fields.length === 0 &&
+          tags.length === 0 &&
+          !child.inheritParentFields &&
+          !child.inheritRootFields && (
           <Text size={Text.Size.S} info>
             No fields set.
           </Text>
@@ -340,6 +362,7 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
           values={values}
           onChange={onFieldChange}
         />
+        <TagPreviewList tags={tags}/>
       </div>
     </div>
   );

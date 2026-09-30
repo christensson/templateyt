@@ -86,6 +86,27 @@ const validateFieldList = (fields, subject) => {
   return null;
 };
 
+// Validates the tag names of a template or child template. Returns an error message or null.
+const validateTagList = (tags, subject) => {
+  if (tags === undefined) {
+    return null;
+  }
+  if (!Array.isArray(tags)) {
+    return `${subject} tags is not an array.`;
+  }
+  for (const tag of tags) {
+    if (typeof tag !== "string" || tag.trim() === "") {
+      return `${subject} has an empty tag.`;
+    }
+    if (tags.indexOf(tag) !== tags.lastIndexOf(tag)) {
+      return `${subject} adds tag "${tag}" more than once.`;
+    }
+  }
+  return null;
+};
+
+const validateTemplateTags = (template) => validateTagList(template.tags, "Template");
+
 // Returns an error message if the template field list is inconsistent, otherwise null.
 // Keep in sync with validateTemplateFields in @types/template.ts.
 const validateTemplateFields = (template) => {
@@ -170,6 +191,10 @@ const validateChildOwnProperties = (child) => {
   const fieldsError = validateFieldList(child.fields || [], `Child template "${child.name}"`);
   if (fieldsError !== null) {
     return fieldsError;
+  }
+  const tagsError = validateTagList(child.tags, `Child template "${child.name}"`);
+  if (tagsError !== null) {
+    return tagsError;
   }
   const conditionsError = validateChildAddConditions(child);
   if (conditionsError !== null) {
@@ -321,7 +346,13 @@ const validateTemplate = (template) => {
       return error;
     }
   }
-  for (const validate of [validateTemplateFields, validateChildTemplates, validateReplacements]) {
+  const validators = [
+    validateTemplateFields,
+    validateTemplateTags,
+    validateChildTemplates,
+    validateReplacements,
+  ];
+  for (const validate of validators) {
     const error = validate(template);
     if (error !== null) {
       return error;
@@ -343,9 +374,9 @@ const getAddedChildTemplates = (rootIssue, children) =>
       : [],
   );
 
-// Resolves everything a hierarchy creation needs (articles and field values) without creating
-// anything, so that a bad value leaves the ticket untouched.
-// Returns { errors: [string], byChildId: { [childId]: { content, assignments } } }.
+// Resolves everything a hierarchy creation needs (articles, field values and tags) without
+// creating anything, so that a bad value leaves the ticket untouched.
+// Returns { errors: [string], byChildId: { [childId]: { content, assignments, tagNames } } }.
 const planHierarchy = (rootIssue, template, childFieldValues) => {
   const project = rootIssue.project;
   const errors = [];
@@ -358,12 +389,14 @@ const planHierarchy = (rootIssue, template, childFieldValues) => {
     }
     const userValues = childFieldValues ? childFieldValues[child.id] : null;
     const resolved = utils.resolveTemplateFieldValues(project, child, userValues, true);
-    for (const error of resolved.errors) {
+    const tags = utils.resolveTemplateTags(child);
+    for (const error of resolved.errors.concat(tags.errors)) {
       errors.push(`Child template "${child.name}": ${error}`);
     }
     byChildId[child.id] = {
       content: article.content ? article.content.trim() : "",
       assignments: resolved.assignments,
+      tagNames: tags.tagNames,
     };
   }
   return { errors: errors, byChildId: byChildId };
@@ -626,8 +659,10 @@ exports.httpHandler = {
           body.fieldValues,
           true,
         );
-        if (resolved.errors.length > 0) {
-          badRequest(ctx, `Failed to add template: ${resolved.errors.join(" ")}`);
+        const tags = utils.resolveTemplateTags(template);
+        const resolveErrors = resolved.errors.concat(tags.errors);
+        if (resolveErrors.length > 0) {
+          badRequest(ctx, `Failed to add template: ${resolveErrors.join(" ")}`);
           return;
         }
         const replacements = utils.resolveReplacements(
@@ -652,8 +687,9 @@ exports.httpHandler = {
         newDescription += utils.applyReplacements(templateContent.trim(), replacements.values);
         issue.description = newDescription;
 
-        // Set ticket fields defined by template.
+        // Set ticket fields and add tags defined by template.
         utils.applyFieldAssignments(issue, resolved.assignments);
+        utils.applyTags(issue, tags.tagNames);
 
         // Add template to used templates.
         usedTemplateIds.push(templateId);
@@ -707,8 +743,10 @@ exports.httpHandler = {
           body.fieldValues,
           true,
         );
-        if (resolved.errors.length > 0) {
-          badRequest(ctx, `Failed to set fields from template: ${resolved.errors.join(" ")}`);
+        const tags = utils.resolveTemplateTags(template);
+        const resolveErrors = resolved.errors.concat(tags.errors);
+        if (resolveErrors.length > 0) {
+          badRequest(ctx, `Failed to set fields from template: ${resolveErrors.join(" ")}`);
           return;
         }
         const replacements = utils.resolveReplacements(
@@ -723,6 +761,7 @@ exports.httpHandler = {
           return;
         }
         utils.applyFieldAssignments(issue, resolved.assignments);
+        utils.applyTags(issue, tags.tagNames);
         // Replace placeholder words still present in the ticket (e.g. left by the workflow).
         applyReplacementsToIssue(issue, replacements.values);
         // The user has been asked for the user-input fields; the template is no longer pending.
@@ -813,6 +852,7 @@ exports.httpHandler = {
               utils.copyFieldValue(parentIssue, ticket, name);
             }
             utils.applyFieldAssignments(ticket, prepared.assignments);
+            utils.applyTags(ticket, prepared.tagNames);
             parentIssue.links["parent for"].add(ticket);
             createdIssueIds.push(ticket.id);
             const managedNames = uniqueNames(
