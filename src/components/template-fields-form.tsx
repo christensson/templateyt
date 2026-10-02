@@ -130,6 +130,8 @@ interface FieldPreviewListProps {
   fieldInfos: Array<ProjectFieldInfo>;
   values: FieldValues;
   onChange: (fieldName: string, value: string | null) => void;
+  // Articles have no fields: every field is listed as not set instead.
+  forArticle?: boolean;
 }
 
 // What a template will set: fixed fields as text, user-input fields as selects.
@@ -138,27 +140,37 @@ const FieldPreviewList: React.FunctionComponent<FieldPreviewListProps> = ({
   fieldInfos,
   values,
   onChange,
-}) => (
-  <>
-    {fields.map((field) =>
-      field.mode === "fixed" ? (
+  forArticle = false,
+}) => {
+  const renderField = (field: TemplateField) => {
+    if (forArticle) {
+      return (
+        <Text size={Text.Size.M} info key={field.fieldName}>
+          Cannot set {field.fieldName}: ticket fields are not available for articles.
+        </Text>
+      );
+    }
+    if (field.mode === "fixed") {
+      return (
         <Text size={Text.Size.M} info key={field.fieldName}>
           {field.additive
             ? `Will add ${field.fieldValue} to ${field.fieldName}.`
             : `Will set ${field.fieldName} to ${field.fieldValue}.`}
         </Text>
-      ) : (
-        <UserInputFieldSelect
-          key={field.fieldName}
-          field={field}
-          fieldInfos={fieldInfos}
-          value={values[field.fieldName] ?? null}
-          onChange={onChange}
-        />
-      ),
-    )}
-  </>
-);
+      );
+    }
+    return (
+      <UserInputFieldSelect
+        key={field.fieldName}
+        field={field}
+        fieldInfos={fieldInfos}
+        value={values[field.fieldName] ?? null}
+        onChange={onChange}
+      />
+    );
+  };
+  return <>{fields.map(renderField)}</>;
+};
 
 interface TagPreviewListProps {
   tags: Array<string>;
@@ -204,6 +216,8 @@ interface TemplateFieldsFormProps {
   // Hide the title when the surrounding container already shows it.
   showTitle?: boolean;
   cancelLabel?: string;
+  // Applying to an article: fields are not set, only described as unavailable.
+  forArticle?: boolean;
 }
 
 // Form for applying a template with user-input fields: shows the fixed fields and lets the user
@@ -221,6 +235,7 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
   onBack,
   showTitle = true,
   cancelLabel = "Back",
+  forArticle = false,
 }) => {
   const onChange = useCallback(
     (fieldName: string, value: string | null) =>
@@ -243,9 +258,10 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
               fieldInfos={fieldInfos}
               values={values}
               onChange={onChange}
+              forArticle={forArticle}
             />
             <TagPreviewList tags={tags}/>
-            {hasUserInputFields(pending.template) && (
+            {!forArticle && hasUserInputFields(pending.template) && (
               <Text size={Text.Size.S} info>
                 Fields left empty are not changed.
               </Text>
@@ -395,6 +411,89 @@ const formatCreatedCount = (created: number, total: number): string => {
       : `The following ${total} subtasks will be created below the ticket:`;
   }
   return `${created} of ${total} subtasks will be created below the ticket:`;
+};
+
+interface ArticleHierarchyFormProps {
+  template: Template;
+  texts: ReplacementTexts;
+  setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
+  // A hierarchy for this template was created for the article before.
+  alreadyCreated: boolean;
+  submitting: boolean;
+  onConfirm: () => void;
+  onBack: () => void;
+}
+
+const formatArticleCount = (total: number): string =>
+  total === 1
+    ? "The following sub-article will be created below the article:"
+    : `The following ${total} sub-articles will be created below the article:`;
+
+// Form for creating the article hierarchy of a template: shows the sub-articles that will be
+// created with their tags. Articles have no fields, so fields and add conditions do not apply.
+export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormProps> = ({
+  template,
+  texts,
+  setTexts,
+  alreadyCreated,
+  submitting,
+  onConfirm,
+  onBack,
+}) => {
+  const flat = flattenChildTemplates(getChildTemplates(template));
+  const confirmDisabled = submitting || hasMissingReplacementTexts(template, texts);
+  const hasReplacements = getTemplateReplacements(template).length > 0;
+
+  return (
+    <>
+      {alreadyCreated && (
+        <Banner mode="warning" withIcon>
+          A hierarchy for this template was already created for this article. Creating it again
+          adds another set of sub-articles.
+        </Banner>
+      )}
+      <div className="template-fields-form">
+        {hasReplacements && (
+          <FormSection title="Text replacements (applied to every sub-article)">
+            <ReplacementInputs template={template} texts={texts} setTexts={setTexts}/>
+          </FormSection>
+        )}
+        <FormSection title={formatArticleCount(flat.length)}>
+          <div className="template-hierarchy-list">
+            {flat.map(({ child, depth }) => (
+              <div
+                key={child.id}
+                className="template-hierarchy-child"
+                style={{ marginLeft: `calc(var(--ring-unit) * ${depth * UNITS_PER_DEPTH})` }}
+              >
+                <div className="template-hierarchy-child-title">
+                  <Text size={Text.Size.M} bold>
+                    {child.name}
+                  </Text>{" "}
+                  <Text size={Text.Size.S} info>
+                    {child.articleId}
+                  </Text>
+                </div>
+                {getTemplateTags(child).length > 0 && (
+                  <div className="template-hierarchy-child-body">
+                    <TagPreviewList tags={getTemplateTags(child)}/>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </FormSection>
+      </div>
+      <Panel className="template-fields-form-actions">
+        <Button primary loader={submitting} disabled={confirmDisabled} onClick={onConfirm}>
+          {alreadyCreated ? "Create hierarchy again" : "Create hierarchy"}
+        </Button>
+        <Button disabled={submitting} onClick={onBack}>
+          Back
+        </Button>
+      </Panel>
+    </>
+  );
 };
 
 export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({

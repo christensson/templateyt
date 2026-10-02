@@ -66,6 +66,7 @@ export type CreateHierarchyResult = {
   success: boolean;
   message?: string;
   createdIssueIds?: Array<string>;
+  createdArticleIds?: Array<string>;
   createdHierarchyTemplateIds?: Array<string>;
 };
 
@@ -116,8 +117,8 @@ export const getInitialChildFieldValues = (
 };
 
 // A hierarchy can be created for applied, hierarchical templates that have child templates.
-export const canCreateHierarchy = (info: IssueTemplateInfo, template: Template): boolean =>
-  info.usedTemplateIds.includes(template.id) &&
+export const canCreateHierarchy = (usedTemplateIds: Array<string>, template: Template): boolean =>
+  usedTemplateIds.includes(template.id) &&
   template.hierarchical &&
   flattenChildTemplates(getChildTemplates(template)).length > 0;
 
@@ -156,6 +157,7 @@ export const submitTemplateFields = (
     body: { templateId, fieldValues, replacementTexts },
   });
 
+// Posts to the createHierarchy endpoint of the widget's scope: the ticket or the article.
 export const createHierarchy = (
   host: HostAPI,
   templateId: string,

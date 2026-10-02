@@ -19,6 +19,14 @@
         "usedTemplateIds": {
           "type": "string",
           "multi": false
+        },
+        "createdHierarchyTemplateIds": {
+          "type": "string",
+          "multi": false
+        },
+        "createdFromChildTemplateId": {
+          "type": "string",
+          "multi": false
         }
       }
     },

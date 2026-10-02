@@ -69,6 +69,11 @@ exports.rule = entities.Article.onChange({
     if (article.extensionProperties.isTemplate === true) {
       return false;
     }
+    // Sub-articles created from a template hierarchy get their content and tags from the
+    // hierarchy; do not auto-apply templates to them on creation.
+    if (article.isNew && article.extensionProperties.createdFromChildTemplateId) {
+      return false;
+    }
 
     const validTemplates = getValidTemplates(ctx, article);
 

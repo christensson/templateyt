@@ -303,8 +303,9 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({
             </Text>
           )}
           <Text size={Text.Size.S} info>
-            Ticket hierarchies are created manually for tickets, from the Apply template menu.
-            Child templates have no conditions.
+            Hierarchies are created manually from the Apply template menu of a ticket or an
+            article. For articles, sub-articles are created with text replacements and tags only;
+            fields, inheritance and add conditions of child templates do not apply.
           </Text>
         </>
       )}

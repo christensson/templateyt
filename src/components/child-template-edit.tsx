@@ -464,7 +464,8 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
         <Text size={Text.Size.S} info>
           Inherited fields are the fields configured by the parent template (copied from the parent
           ticket) or by the root template (copied from the root ticket) when the hierarchy is
-          created. Precedence: own fields, then the closest parent, then the root ticket.
+          created. Precedence: own fields, then the closest parent, then the root ticket. Fields,
+          inheritance and add conditions only apply to ticket hierarchies, not to articles.
         </Text>
       </div>
       {editing ? (

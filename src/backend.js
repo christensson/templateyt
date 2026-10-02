@@ -402,6 +402,45 @@ const planHierarchy = (rootIssue, template, childFieldValues) => {
   return { errors: errors, byChildId: byChildId };
 };
 
+// Resolves everything an article hierarchy creation needs (articles and tags) without creating
+// anything. Articles have no fields, so add conditions, fields and inheritance do not apply and
+// every child template is created.
+// Returns { errors: [string], byChildId: { [childId]: { content, tagNames } } }.
+const planArticleHierarchy = (template) => {
+  const errors = [];
+  const byChildId = {};
+  for (const { child } of utils.flattenChildTemplates(template.children)) {
+    const article = entities.Article.findById(child.articleId);
+    if (article == null) {
+      errors.push(`Article ${child.articleId} for child template "${child.name}" not found.`);
+      continue;
+    }
+    const tags = utils.resolveTemplateTags(child);
+    for (const error of tags.errors) {
+      errors.push(`Child template "${child.name}": ${error}`);
+    }
+    byChildId[child.id] = {
+      content: article.content ? article.content.trim() : "",
+      tagNames: tags.tagNames,
+    };
+  }
+  return { errors: errors, byChildId: byChildId };
+};
+
+// Returns the error that prevents creating the hierarchy of the template for the article, or null.
+const getArticleHierarchyError = (article, template) => {
+  if (article.extensionProperties.isTemplate === true) {
+    return "Failed to create hierarchy, cannot create below a template article.";
+  }
+  if (!utils.parseIdList(article.extensionProperties.usedTemplateIds).includes(template.id)) {
+    return `Failed to create hierarchy, template ${template.id} is not applied to this article.`;
+  }
+  if (!template.hierarchical || utils.flattenChildTemplates(template.children).length === 0) {
+    return "Failed to create hierarchy, template has no child templates.";
+  }
+  return null;
+};
+
 const uniqueNames = (names) => names.filter((name, index) => names.indexOf(name) === index);
 
 exports.httpHandler = {
@@ -804,8 +843,12 @@ exports.httpHandler = {
         }
 
         const plan = planHierarchy(issue, template, body.childFieldValues);
-        if (plan.errors.length > 0) {
-          badRequest(ctx, `Failed to create hierarchy: ${plan.errors.join(" ")}`);
+        // The root ticket gets the root template's tags it does not have yet, e.g. when the
+        // template was added automatically.
+        const rootTags = utils.resolveTemplateTags(template);
+        const planErrors = rootTags.errors.concat(plan.errors);
+        if (planErrors.length > 0) {
+          badRequest(ctx, `Failed to create hierarchy: ${planErrors.join(" ")}`);
           return;
         }
         // Replacements of the root template apply to every subtask's summary and description.
@@ -861,6 +904,7 @@ exports.httpHandler = {
             createChildren(ticket, managedNames, child.children);
           }
         };
+        utils.applyTags(issue, rootTags.tagNames);
         createChildren(issue, rootManagedFields, template.children);
         utils.markHierarchyCreated(issue, template.id);
 
@@ -947,6 +991,7 @@ exports.httpHandler = {
           templates: templates,
           validTemplateIds: validTemplateIds,
           isTemplate: articleProps?.isTemplate || false,
+          createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(article),
         });
       },
     },
@@ -1026,6 +1071,12 @@ exports.httpHandler = {
           badRequest(ctx, `Failed to add template: ${replacementError}`);
           return;
         }
+        const tags = utils.resolveTemplateTags(template);
+        if (tags.errors.length > 0) {
+          badRequest(ctx, `Failed to add template: ${tags.errors.join(" ")}`);
+          return;
+        }
+        utils.applyTags(article, tags.tagNames);
 
         // Add template to article content.
         let newDescription = article.content ? article.content.trim() : "";
@@ -1042,6 +1093,74 @@ exports.httpHandler = {
         ctx.response.json({
           success: true,
           usedTemplateIds: usedTemplateIds,
+        });
+      },
+    },
+    {
+      scope: "article",
+      method: "POST",
+      path: "createHierarchy",
+      // Creates sub-articles below the article from the child templates of an applied
+      // hierarchical template, nested like the child templates. Replacements and tags apply;
+      // fields, inheritance and add conditions do not.
+      handle: function handle(ctx) {
+        const article = ctx.article;
+        const templates = utils.getTemplates(ctx);
+
+        const body = JSON.parse(ctx.request.body);
+        const lookup = lookupRequestTemplate(templates, body, "create hierarchy from");
+        if (lookup.error !== null) {
+          badRequest(ctx, lookup.error);
+          return;
+        }
+        const template = lookup.template;
+        const hierarchyError = getArticleHierarchyError(article, template);
+        if (hierarchyError !== null) {
+          badRequest(ctx, hierarchyError);
+          return;
+        }
+
+        const plan = planArticleHierarchy(template);
+        const rootTags = utils.resolveTemplateTags(template);
+        const planErrors = rootTags.errors.concat(plan.errors);
+        if (planErrors.length > 0) {
+          badRequest(ctx, `Failed to create hierarchy: ${planErrors.join(" ")}`);
+          return;
+        }
+        // Articles have no root ticket: only user-input replacements are available.
+        const replacements = utils.resolveReplacements(null, template, body.replacementTexts, true);
+        const replacementError = getReplacementError(replacements);
+        if (replacementError !== null) {
+          badRequest(ctx, `Failed to create hierarchy: ${replacementError}`);
+          return;
+        }
+
+        const createdArticleIds = [];
+        const createChildren = (parentArticle, children) => {
+          for (const child of children) {
+            const prepared = plan.byChildId[child.id];
+            const created = new entities.Article(
+              ctx.currentUser,
+              article.project,
+              utils.applyReplacements(child.name, replacements.values),
+            );
+            created.content = utils.applyReplacements(prepared.content, replacements.values);
+            // Lets the template workflow skip auto-application on creation.
+            created.extensionProperties.createdFromChildTemplateId = child.id;
+            created.parentArticle = parentArticle;
+            utils.applyTags(created, prepared.tagNames);
+            createdArticleIds.push(created.id);
+            createChildren(created, child.children);
+          }
+        };
+        utils.applyTags(article, rootTags.tagNames);
+        createChildren(article, template.children);
+        utils.markHierarchyCreated(article, template.id);
+
+        ctx.response.json({
+          success: true,
+          createdArticleIds: createdArticleIds,
+          createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(article),
         });
       },
     },

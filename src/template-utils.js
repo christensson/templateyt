@@ -323,9 +323,12 @@ const resolveTemplateTags = (template) => {
   return { tagNames: tagNames, errors: errors };
 };
 
-const applyTags = (issue, tagNames) => {
+// Adds the tags to an issue or article, skipping those it already has.
+const applyTags = (entity, tagNames) => {
   for (const name of tagNames) {
-    issue.addTag(name);
+    if (!entity.hasTag(name)) {
+      entity.addTag(name);
+    }
   }
 };
 
@@ -476,15 +479,15 @@ const clearTemplatePending = (issue, templateId) => {
   }
 };
 
-// Templates whose ticket hierarchy has been created below the issue.
-const getCreatedHierarchyTemplateIds = (issue) =>
-  parseIdList(issue.extensionProperties.createdHierarchyTemplateIds);
+// Templates whose hierarchy has been created below the issue or article.
+const getCreatedHierarchyTemplateIds = (entity) =>
+  parseIdList(entity.extensionProperties.createdHierarchyTemplateIds);
 
-const markHierarchyCreated = (issue, templateId) => {
-  const ids = getCreatedHierarchyTemplateIds(issue);
+const markHierarchyCreated = (entity, templateId) => {
+  const ids = getCreatedHierarchyTemplateIds(entity);
   if (!ids.includes(templateId)) {
     ids.push(templateId);
-    issue.extensionProperties.createdHierarchyTemplateIds = JSON.stringify(ids);
+    entity.extensionProperties.createdHierarchyTemplateIds = JSON.stringify(ids);
   }
 };
 

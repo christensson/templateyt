@@ -7,10 +7,12 @@ import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { hasUserInputReplacements, type Template } from "../../../@types/template";
-import { TemplateFieldsForm } from "../../components/template-fields-form";
+import { ArticleHierarchyForm, TemplateFieldsForm } from "../../components/template-fields-form";
 import TemplateList from "../../components/template-list";
 import {
   addTemplateToArticle,
+  canCreateHierarchy,
+  createHierarchy,
   getInitialReplacementTexts,
   type FieldValues,
   type ReplacementTexts,
@@ -34,6 +36,8 @@ type ArticleTemplateInfo = {
   templates: Array<Template>;
   validTemplateIds: Array<string>;
   isTemplate: boolean;
+  // Applied templates whose hierarchy has been created below the article.
+  createdHierarchyTemplateIds: Array<string>;
 };
 
 const hasNoTemplates = (info: ArticleTemplateInfo): boolean =>
@@ -42,8 +46,10 @@ const hasNoTemplates = (info: ArticleTemplateInfo): boolean =>
 interface TemplateActionsProps {
   selectedTemplate: Template | null;
   isSelectedUsed: boolean;
+  canCreateHierarchyForSelected: boolean;
   submitting: boolean;
   onAdd: () => void;
+  onCreateHierarchy: () => void;
   onRemove: () => void;
 }
 
@@ -51,8 +57,10 @@ interface TemplateActionsProps {
 const TemplateActions: React.FunctionComponent<TemplateActionsProps> = ({
   selectedTemplate,
   isSelectedUsed,
+  canCreateHierarchyForSelected,
   submitting,
   onAdd,
+  onCreateHierarchy,
   onRemove,
 }) => (
   <Panel className="article-template-config-bottom-panel">
@@ -62,6 +70,13 @@ const TemplateActions: React.FunctionComponent<TemplateActionsProps> = ({
       onClick={onAdd}
     >
       Add template
+    </Button>
+    <Button
+      disabled={!canCreateHierarchyForSelected || submitting}
+      onClick={onCreateHierarchy}
+      title="Create sub-articles from the child templates of the applied template"
+    >
+      Create hierarchy
     </Button>
     <Button primary disabled={!isSelectedUsed || submitting} onClick={onRemove}>
       Remove template
@@ -91,12 +106,25 @@ const getTemplateIdGroupMap = (data: ArticleTemplateInfo | null): { [key: string
   return templateIdGroupMap;
 };
 
+// What the actions can do with the selected template.
+const getSelectionState = (info: ArticleTemplateInfo | null, selected: Template | null) => {
+  if (info === null || selected === null) {
+    return { isSelectedUsed: false, canCreateHierarchyForSelected: false };
+  }
+  return {
+    isSelectedUsed: info.usedTemplateIds.includes(selected.id),
+    canCreateHierarchyForSelected: canCreateHierarchy(info.usedTemplateIds, selected),
+  };
+};
+
 const AppComponent: React.FunctionComponent = () => {
   const [articleTemplateInfo, setArticleTemplateInfo] = useState<ArticleTemplateInfo | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [failMessage, setFailMessage] = useState<string>("");
   // Template waiting for replacement texts before it is added.
   const [pendingTemplate, setPendingTemplate] = useState<Template | null>(null);
+  // Template whose hierarchy creation form is shown in place of the list.
+  const [hierarchyTemplate, setHierarchyTemplate] = useState<Template | null>(null);
   const [replacementTexts, setReplacementTexts] = useState<ReplacementTexts>({});
   // Articles have no fields to set; the shared form still needs the value state.
   const [noValues, setNoValues] = useState<FieldValues>({});
@@ -190,6 +218,42 @@ const AppComponent: React.FunctionComponent = () => {
     }
   }, [pendingTemplate, replacementTexts, submitAdd]);
 
+  // The hierarchy form is always shown: it presents the sub-articles to be created.
+  const startCreateHierarchy = useCallback(() => {
+    if (selectedTemplate === null) {
+      setFailMessage("No template selected.");
+      return;
+    }
+    setFailMessage("");
+    setReplacementTexts(getInitialReplacementTexts(selectedTemplate));
+    setHierarchyTemplate(selectedTemplate);
+  }, [selectedTemplate]);
+
+  const confirmCreateHierarchy = useCallback(async () => {
+    if (hierarchyTemplate === null || !checkTemplate(hierarchyTemplate, "create hierarchy from")) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await createHierarchy(host, hierarchyTemplate.id, {}, replacementTexts);
+      console.log(`Create hierarchy ${hierarchyTemplate.id} result`, result);
+      if (!result.success) {
+        setFailMessage(result.message || "Failed to create hierarchy.");
+        return;
+      }
+      setFailMessage("");
+      const createdHierarchyTemplateIds = result.createdHierarchyTemplateIds;
+      if (createdHierarchyTemplateIds != null) {
+        setArticleTemplateInfo((prev) =>
+          prev === null ? prev : { ...prev, createdHierarchyTemplateIds },
+        );
+      }
+      setHierarchyTemplate(null);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [hierarchyTemplate, replacementTexts, checkTemplate]);
+
   const removeTemplateFromArticle = useCallback(
     async (template: Template | null) => {
       if (template === null || !checkTemplate(template, "remove")) {
@@ -243,16 +307,36 @@ const AppComponent: React.FunctionComponent = () => {
           submitting={submitting}
           onConfirm={confirmPending}
           onBack={() => setPendingTemplate(null)}
+          forArticle
         />
         {failBanner}
       </div>
     );
   }
 
-  const isSelectedUsed =
-    selectedTemplate !== null &&
-    articleTemplateInfo !== null &&
-    articleTemplateInfo.usedTemplateIds.includes(selectedTemplate.id);
+  if (hierarchyTemplate !== null && articleTemplateInfo !== null) {
+    return (
+      <div className="widget">
+        <ArticleHierarchyForm
+          template={hierarchyTemplate}
+          texts={replacementTexts}
+          setTexts={setReplacementTexts}
+          alreadyCreated={articleTemplateInfo.createdHierarchyTemplateIds.includes(
+            hierarchyTemplate.id,
+          )}
+          submitting={submitting}
+          onConfirm={confirmCreateHierarchy}
+          onBack={() => setHierarchyTemplate(null)}
+        />
+        {failBanner}
+      </div>
+    );
+  }
+
+  const { isSelectedUsed, canCreateHierarchyForSelected } = getSelectionState(
+    articleTemplateInfo,
+    selectedTemplate,
+  );
 
   return (
     <div className="widget">
@@ -286,8 +370,10 @@ const AppComponent: React.FunctionComponent = () => {
       <TemplateActions
         selectedTemplate={selectedTemplate}
         isSelectedUsed={isSelectedUsed}
+        canCreateHierarchyForSelected={canCreateHierarchyForSelected}
         submitting={submitting}
         onAdd={startAdd}
+        onCreateHierarchy={startCreateHierarchy}
         onRemove={() => removeTemplateFromArticle(selectedTemplate)}
       />
     </div>

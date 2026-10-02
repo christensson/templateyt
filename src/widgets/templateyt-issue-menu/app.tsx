@@ -350,7 +350,7 @@ const AppComponent: React.FunctionComponent = () => {
   const canCreateHierarchyForSelected =
     selectedTemplate !== null &&
     issueTemplateInfo !== null &&
-    canCreateHierarchy(issueTemplateInfo, selectedTemplate);
+    canCreateHierarchy(issueTemplateInfo.usedTemplateIds, selectedTemplate);
 
   return (
     <div className="widget">
