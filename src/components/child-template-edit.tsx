@@ -4,6 +4,7 @@ import ArticleIcon from "@jetbrains/icons/article";
 import ArrowDownIcon from "@jetbrains/icons/chevron-down";
 import ArrowUpIcon from "@jetbrains/icons/chevron-up";
 import ImportIcon from "@jetbrains/icons/download";
+import RelationIcon from "@jetbrains/icons/link-12px";
 import FieldIcon from "@jetbrains/icons/settings-12px";
 import TagIcon from "@jetbrains/icons/tag-12px";
 import TrashIcon from "@jetbrains/icons/trash";
@@ -22,12 +23,14 @@ import {
   formatChildAddConditions,
   formatTemplateField,
   formatTemplateTag,
+  formatTemplateRelation,
   getChildAddConditions,
   getChildTemplates,
   getMoveTargets,
   getSiblingPosition,
   getTemplateFields,
   getTemplateTags,
+  getTemplateRelations,
   insertManualChild,
   mergeImportedChildren,
   moveChild,
@@ -43,6 +46,7 @@ import {
 import FieldValueConditionInput from "./field-value-condition-input";
 import type { TemplateArticleSelectItem } from "./template-article-select-items";
 import TemplateFieldsPanel from "./template-fields-panel";
+import TemplateRelationsPanel, { type IssueChecker } from "./template-relations-panel";
 import TemplateTagsPanel from "./template-tags-panel";
 
 export type ArticleTreeResponse = ImportedArticle & { success?: boolean; message?: string };
@@ -363,6 +367,8 @@ interface ChildTemplateEditProps {
   tagsLoading: boolean;
   onTagsFilter: (filter: string) => void;
   onTagsLoadMore: () => void;
+  linkNames: Array<string>;
+  checkIssue: IssueChecker;
   onBack: () => void;
 }
 
@@ -381,12 +387,15 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
   tagsLoading,
   onTagsFilter,
   onTagsLoadMore,
+  linkNames,
+  checkIssue,
   onBack,
 }) => {
   const update = (updater: (prev: ChildTemplate) => ChildTemplate) =>
     setTemplate((prev) => updateChildTemplate(prev, child.id, updater));
   const childFields = getTemplateFields(child);
   const childTags = getTemplateTags(child);
+  const childRelations = getTemplateRelations(child);
 
   return (
     <>
@@ -508,6 +517,31 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
           {childTags.map((tag) => (
             <Text size={Text.Size.M} key={`child-tag-text-${tag}`}>
               <Icon glyph={TagIcon}/> {formatTemplateTag(tag)}
+            </Text>
+          ))}
+        </div>
+      )}
+      {editing ? (
+        <TemplateRelationsPanel
+          title="Relations added by child template"
+          template={template}
+          ownerChildId={child.id}
+          relations={childRelations}
+          onRelationsChange={(relations) => update((prev) => ({ ...prev, relations }))}
+          linkNames={linkNames}
+          checkIssue={checkIssue}
+          hint="Relations are added when the hierarchy is created. Relations to subtasks that are not created are skipped."
+        />
+      ) : (
+        <div className="template-edit-field-panel">
+          <Text size={Text.Size.S} info>
+            Relations added by child template
+          </Text>
+          {childRelations.length === 0 && <Text size={Text.Size.M}>No relations set.</Text>}
+          {childRelations.map((relation, idx) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <Text size={Text.Size.M} key={`child-relation-text-${idx}`}>
+              <Icon glyph={RelationIcon}/> {formatTemplateRelation(relation, template)}
             </Text>
           ))}
         </div>

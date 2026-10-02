@@ -51,6 +51,7 @@ const normalizeChildTemplates = (children) =>
     ...child,
     fields: Array.isArray(child.fields) ? child.fields : [],
     tags: Array.isArray(child.tags) ? child.tags : [],
+    relations: Array.isArray(child.relations) ? child.relations : [],
     addConditions: Array.isArray(child.addConditions) ? child.addConditions : [],
     inheritParentFields: child.inheritParentFields === true,
     inheritRootFields: child.inheritRootFields === true,
@@ -103,6 +104,10 @@ const getTemplates = (ctx) => {
     // Templates stored before tag support have no tags.
     if (!Array.isArray(t.tags)) {
       t.tags = [];
+    }
+    // Templates stored before relation support have no relations.
+    if (!Array.isArray(t.relations)) {
+      t.relations = [];
     }
     // Templates stored before replacement support have no replacements.
     if (!Array.isArray(t.replacements)) {
@@ -332,6 +337,64 @@ const applyTags = (entity, tagNames) => {
   }
 };
 
+const getRelations = (template) => (Array.isArray(template.relations) ? template.relations : []);
+
+// The links of the issue for a link direction name, or null when the name is unknown.
+const getLinkSet = (issue, linkName) => {
+  try {
+    const links = issue.links[linkName];
+    return links === undefined || links === null ? null : links;
+  } catch {
+    // Unknown link names may throw instead of being undefined.
+    return null;
+  }
+};
+
+// Resolves a template's relations to fixed tickets without modifying anything. The target must
+// exist and be visible to the user. Link names are checked on linkIssue: the source issue, or the
+// root issue for subtasks not created yet.
+// Returns { links: [{ linkName, target }], errors: [string] }.
+const resolveFixedRelations = (linkIssue, template, user) => {
+  const links = [];
+  const errors = [];
+  for (const relation of getRelations(template)) {
+    if (relation.target !== "fixed") {
+      continue;
+    }
+    if (getLinkSet(linkIssue, relation.linkName) === null) {
+      errors.push(`Relation "${relation.linkName}" is not a known link type.`);
+      continue;
+    }
+    const target = entities.Issue.findById(relation.issueId);
+    if (target == null || !target.isVisibleTo(user)) {
+      errors.push(`Ticket ${relation.issueId} for relation "${relation.linkName}" not found or not accessible.`);
+      continue;
+    }
+    links.push({ linkName: relation.linkName, target: target });
+  }
+  return { links: links, errors: errors };
+};
+
+// Errors for relations within the hierarchy whose link name is unknown, checked on the root
+// issue before anything is created.
+const getHierarchyRelationErrors = (rootIssue, template) =>
+  getRelations(template)
+    .filter((relation) => relation.target !== "fixed" && getLinkSet(rootIssue, relation.linkName) === null)
+    .map((relation) => `Relation "${relation.linkName}" is not a known link type.`);
+
+// Adds the links, skipping targets that are already linked with the same link name.
+const applyRelations = (source, links) => {
+  for (const link of links) {
+    const set = getLinkSet(source, link.linkName);
+    if (set === null || link.target.id === source.id) {
+      continue;
+    }
+    if (!toArray(set).some((linked) => linked.id === link.target.id)) {
+      set.add(link.target);
+    }
+  }
+};
+
 // Copies a field value between issues; multi-value fields (Sets) are copied element by element.
 const copyFieldValue = (fromIssue, toIssue, fieldName) => {
   const value = fromIssue.fields[fieldName];
@@ -508,6 +571,9 @@ module.exports = {
   applyFieldAssignments,
   resolveTemplateTags,
   applyTags,
+  resolveFixedRelations,
+  getHierarchyRelationErrors,
+  applyRelations,
   copyFieldValue,
   parseIdList,
   templateHasUserInputFields,

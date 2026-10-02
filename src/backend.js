@@ -304,6 +304,68 @@ const validateChildTemplates = (template) => {
   return null;
 };
 
+const RELATION_TARGETS = ["root", "child", "fixed"];
+
+// Validates one relation of the template (ownerId null) or of a child template.
+const validateRelation = (relation, ownerId, subject, childIds, user) => {
+  if (!relation || typeof relation.linkName !== "string" || relation.linkName.trim() === "") {
+    return `${subject} has a relation without link type.`;
+  }
+  if (!RELATION_TARGETS.includes(relation.target)) {
+    return `${subject} relation "${relation.linkName}" has an invalid target.`;
+  }
+  if (relation.target === "root" && ownerId === null) {
+    return `${subject} relation "${relation.linkName}" cannot target the template's own ticket.`;
+  }
+  if (relation.target === "child") {
+    if (!childIds.includes(relation.childId)) {
+      return `${subject} relation "${relation.linkName}" targets an unknown child template.`;
+    }
+    if (relation.childId === ownerId) {
+      return `${subject} relation "${relation.linkName}" cannot target its own ticket.`;
+    }
+  }
+  if (relation.target === "fixed") {
+    const issue =
+      typeof relation.issueId === "string" && relation.issueId !== ""
+        ? entities.Issue.findById(relation.issueId)
+        : null;
+    if (issue == null || !issue.isVisibleTo(user)) {
+      return `${subject} relation "${relation.linkName}" targets ticket ${relation.issueId}, which is not found or not accessible.`;
+    }
+  }
+  return null;
+};
+
+// Validates the relations of a template and its child templates; fixed tickets must be
+// accessible to the user. Returns an error message or null.
+const validateTemplateRelations = (template, user) => {
+  const flat = utils.flattenChildTemplates(template.children);
+  const childIds = flat.map(({ child }) => child.id);
+  const owners = [{ owner: template, ownerId: null, subject: "Template" }].concat(
+    flat.map(({ child }) => ({
+      owner: child,
+      ownerId: child.id,
+      subject: `Child template "${child.name}"`,
+    })),
+  );
+  for (const { owner, ownerId, subject } of owners) {
+    if (owner.relations === undefined) {
+      continue;
+    }
+    if (!Array.isArray(owner.relations)) {
+      return `${subject} relations is not an array.`;
+    }
+    for (const relation of owner.relations) {
+      const error = validateRelation(relation, ownerId, subject, childIds, user);
+      if (error !== null) {
+        return error;
+      }
+    }
+  }
+  return null;
+};
+
 // Looks up a template referenced by templateId in a request body.
 // Returns { template, error } where exactly one of them is set.
 const lookupRequestTemplate = (templates, body, verb) => {
@@ -376,8 +438,9 @@ const getAddedChildTemplates = (rootIssue, children) =>
 
 // Resolves everything a hierarchy creation needs (articles, field values and tags) without
 // creating anything, so that a bad value leaves the ticket untouched.
-// Returns { errors: [string], byChildId: { [childId]: { content, assignments, tagNames } } }.
-const planHierarchy = (rootIssue, template, childFieldValues) => {
+// Returns { errors: [string], byChildId: { [childId]: { content, assignments, tagNames,
+// fixedLinks } } }.
+const planHierarchy = (rootIssue, template, childFieldValues, user) => {
   const project = rootIssue.project;
   const errors = [];
   const byChildId = {};
@@ -390,16 +453,63 @@ const planHierarchy = (rootIssue, template, childFieldValues) => {
     const userValues = childFieldValues ? childFieldValues[child.id] : null;
     const resolved = utils.resolveTemplateFieldValues(project, child, userValues, true);
     const tags = utils.resolveTemplateTags(child);
-    for (const error of resolved.errors.concat(tags.errors)) {
+    const relations = utils.resolveFixedRelations(rootIssue, child, user);
+    const childErrors = resolved.errors.concat(
+      tags.errors,
+      relations.errors,
+      utils.getHierarchyRelationErrors(rootIssue, child),
+    );
+    for (const error of childErrors) {
       errors.push(`Child template "${child.name}": ${error}`);
     }
     byChildId[child.id] = {
       content: article.content ? article.content.trim() : "",
       assignments: resolved.assignments,
       tagNames: tags.tagNames,
+      fixedLinks: relations.links,
     };
   }
   return { errors: errors, byChildId: byChildId };
+};
+
+// Links of the hierarchy relations of a template or child template whose target ticket was
+// created: the root ticket or the subtask of a child template.
+// Returns { links: [{ linkName, target }], skipped: number }.
+const resolveHierarchyLinks = (owner, rootIssue, createdById) => {
+  const links = [];
+  let skipped = 0;
+  const relations = Array.isArray(owner.relations) ? owner.relations : [];
+  for (const relation of relations) {
+    if (relation.target === "fixed") {
+      continue;
+    }
+    const target = relation.target === "root" ? rootIssue : createdById[relation.childId];
+    if (target === undefined) {
+      skipped += 1;
+      continue;
+    }
+    links.push({ linkName: relation.linkName, target: target });
+  }
+  return { links: links, skipped: skipped };
+};
+
+// Adds the relations of the root template and of the created subtasks once all subtasks exist.
+// Returns the number of relations skipped because their target was not created.
+const linkHierarchy = (rootIssue, template, createdById, plan) => {
+  let skipped = 0;
+  const rootLinks = resolveHierarchyLinks(template, rootIssue, createdById);
+  utils.applyRelations(rootIssue, rootLinks.links);
+  skipped += rootLinks.skipped;
+  for (const { child } of utils.flattenChildTemplates(template.children)) {
+    const ticket = createdById[child.id];
+    if (ticket === undefined) {
+      continue;
+    }
+    const childLinks = resolveHierarchyLinks(child, rootIssue, createdById);
+    utils.applyRelations(ticket, childLinks.links.concat(plan.byChildId[child.id].fixedLinks));
+    skipped += childLinks.skipped;
+  }
+  return skipped;
 };
 
 // Resolves everything an article hierarchy creation needs (articles and tags) without creating
@@ -462,7 +572,8 @@ exports.httpHandler = {
       handle: function handle(ctx) {
         const body = JSON.parse(ctx.request.body);
         const newTemplate = body.template;
-        const validationError = validateTemplate(newTemplate);
+        const validationError =
+          validateTemplate(newTemplate) || validateTemplateRelations(newTemplate, ctx.currentUser);
         if (validationError !== null) {
           badRequest(ctx, validationError);
           return;
@@ -699,7 +810,8 @@ exports.httpHandler = {
           true,
         );
         const tags = utils.resolveTemplateTags(template);
-        const resolveErrors = resolved.errors.concat(tags.errors);
+        const relations = utils.resolveFixedRelations(issue, template, ctx.currentUser);
+        const resolveErrors = resolved.errors.concat(tags.errors, relations.errors);
         if (resolveErrors.length > 0) {
           badRequest(ctx, `Failed to add template: ${resolveErrors.join(" ")}`);
           return;
@@ -729,6 +841,7 @@ exports.httpHandler = {
         // Set ticket fields and add tags defined by template.
         utils.applyFieldAssignments(issue, resolved.assignments);
         utils.applyTags(issue, tags.tagNames);
+        utils.applyRelations(issue, relations.links);
 
         // Add template to used templates.
         usedTemplateIds.push(templateId);
@@ -783,7 +896,8 @@ exports.httpHandler = {
           true,
         );
         const tags = utils.resolveTemplateTags(template);
-        const resolveErrors = resolved.errors.concat(tags.errors);
+        const relations = utils.resolveFixedRelations(issue, template, ctx.currentUser);
+        const resolveErrors = resolved.errors.concat(tags.errors, relations.errors);
         if (resolveErrors.length > 0) {
           badRequest(ctx, `Failed to set fields from template: ${resolveErrors.join(" ")}`);
           return;
@@ -801,6 +915,7 @@ exports.httpHandler = {
         }
         utils.applyFieldAssignments(issue, resolved.assignments);
         utils.applyTags(issue, tags.tagNames);
+        utils.applyRelations(issue, relations.links);
         // Replace placeholder words still present in the ticket (e.g. left by the workflow).
         applyReplacementsToIssue(issue, replacements.values);
         // The user has been asked for the user-input fields; the template is no longer pending.
@@ -842,11 +957,16 @@ exports.httpHandler = {
           return;
         }
 
-        const plan = planHierarchy(issue, template, body.childFieldValues);
-        // The root ticket gets the root template's tags it does not have yet, e.g. when the
-        // template was added automatically.
+        const plan = planHierarchy(issue, template, body.childFieldValues, ctx.currentUser);
+        // The root ticket gets the root template's tags and fixed relations it does not have
+        // yet, e.g. when the template was added automatically.
         const rootTags = utils.resolveTemplateTags(template);
-        const planErrors = rootTags.errors.concat(plan.errors);
+        const rootRelations = utils.resolveFixedRelations(issue, template, ctx.currentUser);
+        const planErrors = rootTags.errors.concat(
+          rootRelations.errors,
+          utils.getHierarchyRelationErrors(issue, template),
+          plan.errors,
+        );
         if (planErrors.length > 0) {
           badRequest(ctx, `Failed to create hierarchy: ${planErrors.join(" ")}`);
           return;
@@ -866,6 +986,7 @@ exports.httpHandler = {
 
         const createdIssueIds = [];
         const skippedChildIds = [];
+        const createdById = {};
         // Fields configured by the root template, inherited from the root ticket on request.
         const rootManagedFields = template.fields.map((field) => field.fieldName);
         const createChildren = (parentIssue, parentManagedFields, children) => {
@@ -898,6 +1019,7 @@ exports.httpHandler = {
             utils.applyTags(ticket, prepared.tagNames);
             parentIssue.links["parent for"].add(ticket);
             createdIssueIds.push(ticket.id);
+            createdById[child.id] = ticket;
             const managedNames = uniqueNames(
               rootNames.concat(inheritedNames, child.fields.map((field) => field.fieldName)),
             );
@@ -905,13 +1027,16 @@ exports.httpHandler = {
           }
         };
         utils.applyTags(issue, rootTags.tagNames);
+        utils.applyRelations(issue, rootRelations.links);
         createChildren(issue, rootManagedFields, template.children);
+        const skippedRelations = linkHierarchy(issue, template, createdById, plan);
         utils.markHierarchyCreated(issue, template.id);
 
         ctx.response.json({
           success: true,
           createdIssueIds: createdIssueIds,
           skippedChildIds: skippedChildIds,
+          skippedRelations: skippedRelations,
           createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(issue),
         });
       },

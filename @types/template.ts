@@ -48,6 +48,28 @@ export type HasFields = { fields?: Array<TemplateField> };
 // Anything that carries tag names added to the ticket: a template or a child template.
 export type HasTags = { tags?: Array<string> };
 
+// Issue link from the template's ticket to another ticket: the root ticket or the subtask of a
+// child template (created with the hierarchy), or a fixed ticket given by id. linkName is the
+// direction name used in issue.links (IssueLinkType sourceToTarget or targetToSource).
+export type TemplateRelation =
+  | { linkName: string; target: "root" }
+  | { linkName: string; target: "child"; childId: string }
+  | { linkName: string; target: "fixed"; issueId: string };
+export type TemplateRelationTarget = TemplateRelation["target"];
+
+// Anything that carries relations: a template or a child template.
+export type HasRelations = { relations?: Array<TemplateRelation> };
+
+// Issue link type as returned by the YouTrack REST API.
+export type IssueLinkTypeInfo = {
+  name: string;
+  directed: boolean;
+  aggregation: boolean;
+  readOnly: boolean;
+  sourceToTarget: string;
+  targetToSource: string;
+};
+
 // A whole-word text replacement applied to summaries and contents when a template is applied,
 // with text entered by the user or the display text of a root ticket field.
 export type UserInputReplacement = { search: string; mode: "user_input" };
@@ -66,6 +88,8 @@ export type ChildTemplate = {
   fields: Array<TemplateField>;
   // Tags added to the subtask when it is created.
   tags?: Array<string>;
+  // Links added to the subtask when the hierarchy is created.
+  relations?: Array<TemplateRelation>;
   // The subtask is created only when any of these match the root ticket; none means always.
   addConditions: Array<FieldStateCondition>;
   // Copy the values of the fields the parent template configures from the parent ticket.
@@ -92,6 +116,8 @@ export type Template = {
   fields: Array<TemplateField>;
   // Tags added to the ticket when the template is applied manually; not when added automatically.
   tags?: Array<string>;
+  // Links to fixed tickets are added like fields; links within the hierarchy when it is created.
+  relations?: Array<TemplateRelation>;
   replacements: Array<TextReplacement>;
   hierarchical: boolean;
   children: Array<ChildTemplate>;
@@ -109,6 +135,27 @@ export const getTemplateFields = (template: HasFields): Array<TemplateField> =>
 
 export const getTemplateTags = (template: HasTags): Array<string> =>
   Array.isArray(template?.tags) ? template.tags : [];
+
+export const getTemplateRelations = (template: HasRelations): Array<TemplateRelation> =>
+  Array.isArray(template?.relations) ? template.relations : [];
+
+// Link directions a relation can use. Aggregation types (like Subtask) would compete with the
+// template hierarchy and read-only types cannot be set, so both are left out.
+export const getRelationLinkNames = (types: Array<IssueLinkTypeInfo>): Array<string> => {
+  const names: Array<string> = [];
+  for (const type of types) {
+    if (type.aggregation || type.readOnly) {
+      continue;
+    }
+    const directions = type.directed ? [type.sourceToTarget, type.targetToSource] : [type.sourceToTarget];
+    for (const name of directions) {
+      if (name && !names.includes(name)) {
+        names.push(name);
+      }
+    }
+  }
+  return names;
+};
 
 export const hasUserInputFields = (template: HasFields): boolean =>
   getTemplateFields(template).some((field) => field.mode === "user_input");
@@ -434,6 +481,64 @@ export const formatTemplateFields = (template: HasFields): string => {
 };
 
 export const formatTemplateTag = (tag: string): string => `Adds tag ${tag} to ticket.`;
+
+// The ticket a relation points to, e.g. "root ticket", "subtask Review" or "ticket ABC-12".
+export const formatRelationTarget = (relation: TemplateRelation, template: Template): string => {
+  if (relation.target === "root") {
+    return "root ticket";
+  }
+  if (relation.target === "fixed") {
+    return `ticket ${relation.issueId}`;
+  }
+  const child = findChildTemplate(template, relation.childId);
+  return child ? `subtask ${child.name}` : "a removed child template";
+};
+
+export const formatTemplateRelation = (relation: TemplateRelation, template: Template): string =>
+  `Adds relation ${relation.linkName} to ${formatRelationTarget(relation, template)}.`;
+
+// Returns an error message for an incomplete relation of the template or a child template, or null.
+export const validateRelations = (template: Template): string | null => {
+  const owners: Array<{ owner: HasRelations; subject: string }> = [
+    { owner: template, subject: "Template" },
+    ...flattenChildTemplates(getChildTemplates(template)).map(({ child }) => ({
+      owner: child,
+      subject: `Child template "${child.name}"`,
+    })),
+  ];
+  for (const { owner, subject } of owners) {
+    for (const relation of getTemplateRelations(owner)) {
+      if (relation.linkName.trim() === "") {
+        return `${subject} has a relation without link type.`;
+      }
+      if (relation.target === "fixed" && relation.issueId.trim() === "") {
+        return `${subject} relation "${relation.linkName}" needs a ticket id.`;
+      }
+      if (relation.target === "child" && relation.childId === "") {
+        return `${subject} relation "${relation.linkName}" needs a target ticket.`;
+      }
+    }
+  }
+  return null;
+};
+
+// Drops relations to child templates that no longer exist, e.g. after removing a child template
+// or re-importing the child articles.
+export const pruneDanglingRelations = (template: Template): Template => {
+  const ids = new Set(flattenChildTemplates(getChildTemplates(template)).map(({ child }) => child.id));
+  const prune = <T extends HasRelations>(owner: T): T =>
+    Array.isArray(owner.relations)
+      ? {
+          ...owner,
+          relations: owner.relations.filter(
+            (relation) => relation.target !== "child" || ids.has(relation.childId),
+          ),
+        }
+      : owner;
+  const pruneChildren = (children: Array<ChildTemplate>): Array<ChildTemplate> =>
+    children.map((child) => ({ ...prune(child), children: pruneChildren(getChildTemplates(child)) }));
+  return { ...prune(template), children: pruneChildren(getChildTemplates(template)) };
+};
 
 export const formatReplacement = (replacement: TextReplacement): string =>
   replacement.mode === "user_input"

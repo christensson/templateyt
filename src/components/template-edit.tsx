@@ -2,6 +2,7 @@ import ArticleIcon from "@jetbrains/icons/article";
 import ConditionIcon from "@jetbrains/icons/buildType-12px";
 import CodeIcon from "@jetbrains/icons/code";
 import ImportIcon from "@jetbrains/icons/download";
+import RelationIcon from "@jetbrains/icons/link-12px";
 import MoreOptionsIcon from "@jetbrains/icons/more-options";
 import EditIcon from "@jetbrains/icons/pencil";
 import ReplaceIcon from "@jetbrains/icons/pencil-12px";
@@ -29,18 +30,24 @@ import {
   formatReplacement,
   formatTemplateField,
   formatTemplateTag,
+  formatTemplateRelation,
   formatTemplateHierarchy,
   formatValidCondition,
   getChildTemplates,
   getTemplateFields,
   getTemplateTags,
+  getTemplateRelations,
+  getRelationLinkNames,
   getTemplateReplacements,
   getValidConditions,
   insertManualChild,
   mergeImportedChildren,
   validateChildTemplates,
   validateReplacements,
+  validateRelations,
+  pruneDanglingRelations,
   validateTemplateFields,
+  type IssueLinkTypeInfo,
   type Template,
   type ValidCondition,
 } from "../../@types/template";
@@ -59,6 +66,7 @@ import {
 } from "./template-article-select-items";
 import TemplateFieldsPanel from "./template-fields-panel";
 import TemplateJsonDialog from "./template-json-dialog";
+import TemplateRelationsPanel, { type IssueChecker } from "./template-relations-panel";
 import TemplateReplacementsPanel from "./template-replacements-panel";
 import TemplateTagsPanel from "./template-tags-panel";
 
@@ -197,6 +205,20 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
       </div>
       <div className="template-edit-field-panel">
         <Text size={Text.Size.S} info>
+          Relations added by template
+        </Text>
+        {getTemplateRelations(template).length === 0 && (
+          <Text size={Text.Size.M}>No relations set.</Text>
+        )}
+        {getTemplateRelations(template).map((relation, idx) => (
+          // eslint-disable-next-line react/no-array-index-key
+          <Text size={Text.Size.M} key={`relation-text-${idx}`}>
+            <Icon glyph={RelationIcon}/> {formatTemplateRelation(relation, template)}
+          </Text>
+        ))}
+      </div>
+      <div className="template-edit-field-panel">
+        <Text size={Text.Size.S} info>
           Text replacements
         </Text>
         {getTemplateReplacements(template).length === 0 && (
@@ -323,6 +345,8 @@ interface TemplateEditFormProps {
   tagsLoading: boolean;
   onTagsFilter: (filter: string) => void;
   onTagsLoadMore: () => void;
+  linkNames: Array<string>;
+  checkIssue: IssueChecker;
 }
 
 // Editable form for a template.
@@ -336,6 +360,8 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
   tagsLoading,
   onTagsFilter,
   onTagsLoadMore,
+  linkNames,
+  checkIssue,
 }) => {
   const validConditions = getValidConditions(template);
 
@@ -535,6 +561,16 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
         onTagsLoadMore={onTagsLoadMore}
         hint="Tags are only added when the template is applied manually from the Apply template menu of a ticket."
       />
+      <TemplateRelationsPanel
+        title="Relations added by template"
+        template={template}
+        ownerChildId={null}
+        relations={getTemplateRelations(template)}
+        onRelationsChange={(relations) => setTemplate((prev) => ({ ...prev, relations }))}
+        linkNames={linkNames}
+        checkIssue={checkIssue}
+        hint="Relations to fixed tickets are added when the template is applied, also automatically. Relations to tickets in the hierarchy are added when the hierarchy is created."
+      />
       <TemplateReplacementsPanel
         replacements={getTemplateReplacements(template)}
         onReplacementsChange={(replacements) => setTemplate((prev) => ({ ...prev, replacements }))}
@@ -585,6 +621,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   const [templateSnapshot, setTemplateSnapshot] = useState<Template>(template);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState<boolean>(false);
   const [jsonDialogOpen, setJsonDialogOpen] = useState<boolean>(false);
+  const [linkNames, setLinkNames] = useState<Array<string>>([]);
 
   // Keep a fresh snapshot when parent `template` changes and we're not editing.
   useEffect(() => {
@@ -642,11 +679,31 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         setProjectFields(result.fields);
       });
     fetchTags("", true);
+    host
+      .fetchYouTrack<Array<IssueLinkTypeInfo>>("issueLinkTypes", {
+        query: { fields: "name,directed,aggregation,readOnly,sourceToTarget,targetToSource" },
+      })
+      .then((types) => setLinkNames(getRelationLinkNames(types)));
   }, [fetchTags]);
+
+  // A ticket can be a relation target only when the user can read it.
+  const checkIssue: IssueChecker = useCallback(async (issueId) => {
+    try {
+      const issue = await host.fetchYouTrack<{ idReadable: string; summary: string }>(
+        `issues/${encodeURIComponent(issueId)}`,
+        { query: { fields: "idReadable,summary" } },
+      );
+      return `${issue.idReadable}: ${issue.summary}`;
+    } catch (error) {
+      console.log(`Ticket ${issueId} not accessible`, error);
+      return null;
+    }
+  }, []);
 
   const conditionFields = useMemo(() => projectFields.filter(isConditionField), [projectFields]);
 
-  const addOrUpdateTemplate = async (templateToStore: Template) => {
+  const addOrUpdateTemplate = async (editedTemplate: Template) => {
+    const templateToStore = pruneDanglingRelations(editedTemplate);
     if (templateToStore.name.trim() === "") {
       setEditFailMessage({ mode: "error", message: "Template name is required." });
       return;
@@ -677,6 +734,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       setEditFailMessage({ mode: "error", message: replacementsError });
       return;
     }
+    const relationsError = validateRelations(templateToStore);
+    if (relationsError !== null) {
+      setEditFailMessage({ mode: "error", message: relationsError });
+      return;
+    }
 
     const result = await host.fetchApp<{
       success: boolean;
@@ -693,6 +755,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       setIsDraft(false);
       setEditing(false);
       // Saved, store snapshot.
+      setTemplate(templateToStore);
       setTemplateSnapshot(templateToStore);
       if (setTemplates) {
         setTemplates(result.templates || []);
@@ -773,6 +836,8 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           tagsLoading={tagsLoading}
           onTagsFilter={onTagsFilter}
           onTagsLoadMore={onTagsLoadMore}
+          linkNames={linkNames}
+          checkIssue={checkIssue}
           onBack={() => setSelectedChildId(null)}
         />
       );
@@ -789,6 +854,8 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           tagsLoading={tagsLoading}
           onTagsFilter={onTagsFilter}
           onTagsLoadMore={onTagsLoadMore}
+          linkNames={linkNames}
+          checkIssue={checkIssue}
         />
       );
     }

@@ -14,12 +14,15 @@ import {
   getTemplateFields,
   getTemplateReplacements,
   getTemplateTags,
+  getTemplateRelations,
+  formatRelationTarget,
   hasUserInputFields,
   hierarchyHasUserInputFields,
   type ChildInclusion,
   type ChildTemplate,
   type Template,
   type TemplateField,
+  type TemplateRelation,
 } from "../../@types/template";
 import {
   ACTION_LABELS,
@@ -187,6 +190,34 @@ const TagPreviewList: React.FunctionComponent<TagPreviewListProps> = ({ tags }) 
   </>
 );
 
+interface RelationPreviewListProps {
+  relations: Array<TemplateRelation>;
+  template: Template;
+  // Which child templates will be created; relations to the others are skipped.
+  inclusion?: Record<string, ChildInclusion>;
+}
+
+// What a template will link: its relations, with skipped targets marked.
+const RelationPreviewList: React.FunctionComponent<RelationPreviewListProps> = ({
+  relations,
+  template,
+  inclusion,
+}) => (
+  <>
+    {relations.map((relation, idx) => {
+      const skipped =
+        relation.target === "child" && inclusion !== undefined && !inclusion[relation.childId]?.created;
+      return (
+        // eslint-disable-next-line react/no-array-index-key
+        <Text size={Text.Size.M} info key={`relation-${idx}`}>
+          Will add relation {relation.linkName} to {formatRelationTarget(relation, template)}
+          {skipped ? " (skipped, target not created)." : "."}
+        </Text>
+      );
+    })}
+  </>
+);
+
 interface FormSectionProps {
   title: string;
   children?: React.ReactNode;
@@ -201,6 +232,13 @@ const FormSection: React.FunctionComponent<FormSectionProps> = ({ title, childre
     {children}
   </div>
 );
+
+const formatPreviewTitle = (hasTags: boolean, hasRelations: boolean): string => {
+  if (hasRelations) {
+    return hasTags ? "Fields, tags and relations" : "Fields and relations";
+  }
+  return hasTags ? "Fields and tags" : "Fields";
+};
 
 interface TemplateFieldsFormProps {
   pending: PendingApply;
@@ -245,14 +283,18 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
   const confirmDisabled = submitting || hasMissingReplacementTexts(pending.template, texts);
   const fields = getTemplateFields(pending.template);
   const tags = getTemplateTags(pending.template);
+  // Relations to fixed tickets are added when the template is applied (not for articles).
+  const fixedRelations = forArticle
+    ? []
+    : getTemplateRelations(pending.template).filter((relation) => relation.target === "fixed");
   const hasReplacements = getTemplateReplacements(pending.template).length > 0;
 
   return (
     <>
       {showTitle && <Text size={Text.Size.M}>{formatPendingTitle(pending)}</Text>}
       <div className="template-fields-form">
-        {(fields.length > 0 || tags.length > 0) && (
-          <FormSection title={tags.length > 0 ? "Fields and tags" : "Fields"}>
+        {(fields.length > 0 || tags.length > 0 || fixedRelations.length > 0) && (
+          <FormSection title={formatPreviewTitle(tags.length > 0, fixedRelations.length > 0)}>
             <FieldPreviewList
               fields={fields}
               fieldInfos={fieldInfos}
@@ -261,6 +303,7 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
               forArticle={forArticle}
             />
             <TagPreviewList tags={tags}/>
+            <RelationPreviewList relations={fixedRelations} template={pending.template}/>
             {!forArticle && hasUserInputFields(pending.template) && (
               <Text size={Text.Size.S} info>
                 Fields left empty are not changed.
@@ -295,18 +338,23 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
 const UNITS_PER_DEPTH = 3;
 
 interface ChildTemplatePreviewProps {
+  template: Template;
   child: ChildTemplate;
   depth: number;
   inclusion: ChildInclusion;
+  // Inclusion of every child template, for relations to skipped subtasks.
+  allInclusion: Record<string, ChildInclusion>;
   fieldInfos: Array<ProjectFieldInfo>;
   values: FieldValues;
   onChange: (childId: string, fieldName: string, value: string | null) => void;
 }
 
 const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> = ({
+  template,
   child,
   depth,
   inclusion,
+  allInclusion,
   fieldInfos,
   values,
   onChange,
@@ -366,6 +414,7 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
         )}
         {fields.length === 0 &&
           tags.length === 0 &&
+          getTemplateRelations(child).length === 0 &&
           !child.inheritParentFields &&
           !child.inheritRootFields && (
           <Text size={Text.Size.S} info>
@@ -379,6 +428,11 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
           onChange={onFieldChange}
         />
         <TagPreviewList tags={tags}/>
+        <RelationPreviewList
+          relations={getTemplateRelations(child)}
+          template={template}
+          inclusion={allInclusion}
+        />
       </div>
     </div>
   );
@@ -544,14 +598,25 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
             />
           </FormSection>
         )}
+        {getTemplateRelations(template).length > 0 && (
+          <FormSection title="Relations added to the ticket">
+            <RelationPreviewList
+              relations={getTemplateRelations(template)}
+              template={template}
+              inclusion={inclusion}
+            />
+          </FormSection>
+        )}
         <FormSection title={formatCreatedCount(createdCount, flat.length)}>
           <div className="template-hierarchy-list">
             {flat.map(({ child, depth }) => (
               <ChildTemplatePreview
                 key={child.id}
+                template={template}
                 child={child}
                 depth={depth}
                 inclusion={inclusion[child.id] ?? { created: true, reason: null }}
+                allInclusion={inclusion}
                 fieldInfos={fieldInfos}
                 values={values[child.id] ?? {}}
                 onChange={onChange}

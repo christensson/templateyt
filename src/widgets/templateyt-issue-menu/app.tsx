@@ -9,6 +9,7 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   getTemplateFields,
   getTemplateTags,
+  getTemplateRelations,
   getTemplateReplacements,
   hasUserInput,
   type Template,
@@ -75,6 +76,7 @@ const TemplateActions: React.FunctionComponent<TemplateActionsProps> = ({
     hasSelection &&
     (getTemplateFields(selectedTemplate).length > 0 ||
       getTemplateTags(selectedTemplate).length > 0 ||
+      getTemplateRelations(selectedTemplate).some((relation) => relation.target === "fixed") ||
       getTemplateReplacements(selectedTemplate).length > 0);
   return (
     <Panel className="issue-template-config-bottom-panel">
@@ -84,7 +86,7 @@ const TemplateActions: React.FunctionComponent<TemplateActionsProps> = ({
       <Button
         disabled={!selectedHasFields || submitting}
         onClick={onSetFields}
-        title="Set or re-set the ticket fields and tags defined by the template"
+        title="Set or re-set the ticket fields, tags and relations defined by the template"
       >
         Set fields
       </Button>

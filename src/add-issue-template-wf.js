@@ -75,15 +75,22 @@ const loadTemplateArticles = (templates) => {
   return articles;
 };
 
-// Sets the fixed-value fields of a template on the issue. User-input fields are only set on
-// manual application, so templates having them are marked as waiting for user input.
+// Sets the fixed-value fields and the relations to fixed tickets of a template on the issue; tags
+// are only added on manual application. User-input fields are only set on manual application,
+// so templates having them are marked as waiting for user input.
 // Problems are logged and skipped so that the user's change is never blocked.
-const applyTemplateFields = (issue, template) => {
+const applyTemplateFields = (ctx, issue, template) => {
   const resolved = utils.resolveTemplateFieldValues(issue.project, template, {}, false);
   for (const error of resolved.errors) {
     log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) field skipped: ${error}`);
   }
   utils.applyFieldAssignments(issue, resolved.assignments);
+  // Relations to fixed tickets are added also when the template is added automatically.
+  const relations = utils.resolveFixedRelations(issue, template, ctx.currentUser);
+  for (const error of relations.errors) {
+    log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) relation skipped: ${error}`);
+  }
+  utils.applyRelations(issue, relations.links);
   for (const assignment of resolved.assignments) {
     log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) set field ${assignment.fieldName}`);
   }
@@ -261,7 +268,7 @@ exports.rule = entities.Issue.onChange({
         newDescription += templateContent;
       }
       newSummary = utils.applyReplacements(newSummary, replacementValues);
-      applyTemplateFields(issue, template);
+      applyTemplateFields(ctx, issue, template);
       usedTemplateIds.push(template.id);
       log(
         `Ticket ${issue.id}: Applied template "${template.name}" (${template.id}) from article ${template.articleId}`,
