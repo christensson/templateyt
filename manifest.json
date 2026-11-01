@@ -3,7 +3,7 @@
   "name": "templateyt",
   "title": "Ticket Templates",
   "version": "0.2.0",
-  "description": "Add templates to tickets and articles, both automatically based on e.g. ticket type or tags, or manually using a UI.",
+  "description": "Ticket and article templates that set content and fields, are applied on conditions or on demand, and can be hierarchical.",
   "vendor": {
     "name": "Marcus Christensson",
     "url": "https://github.com/christensson/templateyt"
