@@ -8,6 +8,7 @@ import {
   flattenChildTemplates,
   getAddConditionKey,
   formatChildTemplate,
+  formatTemplateEffectTokens,
   formatTemplateSummaryTokens,
   formatTemplateValidCondition,
   getChildTemplates,
@@ -380,5 +381,63 @@ describe("child template validation", () => {
     expect(validateRelations(template)).toBe(
       `Child template "${firstChild(template).name}" relation "relates to" needs a ticket id.`,
     );
+  });
+});
+
+describe("formatTemplateEffectTokens", () => {
+  const byName = (name: string): Template => {
+    const template = all.find((t) => t.name === name);
+    if (!template) {
+      throw new Error(`No fixture ${name}`);
+    }
+    return template;
+  };
+
+  it.each([
+    ["Extra Software Review", "ticket", ["Adds content only", "Auto when tagged Extra Review"]],
+    ["Meeting minutes template", "ticket", ["Adds content only"]],
+    ["Task template", "ticket", ["Adds content only", "Auto when Type → Task"]],
+    [
+      "Bug template",
+      "ticket",
+      ["Sets Priority", "Asks for Subsystem, Assignee", "Auto when Type → Bug"],
+    ],
+    [
+      "Release template",
+      "ticket",
+      ["Asks for Assignee, Fix versions, CUSTOMER", "Tags test4", "Creates 11 subtasks"],
+    ],
+    ["Release template", "article", ["Asks for CUSTOMER", "Tags test4", "Creates 11 sub-articles"]],
+    [
+      "SW Module Documentation",
+      "article",
+      ["Asks for MODULE_NAME", "Tags SW_Module", "Creates 2 sub-articles"],
+    ],
+    ["Bug template", "article", ["Adds content only", "Auto when Type → Bug"]],
+    ["Created before fields existed", "ticket", ["Adds content only"]],
+    ["Created before tags, relations and hierarchy", "ticket", ["Sets Priority", "Auto when Type → Bug"]],
+  ] as const)("%s for a %s", (name, target, expected) => {
+    expect(formatTemplateEffectTokens(byName(name), target)).toEqual(expected);
+  });
+
+  it("counts links for tickets only and skips children of non-hierarchical templates", () => {
+    const template: Template = {
+      ...clone(byName("Created before fields existed")),
+      relations: [
+        { linkName: "relates to", target: "fixed", issueId: "SAN-1" },
+        { linkName: "relates to", target: "fixed", issueId: "SAN-2" },
+      ],
+      hierarchical: false,
+      children: [clone(getChildTemplates(byName("Release template"))[0])],
+    };
+    expect(formatTemplateEffectTokens(template, "ticket")).toEqual(["Adds 2 links"]);
+    expect(formatTemplateEffectTokens(template, "article")).toEqual(["Adds content only"]);
+  });
+
+  it("never throws for any fixture", () => {
+    for (const template of all) {
+      expect(formatTemplateEffectTokens(template, "ticket").length).toBeGreaterThan(0);
+      expect(formatTemplateEffectTokens(template, "article").length).toBeGreaterThan(0);
+    }
   });
 });

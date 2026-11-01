@@ -1,5 +1,6 @@
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
+import { H3 } from "@jetbrains/ring-ui-built/components/heading/heading";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
@@ -23,7 +24,9 @@ import {
   type Template,
   type TemplateField,
   type TemplateRelation,
+  type TextReplacement,
 } from "../../@types/template";
+import { formatHierarchyLabel } from "../apply-template";
 import {
   ACTION_LABELS,
   formatPendingTitle,
@@ -34,8 +37,32 @@ import {
   type ReplacementTexts,
 } from "../template-client";
 
-interface ReplacementInputsProps {
-  template: Template;
+const EMPTY_FIELDS_HINT = "Fields left empty are not changed.";
+const MISSING_TEXTS_HINT = "Fill in all texts to continue.";
+
+interface EffectRowProps {
+  label: string;
+  // Show the label as code, for the words that text replacements replace.
+  code?: boolean;
+  children?: React.ReactNode;
+}
+
+// One row of a two-column list of what a template does: what is changed, and to what.
+const EffectRow: React.FunctionComponent<EffectRowProps> = ({ label, code = false, children }) => (
+  <>
+    <Text size={Text.Size.M} info className={code ? "template-effect-code" : undefined}>
+      {label}
+    </Text>
+    <div className="template-effect-value">{children}</div>
+  </>
+);
+
+const EffectList: React.FunctionComponent<{ children?: React.ReactNode }> = ({ children }) => (
+  <div className="template-effect-list">{children}</div>
+);
+
+interface ReplacementRowProps {
+  replacement: TextReplacement;
   texts: ReplacementTexts;
   setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
   // Display texts of the root ticket's fields; null values mean the field is empty. Undefined
@@ -43,51 +70,85 @@ interface ReplacementInputsProps {
   currentFieldPresentations?: Record<string, string | null>;
 }
 
-// What a template's text replacements will insert: field replacements as text, user-input
-// replacements as required text inputs.
+// A text replacement: the text a field replacement inserts, or a required input for user text.
+const ReplacementRow: React.FunctionComponent<ReplacementRowProps> = ({
+  replacement,
+  texts,
+  setTexts,
+  currentFieldPresentations,
+}) => {
+  if (replacement.mode === "user_input") {
+    return (
+      <EffectRow label={replacement.search} code>
+        <Input
+          value={texts[replacement.search] ?? ""}
+          placeholder="Required"
+          size={Size.M}
+          onChange={(e) => {
+            const value = e.target.value;
+            setTexts((prev) => ({ ...prev, [replacement.search]: value }));
+          }}
+        />
+      </EffectRow>
+    );
+  }
+  const text = currentFieldPresentations?.[replacement.fieldName];
+  let value: React.ReactNode;
+  if (currentFieldPresentations === undefined) {
+    value = (
+      <Text size={Text.Size.M} info>
+        Not replaced: ticket field {replacement.fieldName} is not available for articles.
+      </Text>
+    );
+  } else if (text) {
+    value = (
+      <Text size={Text.Size.M}>
+        {text}{" "}
+        <Text size={Text.Size.S} info>
+          from {replacement.fieldName}
+        </Text>
+      </Text>
+    );
+  } else {
+    value = (
+      <Text size={Text.Size.M} info>
+        Not replaced: {replacement.fieldName} is empty.
+      </Text>
+    );
+  }
+  return (
+    <EffectRow label={replacement.search} code>
+      {value}
+    </EffectRow>
+  );
+};
+
+interface ReplacementInputsProps {
+  template: Template;
+  texts: ReplacementTexts;
+  setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
+  currentFieldPresentations?: Record<string, string | null>;
+}
+
+// What a template's text replacements will insert.
 export const ReplacementInputs: React.FunctionComponent<ReplacementInputsProps> = ({
   template,
   texts,
   setTexts,
   currentFieldPresentations,
-}) => {
-  const replacements = getTemplateReplacements(template);
-  if (replacements.length === 0) {
-    return null;
-  }
-  const describeFieldReplacement = (search: string, fieldName: string): string => {
-    if (currentFieldPresentations === undefined) {
-      return `Cannot replace ${search}: root ticket field ${fieldName} is not available for articles.`;
-    }
-    const text = currentFieldPresentations[fieldName];
-    return text
-      ? `Will replace ${search} with ${text}.`
-      : `Cannot replace ${search}: root ticket field ${fieldName} is empty.`;
-  };
-  return (
-    <>
-      {replacements.map((replacement) =>
-        replacement.mode === "field" ? (
-          <Text size={Text.Size.M} info key={`replacement-${replacement.search}`}>
-            {describeFieldReplacement(replacement.search, replacement.fieldName)}
-          </Text>
-        ) : (
-          <div className="template-replacement-input-row" key={`replacement-${replacement.search}`}>
-            <Text size={Text.Size.M}>Text for {replacement.search}</Text>
-            <Input
-              value={texts[replacement.search] ?? ""}
-              size={Size.M}
-              onChange={(e) => {
-                const value = e.target.value;
-                setTexts((prev) => ({ ...prev, [replacement.search]: value }));
-              }}
-            />
-          </div>
-        ),
-      )}
-    </>
-  );
-};
+}) => (
+  <EffectList>
+    {getTemplateReplacements(template).map((replacement) => (
+      <ReplacementRow
+        key={`replacement-${replacement.search}`}
+        replacement={replacement}
+        texts={texts}
+        setTexts={setTexts}
+        currentFieldPresentations={currentFieldPresentations}
+      />
+    ))}
+  </EffectList>
+);
 
 interface UserInputFieldSelectProps {
   field: TemplateField;
@@ -108,115 +169,86 @@ const UserInputFieldSelect: React.FunctionComponent<UserInputFieldSelectProps> =
   }, [fieldInfos, field.fieldName]);
   const selected = items.find((item) => item.key === value) || null;
   return (
-    <div>
-      <Text size={Text.Size.M}>
-        {field.additive ? `Add to ${field.fieldName} ` : `Set ${field.fieldName} to `}
-      </Text>
-      <Select
-        clear
-        filter
-        label="..."
-        type={Select.Type.INLINE}
-        size={Select.Size.AUTO}
-        data={items}
-        selected={selected}
-        onSelect={(item: SelectItem | null) =>
-          onChange(field.fieldName, item ? String(item.key) : null)
-        }
-      />
-    </div>
+    <Select
+      clear
+      filter
+      label={field.additive ? "Add a value…" : "Choose…"}
+      type={Select.Type.INLINE}
+      size={Select.Size.AUTO}
+      data={items}
+      selected={selected}
+      onSelect={(item: SelectItem | null) =>
+        onChange(field.fieldName, item ? String(item.key) : null)
+      }
+    />
   );
 };
 
-interface FieldPreviewListProps {
-  fields: Array<TemplateField>;
+interface EffectRowsProps {
+  template: Template;
+  // The template or child template whose fields, tags and relations are listed.
+  owner: { fields?: Array<TemplateField>; tags?: Array<string> };
+  relations: Array<TemplateRelation>;
   fieldInfos: Array<ProjectFieldInfo>;
   values: FieldValues;
   onChange: (fieldName: string, value: string | null) => void;
-  // Articles have no fields: every field is listed as not set instead.
-  forArticle?: boolean;
-}
-
-// What a template will set: fixed fields as text, user-input fields as selects.
-const FieldPreviewList: React.FunctionComponent<FieldPreviewListProps> = ({
-  fields,
-  fieldInfos,
-  values,
-  onChange,
-  forArticle = false,
-}) => {
-  const renderField = (field: TemplateField) => {
-    if (forArticle) {
-      return (
-        <Text size={Text.Size.M} info key={field.fieldName}>
-          Cannot set {field.fieldName}: ticket fields are not available for articles.
-        </Text>
-      );
-    }
-    if (field.mode === "fixed") {
-      return (
-        <Text size={Text.Size.M} info key={field.fieldName}>
-          {field.additive
-            ? `Will add ${field.fieldValue} to ${field.fieldName}.`
-            : `Will set ${field.fieldName} to ${field.fieldValue}.`}
-        </Text>
-      );
-    }
-    return (
-      <UserInputFieldSelect
-        key={field.fieldName}
-        field={field}
-        fieldInfos={fieldInfos}
-        value={values[field.fieldName] ?? null}
-        onChange={onChange}
-      />
-    );
-  };
-  return <>{fields.map(renderField)}</>;
-};
-
-interface TagPreviewListProps {
-  tags: Array<string>;
-}
-
-// What a template will add besides fields: its tags.
-const TagPreviewList: React.FunctionComponent<TagPreviewListProps> = ({ tags }) => (
-  <>
-    {tags.map((tag) => (
-      <Text size={Text.Size.M} info key={`tag-${tag}`}>
-        Will add tag {tag}.
-      </Text>
-    ))}
-  </>
-);
-
-interface RelationPreviewListProps {
-  relations: Array<TemplateRelation>;
-  template: Template;
   // Which child templates will be created; relations to the others are skipped.
   inclusion?: Record<string, ChildInclusion>;
 }
 
-// What a template will link: its relations, with skipped targets marked.
-const RelationPreviewList: React.FunctionComponent<RelationPreviewListProps> = ({
-  relations,
+// What a template or child template sets: fixed field values as text, user-input fields as
+// selects, then its tags and relations.
+const EffectRows: React.FunctionComponent<EffectRowsProps> = ({
   template,
+  owner,
+  relations,
+  fieldInfos,
+  values,
+  onChange,
   inclusion,
-}) => (
-  <>
-    {relations.map((relation, idx) => {
-      const skipped =
-        relation.target === "child" && inclusion !== undefined && !inclusion[relation.childId]?.created;
-      return (
-        // eslint-disable-next-line react/no-array-index-key
-        <Text size={Text.Size.M} info key={`relation-${idx}`}>
-          Will add relation {relation.linkName} to {formatRelationTarget(relation, template)}
-          {skipped ? " (skipped, target not created)." : "."}
-        </Text>
-      );
-    })}
-  </>
-);
+}) => {
+  const tags = getTemplateTags(owner);
+  return (
+    <>
+      {getTemplateFields(owner).map((field) => (
+        <EffectRow key={`field-${field.fieldName}`} label={field.fieldName}>
+          {field.mode === "fixed" ? (
+            <Text size={Text.Size.M}>
+              {field.additive ? `+ ${field.fieldValue}` : field.fieldValue}
+            </Text>
+          ) : (
+            <UserInputFieldSelect
+              field={field}
+              fieldInfos={fieldInfos}
+              value={values[field.fieldName] ?? null}
+              onChange={onChange}
+            />
+          )}
+        </EffectRow>
+      ))}
+      {tags.length > 0 && (
+        <EffectRow label={tags.length === 1 ? "Tag" : "Tags"}>
+          <Text size={Text.Size.M}>{tags.join(", ")}</Text>
+        </EffectRow>
+      )}
+      {relations.map((relation, idx) => {
+        const skipped =
+          relation.target === "child" &&
+          inclusion !== undefined &&
+          !inclusion[relation.childId]?.created;
+        return (
+          // eslint-disable-next-line react/no-array-index-key
+          <EffectRow key={`relation-${idx}`} label={relation.linkName}>
+            <Text size={Text.Size.M} info={skipped}>
+              {formatRelationTarget(relation, template)}
+              {skipped ? " (skipped, not created)" : ""}
+            </Text>
+          </EffectRow>
+        );
+      })}
+    </>
+  );
+};
 
 interface FormSectionProps {
   title: string;
@@ -233,11 +265,46 @@ const FormSection: React.FunctionComponent<FormSectionProps> = ({ title, childre
   </div>
 );
 
-const formatPreviewTitle = (hasTags: boolean, hasRelations: boolean): string => {
-  if (hasRelations) {
-    return hasTags ? "Fields, tags and relations" : "Fields and relations";
+interface FormActionsProps {
+  label: string;
+  submitting: boolean;
+  missingTexts: boolean;
+  onConfirm: () => void;
+  onBack: () => void;
+  backLabel: string;
+}
+
+// Confirm and back buttons of a form, saying why the confirm button is disabled.
+const FormActions: React.FunctionComponent<FormActionsProps> = ({
+  label,
+  submitting,
+  missingTexts,
+  onConfirm,
+  onBack,
+  backLabel,
+}) => (
+  <Panel className="template-fields-form-actions">
+    <Button primary loader={submitting} disabled={submitting || missingTexts} onClick={onConfirm}>
+      {label}
+    </Button>
+    <Button disabled={submitting} onClick={onBack}>
+      {backLabel}
+    </Button>
+    {missingTexts && (
+      <Text size={Text.Size.S} info>
+        {MISSING_TEXTS_HINT}
+      </Text>
+    )}
+  </Panel>
+);
+
+const formatApplyDescription = (pending: PendingApply, forArticle: boolean): string => {
+  if (pending.mode === "fields") {
+    return "Sets the values below again. The description is not changed.";
   }
-  return hasTags ? "Fields and tags" : "Fields";
+  return forArticle
+    ? "Adds the template content to the article."
+    : "Adds the template content to the description and sets the values below.";
 };
 
 interface TemplateFieldsFormProps {
@@ -251,15 +318,12 @@ interface TemplateFieldsFormProps {
   submitting: boolean;
   onConfirm: () => void;
   onBack: () => void;
-  // Hide the title when the surrounding container already shows it.
-  showTitle?: boolean;
-  cancelLabel?: string;
-  // Applying to an article: fields are not set, only described as unavailable.
+  // Applying to an article: ticket fields and relations are skipped.
   forArticle?: boolean;
 }
 
-// Form for applying a template with user-input fields: shows the fixed fields and lets the user
-// pick values for the user-input fields.
+// Form for applying a template that needs input: lists what the template sets, with selects for
+// user-input fields and inputs for user-input text replacements.
 export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps> = ({
   pending,
   fieldInfos,
@@ -271,8 +335,6 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
   submitting,
   onConfirm,
   onBack,
-  showTitle = true,
-  cancelLabel = "Back",
   forArticle = false,
 }) => {
   const onChange = useCallback(
@@ -280,41 +342,53 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
       setValues((prev) => ({ ...prev, [fieldName]: value })),
     [setValues],
   );
-  const confirmDisabled = submitting || hasMissingReplacementTexts(pending.template, texts);
-  const fields = getTemplateFields(pending.template);
-  const tags = getTemplateTags(pending.template);
+  const template = pending.template;
+  const hasFields = getTemplateFields(template).length > 0;
   // Relations to fixed tickets are added when the template is applied (not for articles).
   const fixedRelations = forArticle
     ? []
-    : getTemplateRelations(pending.template).filter((relation) => relation.target === "fixed");
-  const hasReplacements = getTemplateReplacements(pending.template).length > 0;
+    : getTemplateRelations(template).filter((relation) => relation.target === "fixed");
+  const hasChanges =
+    (hasFields && !forArticle) || getTemplateTags(template).length > 0 || fixedRelations.length > 0;
+  const hasReplacements = getTemplateReplacements(template).length > 0;
 
   return (
     <>
-      {showTitle && <Text size={Text.Size.M}>{formatPendingTitle(pending)}</Text>}
       <div className="template-fields-form">
-        {(fields.length > 0 || tags.length > 0 || fixedRelations.length > 0) && (
-          <FormSection title={formatPreviewTitle(tags.length > 0, fixedRelations.length > 0)}>
-            <FieldPreviewList
-              fields={fields}
-              fieldInfos={fieldInfos}
-              values={values}
-              onChange={onChange}
-              forArticle={forArticle}
-            />
-            <TagPreviewList tags={tags}/>
-            <RelationPreviewList relations={fixedRelations} template={pending.template}/>
-            {!forArticle && hasUserInputFields(pending.template) && (
+        <div>
+          <H3>{formatPendingTitle(pending)}</H3>
+          <Text size={Text.Size.M} info>
+            {formatApplyDescription(pending, forArticle)}
+          </Text>
+        </div>
+        {hasChanges && (
+          <FormSection title={forArticle ? "Article changes" : "Ticket changes"}>
+            <EffectList>
+              <EffectRows
+                template={template}
+                owner={forArticle ? { tags: template.tags } : template}
+                relations={fixedRelations}
+                fieldInfos={fieldInfos}
+                values={values}
+                onChange={onChange}
+              />
+            </EffectList>
+            {!forArticle && hasUserInputFields(template) && (
               <Text size={Text.Size.S} info>
-                Fields left empty are not changed.
+                {EMPTY_FIELDS_HINT}
               </Text>
             )}
           </FormSection>
         )}
+        {forArticle && hasFields && (
+          <Text size={Text.Size.S} info>
+            Ticket fields in this template are skipped for articles.
+          </Text>
+        )}
         {hasReplacements && (
           <FormSection title="Text replacements">
             <ReplacementInputs
-              template={pending.template}
+              template={template}
               texts={texts}
               setTexts={setTexts}
               currentFieldPresentations={currentFieldPresentations}
@@ -322,20 +396,54 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
           </FormSection>
         )}
       </div>
-      <Panel className="template-fields-form-actions">
-        <Button primary loader={submitting} disabled={confirmDisabled} onClick={onConfirm}>
-          {ACTION_LABELS[pending.mode]}
-        </Button>
-        <Button disabled={submitting} onClick={onBack}>
-          {cancelLabel}
-        </Button>
-      </Panel>
+      <FormActions
+        label={ACTION_LABELS[pending.mode]}
+        submitting={submitting}
+        missingTexts={hasMissingReplacementTexts(template, texts)}
+        onConfirm={onConfirm}
+        onBack={onBack}
+        backLabel="Back"
+      />
     </>
   );
 };
 
 // Indentation per tree depth, in --ring-unit steps.
 const UNITS_PER_DEPTH = 3;
+
+const indentStyle = (depth: number): React.CSSProperties => ({
+  marginLeft: `calc(var(--ring-unit) * ${depth * UNITS_PER_DEPTH})`,
+});
+
+const formatInheritance = (child: ChildTemplate): string | null => {
+  const sources = [
+    ...(child.inheritParentFields ? ["parent"] : []),
+    ...(child.inheritRootFields ? ["root ticket"] : []),
+  ];
+  return sources.length > 0 ? `Inherits fields from ${sources.join(" and ")}` : null;
+};
+
+interface ChildTitleProps {
+  child: ChildTemplate;
+  skipped?: boolean;
+  note?: string | null;
+}
+
+const ChildTitle: React.FunctionComponent<ChildTitleProps> = ({ child, skipped = false, note }) => (
+  <div className="template-hierarchy-child-title">
+    <Text
+      size={Text.Size.M}
+      bold
+      className={skipped ? "template-hierarchy-child-title-skipped" : undefined}
+    >
+      {child.name}
+    </Text>{" "}
+    <Text size={Text.Size.S} info>
+      {child.articleId}
+      {note ? ` · ${note}` : ""}
+    </Text>
+  </div>
+);
 
 interface ChildTemplatePreviewProps {
   template: Template;
@@ -363,78 +471,119 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
     (fieldName: string, value: string | null) => onChange(child.id, fieldName, value),
     [child.id, onChange],
   );
-  const fields = getTemplateFields(child);
-  const tags = getTemplateTags(child);
-  const skippedClass = inclusion.created ? "" : " template-hierarchy-child-skipped";
   if (!inclusion.created) {
     return (
-      <div
-        className={`template-hierarchy-child${skippedClass}`}
-        style={{ marginLeft: `calc(var(--ring-unit) * ${depth * UNITS_PER_DEPTH})` }}
-      >
-        <div className="template-hierarchy-child-title">
-          <Text size={Text.Size.M} bold className="template-hierarchy-child-title-skipped">
-            {child.name}
-          </Text>{" "}
-          <Text size={Text.Size.S} info>
-            {child.articleId}
-          </Text>
-        </div>
-        <div className="template-hierarchy-child-body">
-          <Text size={Text.Size.S} info>
-            Not created: {inclusion.reason}
-          </Text>
-        </div>
+      <div className="template-hierarchy-child template-hierarchy-child-skipped" style={indentStyle(depth)}>
+        <ChildTitle child={child} skipped note={`Not created: ${inclusion.reason}`}/>
       </div>
     );
   }
+  const relations = getTemplateRelations(child);
+  const hasRows =
+    getTemplateFields(child).length > 0 || getTemplateTags(child).length > 0 || relations.length > 0;
   return (
-    <div
-      className="template-hierarchy-child"
-      style={{ marginLeft: `calc(var(--ring-unit) * ${depth * UNITS_PER_DEPTH})` }}
-    >
-      <div className="template-hierarchy-child-title">
-        <Text size={Text.Size.M} bold>
-          {child.name}
-        </Text>{" "}
-        <Text size={Text.Size.S} info>
-          {child.articleId}
-        </Text>
-      </div>
-      <div className="template-hierarchy-child-body">
-        {child.inheritParentFields && (
-          <Text size={Text.Size.S} info>
-            Inherits template controlled fields from parent.
-          </Text>
-        )}
-        {child.inheritRootFields && (
-          <Text size={Text.Size.S} info>
-            Inherits template controlled fields from root ticket.
-          </Text>
-        )}
-        {fields.length === 0 &&
-          tags.length === 0 &&
-          getTemplateRelations(child).length === 0 &&
-          !child.inheritParentFields &&
-          !child.inheritRootFields && (
-          <Text size={Text.Size.S} info>
-            No fields set.
-          </Text>
-        )}
-        <FieldPreviewList
-          fields={fields}
-          fieldInfos={fieldInfos}
-          values={values}
-          onChange={onFieldChange}
-        />
-        <TagPreviewList tags={tags}/>
-        <RelationPreviewList
-          relations={getTemplateRelations(child)}
-          template={template}
-          inclusion={allInclusion}
-        />
-      </div>
+    <div className="template-hierarchy-child" style={indentStyle(depth)}>
+      <ChildTitle child={child} note={formatInheritance(child)}/>
+      {hasRows && (
+        <div className="template-hierarchy-child-body">
+          <EffectList>
+            <EffectRows
+              template={template}
+              owner={child}
+              relations={relations}
+              fieldInfos={fieldInfos}
+              values={values}
+              onChange={onFieldChange}
+              inclusion={allInclusion}
+            />
+          </EffectList>
+        </div>
+      )}
     </div>
+  );
+};
+
+const formatCreatedCount = (created: number, total: number): string => {
+  if (created === total) {
+    return total === 1 ? "1 subtask is created below this ticket" : `${total} subtasks are created below this ticket`;
+  }
+  return `${created} of ${total} subtasks are created below this ticket`;
+};
+
+const formatArticleCount = (total: number): string =>
+  total === 1
+    ? "1 sub-article is created below this article"
+    : `${total} sub-articles are created below this article`;
+
+const AlreadyCreatedBanner: React.FunctionComponent<{ noun: string; parent: string }> = ({
+  noun,
+  parent,
+}) => (
+  <Banner mode="warning" withIcon>
+    {noun.charAt(0).toUpperCase() + noun.slice(1)} from this template were already created for this{" "}
+    {parent}. Creating them again adds another set.
+  </Banner>
+);
+
+interface ArticleHierarchyFormProps {
+  template: Template;
+  texts: ReplacementTexts;
+  setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
+  // A hierarchy for this template was created for the article before.
+  alreadyCreated: boolean;
+  submitting: boolean;
+  onConfirm: () => void;
+  onBack: () => void;
+  backLabel?: string;
+}
+
+// Form for creating the sub-articles of a template, with their tags. Articles have no fields, so
+// fields and add conditions do not apply.
+export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormProps> = ({
+  template,
+  texts,
+  setTexts,
+  alreadyCreated,
+  submitting,
+  onConfirm,
+  onBack,
+  backLabel = "Back",
+}) => {
+  const flat = flattenChildTemplates(getChildTemplates(template));
+  const hasReplacements = getTemplateReplacements(template).length > 0;
+
+  return (
+    <>
+      <div className="template-fields-form">
+        <H3>Create sub-articles from {template.name}</H3>
+        {alreadyCreated && <AlreadyCreatedBanner noun="sub-articles" parent="article"/>}
+        {hasReplacements && (
+          <FormSection title="Text replacements, used in every sub-article">
+            <ReplacementInputs template={template} texts={texts} setTexts={setTexts}/>
+          </FormSection>
+        )}
+        <FormSection title={formatArticleCount(flat.length)}>
+          <div className="template-hierarchy-list">
+            {flat.map(({ child, depth }) => (
+              <div key={child.id} className="template-hierarchy-child" style={indentStyle(depth)}>
+                <ChildTitle
+                  child={child}
+                  note={getTemplateTags(child).length > 0 ? `Tags ${getTemplateTags(child).join(", ")}` : null}
+                />
+              </div>
+            ))}
+          </div>
+        </FormSection>
+      </div>
+      <FormActions
+        label={formatHierarchyLabel("article", alreadyCreated)}
+        submitting={submitting}
+        missingTexts={hasMissingReplacementTexts(template, texts)}
+        onConfirm={onConfirm}
+        onBack={onBack}
+        backLabel={backLabel}
+      />
+    </>
   );
 };
 
@@ -453,103 +602,11 @@ interface HierarchyFormProps {
   submitting: boolean;
   onConfirm: () => void;
   onBack: () => void;
-  cancelLabel?: string;
+  backLabel?: string;
 }
 
-// Form for creating the ticket hierarchy of a template: shows the subtasks that will be created
-// with their fields and lets the user pick values for user-input fields.
-const formatCreatedCount = (created: number, total: number): string => {
-  if (created === total) {
-    return total === 1
-      ? "The following subtask will be created below the ticket:"
-      : `The following ${total} subtasks will be created below the ticket:`;
-  }
-  return `${created} of ${total} subtasks will be created below the ticket:`;
-};
-
-interface ArticleHierarchyFormProps {
-  template: Template;
-  texts: ReplacementTexts;
-  setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
-  // A hierarchy for this template was created for the article before.
-  alreadyCreated: boolean;
-  submitting: boolean;
-  onConfirm: () => void;
-  onBack: () => void;
-}
-
-const formatArticleCount = (total: number): string =>
-  total === 1
-    ? "The following sub-article will be created below the article:"
-    : `The following ${total} sub-articles will be created below the article:`;
-
-// Form for creating the article hierarchy of a template: shows the sub-articles that will be
-// created with their tags. Articles have no fields, so fields and add conditions do not apply.
-export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormProps> = ({
-  template,
-  texts,
-  setTexts,
-  alreadyCreated,
-  submitting,
-  onConfirm,
-  onBack,
-}) => {
-  const flat = flattenChildTemplates(getChildTemplates(template));
-  const confirmDisabled = submitting || hasMissingReplacementTexts(template, texts);
-  const hasReplacements = getTemplateReplacements(template).length > 0;
-
-  return (
-    <>
-      {alreadyCreated && (
-        <Banner mode="warning" withIcon>
-          A hierarchy for this template was already created for this article. Creating it again
-          adds another set of sub-articles.
-        </Banner>
-      )}
-      <div className="template-fields-form">
-        {hasReplacements && (
-          <FormSection title="Text replacements (applied to every sub-article)">
-            <ReplacementInputs template={template} texts={texts} setTexts={setTexts}/>
-          </FormSection>
-        )}
-        <FormSection title={formatArticleCount(flat.length)}>
-          <div className="template-hierarchy-list">
-            {flat.map(({ child, depth }) => (
-              <div
-                key={child.id}
-                className="template-hierarchy-child"
-                style={{ marginLeft: `calc(var(--ring-unit) * ${depth * UNITS_PER_DEPTH})` }}
-              >
-                <div className="template-hierarchy-child-title">
-                  <Text size={Text.Size.M} bold>
-                    {child.name}
-                  </Text>{" "}
-                  <Text size={Text.Size.S} info>
-                    {child.articleId}
-                  </Text>
-                </div>
-                {getTemplateTags(child).length > 0 && (
-                  <div className="template-hierarchy-child-body">
-                    <TagPreviewList tags={getTemplateTags(child)}/>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </FormSection>
-      </div>
-      <Panel className="template-fields-form-actions">
-        <Button primary loader={submitting} disabled={confirmDisabled} onClick={onConfirm}>
-          {alreadyCreated ? "Create hierarchy again" : "Create hierarchy"}
-        </Button>
-        <Button disabled={submitting} onClick={onBack}>
-          Back
-        </Button>
-      </Panel>
-    </>
-  );
-};
-
+// Form for creating the subtasks of a template: shows the subtasks that will be created with
+// their fields and lets the user pick values for user-input fields.
 export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   template,
   fieldInfos,
@@ -563,13 +620,13 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   submitting,
   onConfirm,
   onBack,
-  cancelLabel = "Back",
+  backLabel = "Back",
 }) => {
   const flat = flattenChildTemplates(getChildTemplates(template));
   const inclusion = evaluateChildInclusion(template, currentFieldValues);
   const createdCount = flat.filter(({ child }) => inclusion[child.id]?.created).length;
-  const confirmDisabled = submitting || hasMissingReplacementTexts(template, texts);
   const hasReplacements = getTemplateReplacements(template).length > 0;
+  const rootRelations = getTemplateRelations(template);
   const onChange = useCallback(
     (childId: string, fieldName: string, value: string | null) =>
       setValues((prev) => ({
@@ -578,18 +635,15 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
       })),
     [setValues],
   );
+  const noopChange = useCallback(() => undefined, []);
 
   return (
     <>
-      {alreadyCreated && (
-        <Banner mode="warning" withIcon>
-          A hierarchy for this template was already created for this ticket. Creating it again adds
-          another set of subtasks.
-        </Banner>
-      )}
       <div className="template-fields-form">
+        <H3>Create subtasks from {template.name}</H3>
+        {alreadyCreated && <AlreadyCreatedBanner noun="subtasks" parent="ticket"/>}
         {hasReplacements && (
-          <FormSection title="Text replacements (applied to every subtask)">
+          <FormSection title="Text replacements, used in every subtask">
             <ReplacementInputs
               template={template}
               texts={texts}
@@ -598,13 +652,19 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
             />
           </FormSection>
         )}
-        {getTemplateRelations(template).length > 0 && (
-          <FormSection title="Relations added to the ticket">
-            <RelationPreviewList
-              relations={getTemplateRelations(template)}
-              template={template}
-              inclusion={inclusion}
-            />
+        {rootRelations.length > 0 && (
+          <FormSection title="Links added to this ticket">
+            <EffectList>
+              <EffectRows
+                template={template}
+                owner={{}}
+                relations={rootRelations}
+                fieldInfos={fieldInfos}
+                values={{}}
+                onChange={noopChange}
+                inclusion={inclusion}
+              />
+            </EffectList>
           </FormSection>
         )}
         <FormSection title={formatCreatedCount(createdCount, flat.length)}>
@@ -625,19 +685,19 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
           </div>
           {hierarchyHasUserInputFields(template) && (
             <Text size={Text.Size.S} info>
-              Fields left empty are not set.
+              {EMPTY_FIELDS_HINT}
             </Text>
           )}
         </FormSection>
       </div>
-      <Panel className="template-fields-form-actions">
-        <Button primary loader={submitting} disabled={confirmDisabled} onClick={onConfirm}>
-          {alreadyCreated ? "Create hierarchy again" : "Create hierarchy"}
-        </Button>
-        <Button disabled={submitting} onClick={onBack}>
-          {cancelLabel}
-        </Button>
-      </Panel>
+      <FormActions
+        label={formatHierarchyLabel("ticket", alreadyCreated)}
+        submitting={submitting}
+        missingTexts={hasMissingReplacementTexts(template, texts)}
+        onConfirm={onConfirm}
+        onBack={onBack}
+        backLabel={backLabel}
+      />
     </>
   );
 };

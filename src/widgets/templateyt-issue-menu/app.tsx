@@ -1,24 +1,27 @@
-import MoreOptionsIcon from "@jetbrains/icons/more-options";
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
-import Button from "@jetbrains/ring-ui-built/components/button/button";
-import DropdownMenu from "@jetbrains/ring-ui-built/components/dropdown-menu/dropdown-menu";
-import type { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
-import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
-import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { hasUserInput, type Template } from "../../../@types/template";
 import {
-  getTemplateFields,
-  getTemplateTags,
-  getTemplateRelations,
-  getTemplateReplacements,
-  hasUserInput,
-  type Template,
-} from "../../../@types/template";
+  closeDialog,
+  countChildren,
+  formatCreatedMessage,
+  formatRowStatus,
+  getApplyGroupMap,
+  getApplyGroupOrder,
+  getApplyStatus,
+  getErrorMessage,
+  notify,
+  type ApplyActionKey,
+} from "../../apply-template";
+import {
+  ApplyActionsPanel,
+  ApplyLoadState,
+  NoTemplatesMessage,
+} from "../../components/apply-template-actions";
 import { HierarchyForm, TemplateFieldsForm } from "../../components/template-fields-form";
-import TemplateList from "../../components/template-list";
+import TemplateList, { type TemplateRowStatus } from "../../components/template-list";
 import {
   ACTION_LABELS,
-  canCreateHierarchy,
   createHierarchy,
   fetchIssueTemplateInfo,
   getInitialChildFieldValues,
@@ -39,109 +42,46 @@ import {
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
 
-// Secondary actions for a template, shown in a "..." menu to keep the button row compact.
-const getMoreActions = (template: Template): Array<ListDataItem> => [
-  {
-    rgItemType: 1,
-    label: `Open article ${template.articleId}`,
-    href: `/articles/${template.articleId}`,
-    target: "_blank",
-  },
-];
+const TARGET = "ticket";
+const GROUP_ORDER = getApplyGroupOrder(TARGET);
 
-interface TemplateActionsProps {
-  selectedTemplate: Template | null;
-  isSelectedUsed: boolean;
-  canCreateHierarchyForSelected: boolean;
-  submitting: boolean;
-  onAdd: () => void;
-  onSetFields: () => void;
-  onCreateHierarchy: () => void;
-  onRemove: () => void;
-}
-
-// Bottom panel with the actions for the selected template.
-const TemplateActions: React.FunctionComponent<TemplateActionsProps> = ({
-  selectedTemplate,
-  isSelectedUsed,
-  canCreateHierarchyForSelected,
-  submitting,
-  onAdd,
-  onSetFields,
-  onCreateHierarchy,
-  onRemove,
-}) => {
-  const hasSelection = selectedTemplate !== null;
-  const selectedHasFields =
-    hasSelection &&
-    (getTemplateFields(selectedTemplate).length > 0 ||
-      getTemplateTags(selectedTemplate).length > 0 ||
-      getTemplateRelations(selectedTemplate).some((relation) => relation.target === "fixed") ||
-      getTemplateReplacements(selectedTemplate).length > 0);
-  return (
-    <Panel className="issue-template-config-bottom-panel">
-      <Button primary disabled={!hasSelection || isSelectedUsed || submitting} onClick={onAdd}>
-        Add template
-      </Button>
-      <Button
-        disabled={!selectedHasFields || submitting}
-        onClick={onSetFields}
-        title="Set or re-set the ticket fields, tags and relations defined by the template"
-      >
-        Set fields
-      </Button>
-      <Button
-        disabled={!canCreateHierarchyForSelected || submitting}
-        onClick={onCreateHierarchy}
-        title="Create subtasks from the child templates of the applied template"
-      >
-        Create hierarchy
-      </Button>
-      <Button disabled={!isSelectedUsed || submitting} onClick={onRemove}>
-        Remove template
-      </Button>
-      {hasSelection && (
-        <DropdownMenu
-          anchor={<Button icon={MoreOptionsIcon} title="More actions"/>}
-          data={getMoreActions(selectedTemplate)}
-        />
-      )}
-    </Panel>
-  );
-};
-
-// Groups templates for the list: used templates first, then unused but valid ones.
-const getTemplateIdGroupMap = (data: IssueTemplateInfo | null): { [key: string]: string } => {
-  if (data === null) {
-    return {};
-  }
-  const templateIdGroupMap: { [key: string]: string } = {};
-  for (const template of data.templates) {
-    if (data.usedTemplateIds.includes(template.id)) {
-      templateIdGroupMap[template.id] = "Used templates";
-    } else if (data.validTemplateIds.includes(template.id)) {
-      templateIdGroupMap[template.id] = "Unused templates";
+const getRowStatus = (info: IssueTemplateInfo | null): { [id: string]: TemplateRowStatus } => {
+  const result: { [id: string]: TemplateRowStatus } = {};
+  for (const template of info?.templates ?? []) {
+    const status = formatRowStatus(getApplyStatus(info as IssueTemplateInfo, template), TARGET);
+    if (status !== null) {
+      result[template.id] = status;
     }
   }
-  return templateIdGroupMap;
+  return result;
 };
+
+// The subtask form, opened from the list or right after applying a hierarchical template.
+type HierarchyStep = { template: Template; afterApply: boolean };
 
 const AppComponent: React.FunctionComponent = () => {
   const [issueTemplateInfo, setIssueTemplateInfo] = useState<IssueTemplateInfo | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [failMessage, setFailMessage] = useState<string>("");
   const [pending, setPending] = useState<PendingApply | null>(null);
   const [pendingValues, setPendingValues] = useState<FieldValues>({});
   const [replacementTexts, setReplacementTexts] = useState<ReplacementTexts>({});
-  // Template whose hierarchy creation form is shown in place of the list.
-  const [hierarchyTemplate, setHierarchyTemplate] = useState<Template | null>(null);
+  const [hierarchy, setHierarchy] = useState<HierarchyStep | null>(null);
   const [childValues, setChildValues] = useState<ChildFieldValues>({});
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  const fetchTemplateInfo = useCallback(async () => {
-    const result = await fetchIssueTemplateInfo(host);
-    console.log("getUsedTemplates result", result);
-    setIssueTemplateInfo(result);
+  // Loads the templates and the ticket's state; returns null if loading failed.
+  const fetchTemplateInfo = useCallback(async (): Promise<IssueTemplateInfo | null> => {
+    try {
+      const result = await fetchIssueTemplateInfo(host);
+      setIssueTemplateInfo(result);
+      setLoadError(null);
+      return result;
+    } catch (error) {
+      setLoadError(getErrorMessage(error));
+      return null;
+    }
   }, []);
 
   useEffect(() => {
@@ -168,7 +108,19 @@ const AppComponent: React.FunctionComponent = () => {
     [issueTemplateInfo],
   );
 
-  // Applies a template, or only its fields, with the given user-input values and texts.
+  // Opens the subtask form, keeping replacement texts that were just entered.
+  const openHierarchy = useCallback(
+    (template: Template, info: IssueTemplateInfo, texts: ReplacementTexts, afterApply: boolean) => {
+      setFailMessage("");
+      setChildValues(getInitialChildFieldValues(template, info.currentFieldValues));
+      setReplacementTexts({ ...getInitialReplacementTexts(template), ...texts });
+      setHierarchy({ template, afterApply });
+    },
+    [],
+  );
+
+  // Applies a template, or only its fields, with the given user-input values and texts. On
+  // success, continues with the subtasks of a hierarchical template, or closes the dialog.
   const submitTemplate = useCallback(
     async (
       mode: ApplyMode,
@@ -176,7 +128,7 @@ const AppComponent: React.FunctionComponent = () => {
       fieldValues: FieldValues,
       texts: ReplacementTexts,
     ): Promise<boolean> => {
-      if (!checkTemplate(template, mode === "add" ? "add" : "set fields from")) {
+      if (!checkTemplate(template, mode === "add" ? "apply" : "set fields from")) {
         return false;
       }
       setSubmitting(true);
@@ -188,14 +140,23 @@ const AppComponent: React.FunctionComponent = () => {
           return false;
         }
         setFailMessage("");
-        // Reload used templates and current field values.
-        await fetchTemplateInfo();
+        const info = await fetchTemplateInfo();
+        if (mode === "add" && info !== null && countChildren(template) > 0) {
+          notify(host, `${template.name} applied.`);
+          openHierarchy(template, info, texts, true);
+          return true;
+        }
+        notify(host, mode === "add" ? `${template.name} applied.` : `Fields set from ${template.name}.`);
+        closeDialog(host);
         return true;
+      } catch (error) {
+        setFailMessage(getErrorMessage(error));
+        return false;
       } finally {
         setSubmitting(false);
       }
     },
-    [checkTemplate, fetchTemplateInfo],
+    [checkTemplate, fetchTemplateInfo, openHierarchy],
   );
 
   // Starts an action: asks for user-input values first when the template has any.
@@ -234,69 +195,84 @@ const AppComponent: React.FunctionComponent = () => {
     }
   }, [pending, pendingValues, replacementTexts, submitTemplate]);
 
-  // The hierarchy form is always shown: it presents the subtasks to be created.
-  const startCreateHierarchy = useCallback(() => {
-    if (selectedTemplate === null || issueTemplateInfo === null) {
-      setFailMessage("No template selected.");
-      return;
-    }
-    setFailMessage("");
-    setChildValues(
-      getInitialChildFieldValues(selectedTemplate, issueTemplateInfo.currentFieldValues),
-    );
-    setReplacementTexts(getInitialReplacementTexts(selectedTemplate));
-    setHierarchyTemplate(selectedTemplate);
-  }, [selectedTemplate, issueTemplateInfo]);
-
   const confirmCreateHierarchy = useCallback(async () => {
-    if (hierarchyTemplate === null || !checkTemplate(hierarchyTemplate, "create hierarchy from")) {
+    if (hierarchy === null || !checkTemplate(hierarchy.template, "create subtasks from")) {
       return;
     }
     setSubmitting(true);
     try {
       const result = await createHierarchy(
         host,
-        hierarchyTemplate.id,
+        hierarchy.template.id,
         pickChosenChildValues(childValues),
         replacementTexts,
       );
-      console.log(`Create hierarchy ${hierarchyTemplate.id} result`, result);
+      console.log(`Create hierarchy ${hierarchy.template.id} result`, result);
       if (!result.success) {
-        setFailMessage(result.message || "Failed to create hierarchy.");
+        setFailMessage(result.message || "Failed to create subtasks.");
         return;
       }
       setFailMessage("");
-      await fetchTemplateInfo();
-      setHierarchyTemplate(null);
+      notify(host, formatCreatedMessage(result.createdIssueIds, TARGET));
+      setHierarchy(null);
+      closeDialog(host);
+    } catch (error) {
+      setFailMessage(getErrorMessage(error));
     } finally {
       setSubmitting(false);
     }
-  }, [hierarchyTemplate, childValues, replacementTexts, checkTemplate, fetchTemplateInfo]);
+  }, [hierarchy, childValues, replacementTexts, checkTemplate]);
 
   const removeTemplateFromIssue = useCallback(
     async (template: Template | null) => {
       if (template === null || !checkTemplate(template, "remove")) {
         return;
       }
-      const result = await removeTemplate(host, template.id);
-      console.log(`Remove template ${template.id} result`, result);
-      if (!result.success) {
-        setFailMessage(result.message || `Failed to remove template ${template.id}.`);
-        return;
+      setSubmitting(true);
+      try {
+        const result = await removeTemplate(host, template.id);
+        console.log(`Remove template ${template.id} result`, result);
+        if (!result.success) {
+          setFailMessage(result.message || `Failed to remove template ${template.id}.`);
+          return;
+        }
+        setFailMessage("");
+        notify(host, `${template.name} removed.`);
+        await fetchTemplateInfo();
+      } catch (error) {
+        setFailMessage(getErrorMessage(error));
+      } finally {
+        setSubmitting(false);
       }
-      setFailMessage("");
-      await fetchTemplateInfo();
     },
     [checkTemplate, fetchTemplateInfo],
   );
 
-  const templateIdGroupMap = useMemo(
-    () => getTemplateIdGroupMap(issueTemplateInfo),
-    [issueTemplateInfo],
+  const onAction = useCallback(
+    (key: ApplyActionKey) => {
+      if (key === "apply") {
+        startAction("add");
+      } else if (key === "fields") {
+        startAction("fields");
+      } else if (key === "hierarchy") {
+        if (selectedTemplate !== null && issueTemplateInfo !== null) {
+          openHierarchy(selectedTemplate, issueTemplateInfo, {}, false);
+        }
+      } else {
+        removeTemplateFromIssue(selectedTemplate);
+      }
+    },
+    [startAction, selectedTemplate, issueTemplateInfo, openHierarchy, removeTemplateFromIssue],
   );
 
+  const templateIdGroupMap = useMemo(
+    () => getApplyGroupMap(issueTemplateInfo, TARGET),
+    [issueTemplateInfo],
+  );
+  const rowStatus = useMemo(() => getRowStatus(issueTemplateInfo), [issueTemplateInfo]);
+
   const failBanner = failMessage && (
-    <Banner mode="error" title="Failed to update ticket templates" withIcon>
+    <Banner mode="error" title="Something went wrong" withIcon>
       {failMessage}
     </Banner>
   );
@@ -321,11 +297,11 @@ const AppComponent: React.FunctionComponent = () => {
     );
   }
 
-  if (hierarchyTemplate !== null && issueTemplateInfo !== null) {
+  if (hierarchy !== null && issueTemplateInfo !== null) {
     return (
       <div className="widget">
         <HierarchyForm
-          template={hierarchyTemplate}
+          template={hierarchy.template}
           fieldInfos={issueTemplateInfo.fields}
           currentFieldValues={issueTemplateInfo.currentFieldValues}
           currentFieldPresentations={issueTemplateInfo.currentFieldPresentations}
@@ -334,60 +310,60 @@ const AppComponent: React.FunctionComponent = () => {
           texts={replacementTexts}
           setTexts={setReplacementTexts}
           alreadyCreated={issueTemplateInfo.createdHierarchyTemplateIds.includes(
-            hierarchyTemplate.id,
+            hierarchy.template.id,
           )}
           submitting={submitting}
           onConfirm={confirmCreateHierarchy}
-          onBack={() => setHierarchyTemplate(null)}
+          onBack={() => setHierarchy(null)}
+          backLabel={hierarchy.afterApply ? "Not now" : "Back"}
         />
         {failBanner}
       </div>
     );
   }
 
-  const isSelectedUsed =
-    selectedTemplate !== null &&
-    issueTemplateInfo !== null &&
-    issueTemplateInfo.usedTemplateIds.includes(selectedTemplate.id);
-  const canCreateHierarchyForSelected =
-    selectedTemplate !== null &&
-    issueTemplateInfo !== null &&
-    canCreateHierarchy(issueTemplateInfo.usedTemplateIds, selectedTemplate);
+  if (issueTemplateInfo === null) {
+    return (
+      <div className="widget">
+        <ApplyLoadState error={loadError} onRetry={fetchTemplateInfo}/>
+      </div>
+    );
+  }
+
+  const listed = Object.keys(templateIdGroupMap).length > 0;
+  // The selection is kept by id, so that it follows reloads of the template info.
+  const selected =
+    issueTemplateInfo.templates.find((template) => template.id === selectedTemplate?.id) ?? null;
 
   return (
     <div className="widget">
-      {issueTemplateInfo === null && <Loader message="Loading used templates..."/>}
-      {issueTemplateInfo !== null &&
-        issueTemplateInfo.usedTemplateIds.length === 0 &&
-        issueTemplateInfo.validTemplateIds.length === 0 && (
-          <Banner mode="info" withIcon>
-            No valid templates found for ticket.
-          </Banner>
-        )}
-      {issueTemplateInfo !== null && (
-        <div className="issue-template-row">
+      {!listed && <NoTemplatesMessage target={TARGET}/>}
+      {listed && (
+        <div className="apply-template-list-row">
           <TemplateList
             templates={issueTemplateInfo.templates}
-            selectedTemplate={selectedTemplate}
+            selectedTemplate={selected}
             setSelectedTemplate={setSelectedTemplate}
             templateIdGroupMap={templateIdGroupMap}
-            groupOrder={["Used templates", "Unused templates"]}
+            groupOrder={GROUP_ORDER}
             onlyShowGrouped
-            className="issue-template-used-templates-list"
+            detailsMode="effect"
+            target={TARGET}
+            rowStatus={rowStatus}
+            className="apply-template-list"
           />
         </div>
       )}
       {failBanner}
-      <TemplateActions
-        selectedTemplate={selectedTemplate}
-        isSelectedUsed={isSelectedUsed}
-        canCreateHierarchyForSelected={canCreateHierarchyForSelected}
-        submitting={submitting}
-        onAdd={() => startAction("add")}
-        onSetFields={() => startAction("fields")}
-        onCreateHierarchy={startCreateHierarchy}
-        onRemove={() => removeTemplateFromIssue(selectedTemplate)}
-      />
+      {listed && (
+        <ApplyActionsPanel
+          template={selected}
+          status={selected === null ? null : getApplyStatus(issueTemplateInfo, selected)}
+          target={TARGET}
+          submitting={submitting}
+          onAction={onAction}
+        />
+      )}
     </div>
   );
 };

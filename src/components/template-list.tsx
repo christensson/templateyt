@@ -12,12 +12,22 @@ import {
   formatTemplateFields,
   formatTemplateHierarchy,
   formatTemplateReplacements,
+  formatTemplateEffectTokens,
   formatTemplateSummaryTokens,
   formatTemplateValidCondition,
   getChildTemplates,
+  type TemplateTarget,
   validateChildTemplate,
   validateTemplate,
 } from "../../@types/template";
+
+// How list rows describe a template: the full configuration sentence ("config", default), compact
+// configuration tokens with validation warnings ("compact", configuration page), or what applying
+// it does ("effect", apply dialogs).
+export type TemplateDetailsMode = "config" | "compact" | "effect";
+
+// Status note shown before the details of a row, optionally flagged with a warning icon.
+export type TemplateRowStatus = { text: string; warning: boolean };
 
 // Ring UI indents list items by one --ring-unit (8px) per level; use several per tree depth so
 // the hierarchy is visible at a glance.
@@ -56,8 +66,11 @@ interface TemplateListProps {
   showChildren?: boolean;
   selectedChildId?: string | null;
   onSelectChild?: (template: Template, child: ChildTemplate) => void;
-  // Show compact summaries and flag every validation problem (configuration page).
-  compact?: boolean;
+  detailsMode?: TemplateDetailsMode;
+  // What the templates are applied to, for "effect" details.
+  target?: TemplateTarget;
+  // Status notes by template id, shown before the details.
+  rowStatus?: { [templateId: string]: TemplateRowStatus };
   // Unsaved new template: labelled as new and not flagged as incomplete while being filled in.
   draftTemplateId?: string;
 }
@@ -125,8 +138,26 @@ const makeChildItem = (
 };
 
 type ListOptions = {
-  compact?: boolean;
+  detailsMode?: TemplateDetailsMode;
+  target?: TemplateTarget;
+  rowStatus?: { [templateId: string]: TemplateRowStatus };
   draftTemplateId?: string;
+};
+
+const getRowDetails = (
+  template: Template,
+  isDraft: boolean,
+  { detailsMode, target, rowStatus }: ListOptions,
+): [string, boolean] => {
+  if (detailsMode === "compact") {
+    return getCompactDetails(template, isDraft);
+  }
+  if (detailsMode !== "effect") {
+    return getDetails(template);
+  }
+  const status = rowStatus?.[template.id];
+  const tokens = formatTemplateEffectTokens(template, target ?? "ticket");
+  return [[...(status ? [status.text] : []), ...tokens].join(" · "), status?.warning ?? false];
 };
 
 const getListItems = (
@@ -137,13 +168,13 @@ const getListItems = (
   disabled?: boolean,
   selectedTemplate: Template | null = null,
   showChildren?: boolean,
-  { compact, draftTemplateId }: ListOptions = {},
+  options: ListOptions = {},
 ): Array<TemplateListItem> => {
+  const { detailsMode, draftTemplateId } = options;
+  const compact = detailsMode === "compact";
   const makeListItems = (template: Template): Array<TemplateListItem> => {
     const isDraft = template.id === draftTemplateId;
-    const [details, hasWarning] = compact
-      ? getCompactDetails(template, isDraft)
-      : getDetails(template);
+    const [details, hasWarning] = getRowDetails(template, isDraft, options);
     const isSelected = template.id === selectedTemplate?.id;
     const itemDisabled = isSelected ? false : disabled;
     const expandable = showChildren && template.hierarchical;
@@ -246,7 +277,9 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
   showChildren,
   selectedChildId,
   onSelectChild,
-  compact,
+  detailsMode,
+  target,
+  rowStatus,
   draftTemplateId,
 }) => {
   const listItems = useMemo(
@@ -259,10 +292,12 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
         disabled,
         selectedTemplate,
         showChildren,
-        { compact, draftTemplateId },
+        { detailsMode, target, rowStatus, draftTemplateId },
       ),
     [
-      compact,
+      detailsMode,
+      target,
+      rowStatus,
       draftTemplateId,
       templates,
       templateIdGroupMap,

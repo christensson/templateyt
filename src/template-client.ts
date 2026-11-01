@@ -76,7 +76,7 @@ const ENDPOINTS: Record<ApplyMode, string> = {
 };
 
 export const ACTION_LABELS: Record<ApplyMode, string> = {
-  add: "Apply template",
+  add: "Apply",
   fields: "Set fields",
 };
 
@@ -88,8 +88,8 @@ export type PendingApply = {
 
 export const formatPendingTitle = (pending: PendingApply): string =>
   pending.mode === "add"
-    ? `Apply template ${pending.template.name}`
-    : `Set fields from template ${pending.template.name}`;
+    ? `Apply ${pending.template.name}`
+    : `Set fields from ${pending.template.name}`;
 
 // Initial user-input values: the ticket's current values for the template's user-input fields.
 export const getInitialFieldValues = (template: HasFields, current: FieldValues): FieldValues => {

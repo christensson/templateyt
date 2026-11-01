@@ -167,7 +167,7 @@ const AppComponent: React.FunctionComponent = () => {
               </Text>
             )}
             <TemplateList
-              compact
+              detailsMode="compact"
               disabled={editing}
               templates={filteredTemplates}
               selectedTemplate={template}

@@ -942,3 +942,66 @@ export const formatTemplateSummaryTokens = (template: Template): Array<string> =
   }
   return tokens;
 };
+
+// The kind of entity a template is applied to.
+export type TemplateTarget = "ticket" | "article";
+
+const formatAutoToken = (template: Template): string | null => {
+  const addCond = template.addCondition;
+  if (addCond?.when === "field_becomes") {
+    return `Auto when ${addCond.fieldName} → ${addCond.fieldValue}`;
+  }
+  if (addCond?.when === "tag_added") {
+    return `Auto when tagged ${addCond.tagName}`;
+  }
+  return null;
+};
+
+// What applying a template does, for the apply dialogs, e.g.
+// ["Sets Priority", "Asks for Assignee, CUSTOMER", "Tags test4", "Creates 11 subtasks"].
+// Articles have no fields or relations, so those are left out for them.
+export const formatTemplateEffectTokens = (
+  template: Template,
+  target: TemplateTarget,
+): Array<string> => {
+  const tokens: Array<string> = [];
+  const forTicket = target === "ticket";
+  const fields = forTicket ? getTemplateFields(template) : [];
+  const fixedFields = fields.filter((field) => field.mode === "fixed");
+  if (fixedFields.length > 0) {
+    tokens.push(`Sets ${fixedFields.map((field) => field.fieldName).join(", ")}`);
+  }
+  const asks = [
+    ...fields.filter((field) => field.mode === "user_input").map((field) => field.fieldName),
+    ...getTemplateReplacements(template)
+      .filter((replacement) => replacement.mode === "user_input")
+      .map((replacement) => replacement.search),
+  ];
+  if (asks.length > 0) {
+    tokens.push(`Asks for ${asks.join(", ")}`);
+  }
+  const tags = getTemplateTags(template);
+  if (tags.length > 0) {
+    tokens.push(`Tags ${tags.join(", ")}`);
+  }
+  const relations = forTicket ? getTemplateRelations(template).length : 0;
+  if (relations > 0) {
+    tokens.push(`Adds ${countLabel(relations, "link")}`);
+  }
+  const children = template.hierarchical
+    ? flattenChildTemplates(getChildTemplates(template)).length
+    : 0;
+  if (children > 0) {
+    tokens.push(
+      `Creates ${forTicket ? countLabel(children, "subtask") : countLabel(children, "sub-article")}`,
+    );
+  }
+  if (tokens.length === 0) {
+    tokens.push("Adds content only");
+  }
+  const auto = formatAutoToken(template);
+  if (auto !== null) {
+    tokens.push(auto);
+  }
+  return tokens;
+};

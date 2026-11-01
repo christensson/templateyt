@@ -127,10 +127,12 @@ content as description.
 - A child template can have *conditions when it is added*: one or more "ticket field is value"
   checks against the ticket the hierarchy is created from. It is created when any condition
   matches, or always when it has none. A skipped child template takes its own children with it.
-- The hierarchy is created manually, for tickets only, from *"Create hierarchy"* in the
-  *"Apply template"* menu, once the template has been applied to the ticket. The form shows the subtasks that will be created, marks the ones that
-  will not be created and why, and asks for the values of user-chosen fields. Creating the
-  hierarchy again is possible after a warning and adds another set of subtasks.
+- The hierarchy is created manually from *"Create subtasks"* (*"Create sub-articles"* for
+  articles) in the *"Apply template"* menu. It is offered right after the template is applied,
+  with the texts just entered for text replacements filled in, and later for the applied
+  template. The form shows the subtasks that will be created, marks the ones that will not be
+  created and why, and asks for the values of user-chosen fields. Creating the hierarchy again is
+  possible after a warning and adds another set of subtasks.
 - Subtasks created this way do not get templates added automatically on creation, even if their
   fields match an automatic add condition.
 
@@ -147,11 +149,22 @@ description. Note that the app attempts to remove previous templates, but can on
 template hasn't been modified after it has been added. If it has, the previous template will not be
 removed.
 
-If a template is configured to be valid for tickets, the template can be added manually using
-*"Apply template"* available under the ticket or article "..."-menu. For tickets, the menu also
-offers *"Set fields"*, which sets (or re-sets) only the fields defined by the selected template
-without touching the description. This is how values chosen by the user are filled in for
-templates that were added automatically.
+Templates can also be applied manually using *"Apply template"* in the ticket or article
+"..."-menu. The dialog lists the templates in three groups: *Needs input* (added automatically,
+user-chosen fields not set yet), *Applied to this ticket* and *Available*. Each row says what the
+template does, e.g. "Sets Priority · Asks for Assignee · Creates 11 subtasks". Selecting a
+template shows only the actions that apply to it:
+
+- *"Apply"* for an available template.
+- *"Set fields"* (for tickets) sets or re-sets only the fields, tags and text replacements of the
+  template, without touching the description. This is how values chosen by the user are filled in
+  for templates that were added automatically.
+- *"Create subtasks"* / *"Create sub-articles"* for an applied hierarchical template.
+- *"Remove"*, after a confirmation, removes the template text from the description if it has not
+  been edited. Fields, tags and subtasks are kept.
+
+The dialog closes after a template is applied, unless it continues with the subtasks of a
+hierarchical template.
 
 > [!IMPORTANT]
 > The usability of templates applied to articles can be improved. When a template is added to

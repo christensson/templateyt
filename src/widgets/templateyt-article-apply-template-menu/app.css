@@ -1,3 +1,4 @@
+/* Shared by the ticket and article "Apply template" dialogs. */
 .widget {
   display: flex;
   flex-direction: column;
@@ -6,30 +7,48 @@
   height: 480px;
 }
 
-.article-template-row {
+.apply-template-list-row {
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
-.article-template-used-templates-list {
-  max-height: 420px;
+.apply-template-list {
+  max-height: 360px;
   overflow-y: auto;
 }
 
-.article-template-config-bottom-panel {
+.apply-template-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ring-unit);
   padding: calc(var(--ring-unit) * 2) 0 0 0;
   margin-top: auto;
+}
+
+.apply-template-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ring-unit);
 }
 
 .template-fields-form {
   display: flex;
   flex-direction: column;
-  gap: var(--ring-unit);
-  max-height: 380px;
+  gap: calc(var(--ring-unit) * 1.5);
+  max-height: 400px;
   overflow-y: auto;
 }
 
+.template-fields-form h3 {
+  margin: 0;
+}
+
 .template-fields-form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ring-unit);
   padding: calc(var(--ring-unit) * 2) 0 0 0;
   margin-top: auto;
 }
@@ -45,17 +64,27 @@
   padding-top: var(--ring-unit);
 }
 
-/* Keep the replacement label and its input on one line: the Ring UI Input is block-level on its own. */
-.template-replacement-input-row {
-  display: flex;
+/* Two columns: what a template changes, and to what. */
+.template-effect-list {
+  display: grid;
+  grid-template-columns: minmax(80px, max-content) 1fr;
   align-items: center;
-  gap: var(--ring-unit);
+  column-gap: calc(var(--ring-unit) * 2);
+  row-gap: calc(var(--ring-unit) / 2);
+}
+
+.template-effect-value {
+  min-width: 0;
+}
+
+.template-effect-code {
+  font-family: var(--ring-font-family-monospace);
 }
 
 .template-hierarchy-list {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--ring-unit) * 1.5);
+  gap: var(--ring-unit);
 }
 
 .template-hierarchy-child {
@@ -65,9 +94,14 @@
 }
 
 .template-hierarchy-child-body {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--ring-unit) / 2);
   padding-left: var(--ring-unit);
   border-left: 2px solid var(--ring-line-color);
+}
+
+.template-hierarchy-child-skipped {
+  color: var(--ring-secondary-color);
+}
+
+.template-hierarchy-child-title-skipped {
+  text-decoration: line-through;
 }
