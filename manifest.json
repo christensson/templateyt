@@ -2,13 +2,13 @@
   "$schema": "https://json.schemastore.org/youtrack-app.json",
   "name": "templateyt",
   "title": "Ticket Templates",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Add templates to tickets and articles, both automatically based on e.g. ticket type or tags, or manually using a UI.",
   "vendor": {
     "name": "Marcus Christensson",
     "url": "https://github.com/christensson/templateyt"
   },
-  "changeNotes": "Version 0.1.4:<br/>- Fix support for more than 42 tags.",
+  "changeNotes": "Version 0.2.0:<br/>- Templates can set ticket fields, either to fixed values or to values chosen by the user when applying.<br/>- Templates can add tags to tickets and articles.<br/>- Text replacements: replace placeholder words with text entered by the user or with a root ticket field value.<br/>- Hierarchical templates create subtasks (or sub-articles) from the template article's child articles, with conditional child templates, field inheritance and relations.<br/>- Set fields fills in user-chosen fields of templates added automatically.<br/>- Reworked configuration page: grouped sections, all validation errors at once, list filter, duplicate template, unsaved-changes warning.<br/>- Reworked Apply template dialog: shows what each template does, only relevant actions, confirmation on remove and notifications after each action.<br/>- The dialog asks for empty fields that text replacements need, remembers entered texts, and lets users change the fields that decide conditional subtasks.<br/>- Requires YouTrack 2024.4.0 or later.",
   "minYouTrackVersion": "2024.4.0",
   "icon": "icon-small.svg",
   "widgets": [
