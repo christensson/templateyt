@@ -91,7 +91,8 @@ replace and what to insert:
 - *Text entered by user*: asked for when the template is applied manually, and required.
 - *Root ticket field*: the display text of a field of the ticket the template is applied to (for a
   hierarchy, the ticket it is created from); a multi-value field inserts all its values separated
-  by commas. Applying manually with an empty field is rejected.
+  by commas. If the template itself sets the field, the new value is inserted. If the field is
+  empty, the *"Apply template"* dialog asks for a value, which is also set on the ticket.
 
 Only whole words are replaced, on every occurrence. Words are delimited by whitespace, line breaks
 and punctuation such as commas, colons or brackets; hyphens and underscores do not delimit, so
@@ -99,8 +100,12 @@ and punctuation such as commas, colons or brackets; hyphens and underscores do n
 
 When a template is added automatically, field replacements are applied and user-entered
 placeholders stay in place; *"Set fields"* in the *"Apply template"* menu then asks for the texts
-and replaces the words in the ticket. An empty field is skipped and logged. Article templates
-support user-entered replacements on manual application only.
+and replaces the words in the ticket. An empty field is skipped and logged, and the template is
+listed under *Needs input*, so that *"Set fields"* asks for the field value. Texts entered by the user are remembered on the ticket or article for each applied template, so
+that *"Set fields"* and *"Create subtasks"* / *"Create sub-articles"* offer them again later;
+removing the template forgets them. Article templates
+support user-entered replacements on manual application only; templates with root ticket field
+replacements cannot be applied to articles, and the dialog says why.
 
 ### Hierarchical templates
 

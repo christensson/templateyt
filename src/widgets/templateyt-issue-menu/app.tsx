@@ -10,8 +10,11 @@ import {
   getApplyGroupOrder,
   getApplyStatus,
   getErrorMessage,
+  getReplacementPreconditions,
+  needsReplacementFieldInput,
   notify,
   type ApplyActionKey,
+  type ReplacementPreconditions,
 } from "../../apply-template";
 import {
   ApplyActionsPanel,
@@ -27,6 +30,7 @@ import {
   getInitialChildFieldValues,
   getInitialFieldValues,
   getInitialReplacementTexts,
+  hasStoredReplacementTexts,
   pickChosenChildValues,
   pickChosenValues,
   removeTemplate,
@@ -45,10 +49,31 @@ const host = await YTApp.register();
 const TARGET = "ticket";
 const GROUP_ORDER = getApplyGroupOrder(TARGET);
 
+// Preconditions of a template's field replacements on this ticket. templateSetsFields: the action
+// also sets the template's own fields (apply, set fields), not when creating subtasks.
+const getPreconditions = (
+  template: Template,
+  info: IssueTemplateInfo,
+  templateSetsFields: boolean,
+): ReplacementPreconditions =>
+  getReplacementPreconditions(
+    template,
+    TARGET,
+    info.fields,
+    info.currentFieldPresentations,
+    templateSetsFields,
+  );
+
 const getRowStatus = (info: IssueTemplateInfo | null): { [id: string]: TemplateRowStatus } => {
   const result: { [id: string]: TemplateRowStatus } = {};
   for (const template of info?.templates ?? []) {
-    const status = formatRowStatus(getApplyStatus(info as IssueTemplateInfo, template), TARGET);
+    const blocked =
+      info !== null && getPreconditions(template, info, true).blockedReason !== null;
+    const status = formatRowStatus(
+      getApplyStatus(info as IssueTemplateInfo, template),
+      TARGET,
+      blocked,
+    );
     if (status !== null) {
       result[template.id] = status;
     }
@@ -67,6 +92,8 @@ const AppComponent: React.FunctionComponent = () => {
   const [pending, setPending] = useState<PendingApply | null>(null);
   const [pendingValues, setPendingValues] = useState<FieldValues>({});
   const [replacementTexts, setReplacementTexts] = useState<ReplacementTexts>({});
+  // Values chosen for empty ticket fields that field replacements use.
+  const [replacementFieldValues, setReplacementFieldValues] = useState<FieldValues>({});
   const [hierarchy, setHierarchy] = useState<HierarchyStep | null>(null);
   const [childValues, setChildValues] = useState<ChildFieldValues>({});
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -113,7 +140,12 @@ const AppComponent: React.FunctionComponent = () => {
     (template: Template, info: IssueTemplateInfo, texts: ReplacementTexts, afterApply: boolean) => {
       setFailMessage("");
       setChildValues(getInitialChildFieldValues(template, info.currentFieldValues));
-      setReplacementTexts({ ...getInitialReplacementTexts(template), ...texts });
+      // Texts stored when the template was applied, unless texts were just entered.
+      setReplacementTexts({
+        ...getInitialReplacementTexts(template, info.replacementTexts),
+        ...texts,
+      });
+      setReplacementFieldValues({});
       setHierarchy({ template, afterApply });
     },
     [],
@@ -127,13 +159,21 @@ const AppComponent: React.FunctionComponent = () => {
       template: Template,
       fieldValues: FieldValues,
       texts: ReplacementTexts,
+      replacementValues: FieldValues,
     ): Promise<boolean> => {
       if (!checkTemplate(template, mode === "add" ? "apply" : "set fields from")) {
         return false;
       }
       setSubmitting(true);
       try {
-        const result = await submitTemplateFields(host, mode, template.id, fieldValues, texts);
+        const result = await submitTemplateFields(
+          host,
+          mode,
+          template.id,
+          fieldValues,
+          texts,
+          replacementValues,
+        );
         console.log(`${ACTION_LABELS[mode]} ${template.id} result`, result);
         if (!result.success) {
           setFailMessage(result.message || `Failed to ${ACTION_LABELS[mode].toLowerCase()}.`);
@@ -166,16 +206,22 @@ const AppComponent: React.FunctionComponent = () => {
         setFailMessage("No template selected.");
         return;
       }
-      if (hasUserInput(selectedTemplate)) {
+      const askFields = needsReplacementFieldInput(
+        getPreconditions(selectedTemplate, issueTemplateInfo, true),
+      );
+      if (hasUserInput(selectedTemplate) || askFields) {
         setFailMessage("");
+        setReplacementFieldValues({});
         setPendingValues(
           getInitialFieldValues(selectedTemplate, issueTemplateInfo.currentFieldValues),
         );
-        setReplacementTexts(getInitialReplacementTexts(selectedTemplate));
+        setReplacementTexts(
+          getInitialReplacementTexts(selectedTemplate, issueTemplateInfo.replacementTexts),
+        );
         setPending({ mode, template: selectedTemplate });
         return;
       }
-      submitTemplate(mode, selectedTemplate, {}, {});
+      submitTemplate(mode, selectedTemplate, {}, {}, {});
     },
     [selectedTemplate, issueTemplateInfo, submitTemplate],
   );
@@ -189,11 +235,12 @@ const AppComponent: React.FunctionComponent = () => {
       pending.template,
       pickChosenValues(pendingValues),
       replacementTexts,
+      pickChosenValues(replacementFieldValues),
     );
     if (ok) {
       setPending(null);
     }
-  }, [pending, pendingValues, replacementTexts, submitTemplate]);
+  }, [pending, pendingValues, replacementTexts, replacementFieldValues, submitTemplate]);
 
   const confirmCreateHierarchy = useCallback(async () => {
     if (hierarchy === null || !checkTemplate(hierarchy.template, "create subtasks from")) {
@@ -206,6 +253,7 @@ const AppComponent: React.FunctionComponent = () => {
         hierarchy.template.id,
         pickChosenChildValues(childValues),
         replacementTexts,
+        pickChosenValues(replacementFieldValues),
       );
       console.log(`Create hierarchy ${hierarchy.template.id} result`, result);
       if (!result.success) {
@@ -221,7 +269,7 @@ const AppComponent: React.FunctionComponent = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [hierarchy, childValues, replacementTexts, checkTemplate]);
+  }, [hierarchy, childValues, replacementTexts, replacementFieldValues, checkTemplate]);
 
   const removeTemplateFromIssue = useCallback(
     async (template: Template | null) => {
@@ -288,6 +336,11 @@ const AppComponent: React.FunctionComponent = () => {
           texts={replacementTexts}
           setTexts={setReplacementTexts}
           currentFieldPresentations={issueTemplateInfo.currentFieldPresentations}
+          fieldInput={{ values: replacementFieldValues, setValues: setReplacementFieldValues }}
+          textsRemembered={hasStoredReplacementTexts(
+            pending.template,
+            issueTemplateInfo.replacementTexts,
+          )}
           submitting={submitting}
           onConfirm={confirmPending}
           onBack={() => setPending(null)}
@@ -311,6 +364,11 @@ const AppComponent: React.FunctionComponent = () => {
           setTexts={setReplacementTexts}
           alreadyCreated={issueTemplateInfo.createdHierarchyTemplateIds.includes(
             hierarchy.template.id,
+          )}
+          fieldInput={{ values: replacementFieldValues, setValues: setReplacementFieldValues }}
+          textsRemembered={hasStoredReplacementTexts(
+            hierarchy.template,
+            issueTemplateInfo.replacementTexts,
           )}
           submitting={submitting}
           onConfirm={confirmCreateHierarchy}
@@ -359,6 +417,11 @@ const AppComponent: React.FunctionComponent = () => {
         <ApplyActionsPanel
           template={selected}
           status={selected === null ? null : getApplyStatus(issueTemplateInfo, selected)}
+          blockedReason={
+            selected === null
+              ? null
+              : getPreconditions(selected, issueTemplateInfo, true).blockedReason
+          }
           target={TARGET}
           submitting={submitting}
           onAction={onAction}

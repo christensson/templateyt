@@ -1,13 +1,23 @@
 import { describe, expect, it } from "vitest";
 import currentFixture from "../test/fixtures/templates-current.json";
 import type { Template, TemplateTarget } from "../@types/template";
+import type { ProjectFieldInfo } from "../@types/project-info";
+import {
+  getInitialReplacementTexts,
+  hasStoredReplacementTexts,
+  type StoredReplacementTexts,
+} from "./template-client";
 import {
   formatCreatedMessage,
+  getReplacementPreconditions,
+  hasMissingRequiredInput,
+  needsReplacementFieldInput,
   formatRowStatus,
   getApplyActions,
   getApplyGroupMap,
   getApplyStatus,
   type ApplyInfo,
+  type ReplacementPreconditions,
   type ApplyStatus,
 } from "./apply-template";
 
@@ -123,5 +133,126 @@ describe("formatCreatedMessage", () => {
     [["SAN-1", "SAN-2", "SAN-3", "SAN-4", "SAN-5"], "ticket", "Created 5 subtasks: SAN-1 … SAN-5."],
   ] as const)("%j", (ids, target, expected) => {
     expect(formatCreatedMessage(ids as Array<string> | undefined, target)).toBe(expected);
+  });
+});
+
+describe("getApplyActions with unmet preconditions", () => {
+  it("disables everything except Remove", () => {
+    expect(getApplyActions(task, "available", "ticket", true)).toEqual([
+      { key: "apply", label: "Apply", primary: true, disabled: true },
+    ]);
+    const applied = getApplyActions(release, "applied", "ticket", true);
+    expect(applied.filter((action) => !action.disabled).map((action) => action.key)).toEqual([
+      "remove",
+    ]);
+  });
+
+  it("flags blocked templates in the list", () => {
+    expect(formatRowStatus("available", "article", true)).toEqual({
+      text: "Can't apply",
+      warning: true,
+    });
+  });
+});
+
+describe("getReplacementPreconditions", () => {
+  const field = (name: string): ProjectFieldInfo => ({ name, typeName: "enum[1]", values: [] });
+  const fields = [field("Approver"), field("Fix versions"), field("Assignee")];
+  const summary = (preconditions: ReplacementPreconditions) =>
+    preconditions.items.map(
+      (item) => `${item.search}:${item.kind}${item.required ? "!" : ""}`,
+    );
+
+  it("asks for empty fields and uses fields the template sets", () => {
+    const result = getReplacementPreconditions(
+      release,
+      "ticket",
+      fields,
+      { Approver: null, "Fix versions": null },
+      true,
+    );
+    // Fix versions is a user-input field of the template, so its own select is required.
+    expect(summary(result)).toEqual(["APPROVER:empty!", "VERSION:set_by_template!"]);
+    expect(result.blockedReason).toBeNull();
+    expect(needsReplacementFieldInput(result)).toBe(true);
+  });
+
+  it("uses current values when the fields are filled", () => {
+    const result = getReplacementPreconditions(
+      release,
+      "ticket",
+      fields,
+      { Approver: "Jane Doe", "Fix versions": "2.0" },
+      true,
+    );
+    expect(summary(result)).toEqual(["APPROVER:filled", "VERSION:set_by_template"]);
+    expect(needsReplacementFieldInput(result)).toBe(false);
+  });
+
+  it("asks for every empty field when creating subtasks, which does not set template fields", () => {
+    const result = getReplacementPreconditions(release, "ticket", fields, {}, false);
+    expect(summary(result)).toEqual(["APPROVER:empty!", "VERSION:empty!"]);
+  });
+
+  it("blocks fields the project does not have", () => {
+    const result = getReplacementPreconditions(release, "ticket", [field("Fix versions")], {}, true);
+    expect(summary(result)[0]).toBe("APPROVER:missing_field");
+    expect(result.blockedReason).toBe(
+      "Can't apply: APPROVER is replaced by field Approver, which this project doesn't have.",
+    );
+  });
+
+  it("blocks field replacements for articles, and nothing else", () => {
+    expect(getReplacementPreconditions(release, "article", [], undefined, true).blockedReason).toBe(
+      "Can't apply to articles: APPROVER is replaced by ticket field Approver.",
+    );
+    for (const template of templates.filter((t) => t.name !== "Release template")) {
+      expect(getReplacementPreconditions(template, "article", [], undefined, true).blockedReason).toBeNull();
+    }
+  });
+});
+
+describe("hasMissingRequiredInput", () => {
+  const preconditions = getReplacementPreconditions(
+    release,
+    "ticket",
+    [
+      { name: "Approver", typeName: "user[1]", values: [] },
+      { name: "Fix versions", typeName: "version[*]", values: [] },
+    ],
+    {},
+    true,
+  );
+  const texts = { CUSTOMER: "ACME" };
+
+  it.each([
+    [{}, {}, {}, true],
+    [texts, {}, {}, true],
+    [texts, { "Fix versions": "2.0" }, {}, true],
+    [texts, {}, { Approver: "jane" }, true],
+    [texts, { "Fix versions": "2.0" }, { Approver: "jane" }, false],
+    [{ CUSTOMER: " " }, { "Fix versions": "2.0" }, { Approver: "jane" }, true],
+  ] as const)("%j %j %j", (userTexts, fieldValues, replacementFieldValues, expected) => {
+    expect(
+      hasMissingRequiredInput(release, userTexts, preconditions, fieldValues, replacementFieldValues),
+    ).toBe(expected);
+  });
+});
+
+describe("getInitialReplacementTexts", () => {
+  it("is empty without stored texts", () => {
+    expect(getInitialReplacementTexts(release)).toEqual({ CUSTOMER: "" });
+    expect(getInitialReplacementTexts(release, {})).toEqual({ CUSTOMER: "" });
+    expect(hasStoredReplacementTexts(release, {})).toBe(false);
+  });
+
+  it("prefills stored texts and ignores words the template no longer replaces", () => {
+    const stored: StoredReplacementTexts = {
+      [release.id]: { CUSTOMER: "ACME", OLD_WORD: "x" },
+      other: { CUSTOMER: "no" },
+    };
+    expect(getInitialReplacementTexts(release, stored)).toEqual({ CUSTOMER: "ACME" });
+    expect(hasStoredReplacementTexts(release, stored)).toBe(true);
+    expect(hasStoredReplacementTexts(release, { [release.id]: { OLD_WORD: "x" } })).toBe(false);
   });
 });

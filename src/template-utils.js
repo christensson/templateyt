@@ -288,6 +288,7 @@ const resolveTemplateFieldValues = (project, template, userValues, includeUserIn
     }
     assignments.push({
       fieldName: field.fieldName,
+      typeName: projectField.typeName,
       value: value,
       multi: isMultiValueType(projectField.typeName),
       additive: field.additive === true,
@@ -448,29 +449,106 @@ const applyReplacements = (text, values) => {
   return result;
 };
 
-// Display text of a root ticket field for a field replacement: { value, error }.
-const resolveFieldReplacement = (rootIssue, replacement) => {
+// Display text of a root ticket field for a field replacement: { value, error, empty }.
+// fieldOverrides (display text by field name) holds values being set in the same request, used
+// instead of the issue's current value.
+const resolveFieldReplacement = (rootIssue, replacement, fieldOverrides) => {
   if (rootIssue === null) {
     return {
       value: null,
       error: `Replacement of ${replacement.search} uses root ticket field ${replacement.fieldName}, which is not available for articles.`,
+      empty: false,
     };
+  }
+  const override = fieldOverrides ? fieldOverrides[replacement.fieldName] : undefined;
+  if (typeof override === "string" && override !== "") {
+    return { value: override, error: null, empty: false };
   }
   const projectField = findProjectField(rootIssue.project, replacement.fieldName);
   if (projectField === null) {
-    return { value: null, error: `Root ticket field "${replacement.fieldName}" does not exist in project.` };
+    return {
+      value: null,
+      error: `Root ticket field "${replacement.fieldName}" does not exist in project.`,
+      empty: false,
+    };
   }
   if (!SUPPORTED_FIELD_TYPES.includes(projectField.typeName)) {
     return {
       value: null,
       error: `Root ticket field "${replacement.fieldName}" has unsupported type ${projectField.typeName}.`,
+      empty: false,
     };
   }
   const text = getFieldPresentationText(rootIssue, projectField.typeName, replacement.fieldName);
   if (text === null) {
-    return { value: null, error: `Root ticket field "${replacement.fieldName}" is empty.` };
+    return { value: null, error: `Root ticket field "${replacement.fieldName}" is empty.`, empty: true };
   }
-  return { value: text, error: null };
+  return { value: text, error: null, empty: false };
+};
+
+const getFieldReplacementNames = (template) => {
+  const replacements = Array.isArray(template.replacements) ? template.replacements : [];
+  const names = [];
+  for (const replacement of replacements) {
+    if (replacement.mode === "field" && !names.includes(replacement.fieldName)) {
+      names.push(replacement.fieldName);
+    }
+  }
+  return names;
+};
+
+// Values chosen by the user for empty root ticket fields that field replacements use, keyed by
+// field name. Only fields used by a field replacement of the template and empty on the issue are
+// accepted; other keys are ignored. Returns { assignments, overrides: { fieldName: text },
+// errors } without modifying anything; assignments have the shape of resolveTemplateFieldValues.
+const resolveReplacementFieldInputs = (issue, template, valuesByField) => {
+  const assignments = [];
+  const overrides = {};
+  const errors = [];
+  for (const fieldName of getFieldReplacementNames(template)) {
+    const valueName = valuesByField ? valuesByField[fieldName] : null;
+    if (typeof valueName !== "string" || valueName === "") {
+      continue;
+    }
+    const projectField = findProjectField(issue.project, fieldName);
+    // Missing or unsupported fields are reported by resolveReplacements.
+    if (projectField === null || !SUPPORTED_FIELD_TYPES.includes(projectField.typeName)) {
+      continue;
+    }
+    if (getIssueFieldValueList(issue, projectField.typeName, fieldName).length > 0) {
+      continue;
+    }
+    const value = findFieldValue(projectField, valueName);
+    if (value === null) {
+      errors.push(`Value "${valueName}" not found for field "${fieldName}".`);
+      continue;
+    }
+    assignments.push({
+      fieldName: fieldName,
+      typeName: projectField.typeName,
+      value: value,
+      multi: isMultiValueType(projectField.typeName),
+      additive: false,
+    });
+    overrides[fieldName] = getFieldValuePresentation(projectField.typeName, value);
+  }
+  return { assignments: assignments, overrides: overrides, errors: errors };
+};
+
+// Display texts the issue's fields will have after the assignments, keyed by field name, so that
+// replacements insert the values being set rather than the previous ones.
+const getAssignmentOverrides = (issue, assignments) => {
+  const overrides = {};
+  for (const assignment of assignments) {
+    const text = getFieldValuePresentation(assignment.typeName, assignment.value);
+    const current =
+      assignment.multi && assignment.additive
+        ? getFieldPresentationText(issue, assignment.typeName, assignment.fieldName)
+        : null;
+    overrides[assignment.fieldName] =
+      current === null || current.split(", ").includes(text) ? current || text : `${current}, ${text}`;
+  }
+  return overrides;
 };
 
 // True when any user-input field of the template has no value in userValues.
@@ -483,12 +561,14 @@ const hasMissingUserInput = (template, userValues) => {
 
 // Resolves the texts a template's replacements insert. Field replacements read the root issue
 // (null for articles); user-input replacements use userTexts (keyed by search word) and are
-// skipped when includeUserInput is false. Returns { values: [{ search, value }], errors,
-// missingInputs: [search] }.
-const resolveReplacements = (rootIssue, template, userTexts, includeUserInput) => {
+// skipped when includeUserInput is false. fieldOverrides (display text by field name) replaces
+// root ticket field values that are being set in the same request. Returns
+// { values: [{ search, value }], errors, missingInputs: [search], emptyFields: [fieldName] }.
+const resolveReplacements = (rootIssue, template, userTexts, includeUserInput, fieldOverrides) => {
   const values = [];
   const errors = [];
   const missingInputs = [];
+  const emptyFields = [];
   const replacements = Array.isArray(template.replacements) ? template.replacements : [];
   for (const replacement of replacements) {
     if (replacement.mode === "user_input") {
@@ -506,14 +586,17 @@ const resolveReplacements = (rootIssue, template, userTexts, includeUserInput) =
       values.push({ search: replacement.search, value: text });
       continue;
     }
-    const fieldValue = resolveFieldReplacement(rootIssue, replacement);
+    const fieldValue = resolveFieldReplacement(rootIssue, replacement, fieldOverrides);
     if (fieldValue.error !== null) {
       errors.push(fieldValue.error);
+      if (fieldValue.empty && !emptyFields.includes(replacement.fieldName)) {
+        emptyFields.push(replacement.fieldName);
+      }
     } else {
       values.push({ search: replacement.search, value: fieldValue.value });
     }
   }
-  return { values: values, errors: errors, missingInputs: missingInputs };
+  return { values: values, errors: errors, missingInputs: missingInputs, emptyFields: emptyFields };
 };
 
 // Templates applied to the issue whose user-input fields have not been set yet.
@@ -542,6 +625,58 @@ const clearTemplatePending = (issue, templateId) => {
   }
 };
 
+// Texts the user entered for user-input replacements, per applied template, stored on the issue
+// or article so that later steps (set fields, create hierarchy) can offer them again:
+// { [templateId]: { [search]: text } }. Unset or invalid JSON reads as {}.
+const getStoredReplacementTexts = (entity) => {
+  const json = entity.extensionProperties.templateReplacementTexts;
+  if (!json) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(json);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const setStoredReplacementTexts = (entity, stored) => {
+  entity.extensionProperties.templateReplacementTexts = JSON.stringify(stored);
+};
+
+// Stores the non-empty texts of the template's user-input replacements; other keys are dropped.
+// Writes only when the stored texts change.
+const storeReplacementTexts = (entity, template, texts) => {
+  const replacements = Array.isArray(template.replacements) ? template.replacements : [];
+  const kept = {};
+  for (const replacement of replacements) {
+    const text = texts ? texts[replacement.search] : undefined;
+    if (replacement.mode === "user_input" && typeof text === "string" && text.trim() !== "") {
+      kept[replacement.search] = text;
+    }
+  }
+  const stored = getStoredReplacementTexts(entity);
+  const hasKept = Object.keys(kept).length > 0;
+  if (JSON.stringify(stored[template.id]) === JSON.stringify(hasKept ? kept : undefined)) {
+    return;
+  }
+  if (hasKept) {
+    stored[template.id] = kept;
+  } else {
+    delete stored[template.id];
+  }
+  setStoredReplacementTexts(entity, stored);
+};
+
+const clearStoredReplacementTexts = (entity, templateId) => {
+  const stored = getStoredReplacementTexts(entity);
+  if (templateId in stored) {
+    delete stored[templateId];
+    setStoredReplacementTexts(entity, stored);
+  }
+};
+
 // Templates whose hierarchy has been created below the issue or article.
 const getCreatedHierarchyTemplateIds = (entity) =>
   parseIdList(entity.extensionProperties.createdHierarchyTemplateIds);
@@ -567,6 +702,8 @@ module.exports = {
   templateHasUserInput,
   applyReplacements,
   resolveReplacements,
+  resolveReplacementFieldInputs,
+  getAssignmentOverrides,
   resolveTemplateFieldValues,
   applyFieldAssignments,
   resolveTemplateTags,
@@ -586,4 +723,7 @@ module.exports = {
   getArticleTree,
   getCreatedHierarchyTemplateIds,
   markHierarchyCreated,
+  getStoredReplacementTexts,
+  storeReplacementTexts,
+  clearStoredReplacementTexts,
 };

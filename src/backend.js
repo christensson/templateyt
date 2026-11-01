@@ -751,6 +751,7 @@ exports.httpHandler = {
           currentFieldPresentations: utils.getIssueFieldPresentations(issue, fields),
           pendingTemplateIds: utils.getPendingTemplateIds(issue),
           createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(issue),
+          replacementTexts: utils.getStoredReplacementTexts(issue),
         });
       },
     },
@@ -809,19 +810,28 @@ exports.httpHandler = {
           body.fieldValues,
           true,
         );
+        // Values chosen for empty root ticket fields that field replacements use.
+        const fieldInputs = utils.resolveReplacementFieldInputs(
+          issue,
+          template,
+          body.replacementFieldValues,
+        );
         const tags = utils.resolveTemplateTags(template);
         const relations = utils.resolveFixedRelations(issue, template, ctx.currentUser);
-        const resolveErrors = resolved.errors.concat(tags.errors, relations.errors);
+        const resolveErrors = resolved.errors.concat(
+          fieldInputs.errors,
+          tags.errors,
+          relations.errors,
+        );
         if (resolveErrors.length > 0) {
           badRequest(ctx, `Failed to add template: ${resolveErrors.join(" ")}`);
           return;
         }
-        const replacements = utils.resolveReplacements(
-          issue,
-          template,
-          body.replacementTexts,
-          true,
-        );
+        // Replacements insert the field values set by this request.
+        const replacements = utils.resolveReplacements(issue, template, body.replacementTexts, true, {
+          ...fieldInputs.overrides,
+          ...utils.getAssignmentOverrides(issue, resolved.assignments),
+        });
         const replacementError = getReplacementError(replacements);
         if (replacementError !== null) {
           badRequest(ctx, `Failed to add template: ${replacementError}`);
@@ -839,6 +849,7 @@ exports.httpHandler = {
         issue.description = newDescription;
 
         // Set ticket fields and add tags defined by template.
+        utils.applyFieldAssignments(issue, fieldInputs.assignments);
         utils.applyFieldAssignments(issue, resolved.assignments);
         utils.applyTags(issue, tags.tagNames);
         utils.applyRelations(issue, relations.links);
@@ -853,6 +864,8 @@ exports.httpHandler = {
         } else {
           utils.clearTemplatePending(issue, templateId);
         }
+        // Remember the entered texts for later steps, e.g. creating the hierarchy.
+        utils.storeReplacementTexts(issue, template, body.replacementTexts);
 
         ctx.response.json({
           success: true,
@@ -895,24 +908,34 @@ exports.httpHandler = {
           body.fieldValues,
           true,
         );
+        // Values chosen for empty root ticket fields that field replacements use.
+        const fieldInputs = utils.resolveReplacementFieldInputs(
+          issue,
+          template,
+          body.replacementFieldValues,
+        );
         const tags = utils.resolveTemplateTags(template);
         const relations = utils.resolveFixedRelations(issue, template, ctx.currentUser);
-        const resolveErrors = resolved.errors.concat(tags.errors, relations.errors);
+        const resolveErrors = resolved.errors.concat(
+          fieldInputs.errors,
+          tags.errors,
+          relations.errors,
+        );
         if (resolveErrors.length > 0) {
           badRequest(ctx, `Failed to set fields from template: ${resolveErrors.join(" ")}`);
           return;
         }
-        const replacements = utils.resolveReplacements(
-          issue,
-          template,
-          body.replacementTexts,
-          true,
-        );
+        // Replacements insert the field values set by this request.
+        const replacements = utils.resolveReplacements(issue, template, body.replacementTexts, true, {
+          ...fieldInputs.overrides,
+          ...utils.getAssignmentOverrides(issue, resolved.assignments),
+        });
         const replacementError = getReplacementError(replacements);
         if (replacementError !== null) {
           badRequest(ctx, `Failed to set fields from template: ${replacementError}`);
           return;
         }
+        utils.applyFieldAssignments(issue, fieldInputs.assignments);
         utils.applyFieldAssignments(issue, resolved.assignments);
         utils.applyTags(issue, tags.tagNames);
         utils.applyRelations(issue, relations.links);
@@ -920,6 +943,7 @@ exports.httpHandler = {
         applyReplacementsToIssue(issue, replacements.values);
         // The user has been asked for the user-input fields; the template is no longer pending.
         utils.clearTemplatePending(issue, template.id);
+        utils.storeReplacementTexts(issue, template, body.replacementTexts);
 
         ctx.response.json({
           success: true,
@@ -962,7 +986,14 @@ exports.httpHandler = {
         // yet, e.g. when the template was added automatically.
         const rootTags = utils.resolveTemplateTags(template);
         const rootRelations = utils.resolveFixedRelations(issue, template, ctx.currentUser);
+        // Values chosen for empty root ticket fields that field replacements use.
+        const fieldInputs = utils.resolveReplacementFieldInputs(
+          issue,
+          template,
+          body.replacementFieldValues,
+        );
         const planErrors = rootTags.errors.concat(
+          fieldInputs.errors,
           rootRelations.errors,
           utils.getHierarchyRelationErrors(issue, template),
           plan.errors,
@@ -977,12 +1008,14 @@ exports.httpHandler = {
           template,
           body.replacementTexts,
           true,
+          fieldInputs.overrides,
         );
         const replacementError = getReplacementError(replacements);
         if (replacementError !== null) {
           badRequest(ctx, `Failed to create hierarchy: ${replacementError}`);
           return;
         }
+        utils.applyFieldAssignments(issue, fieldInputs.assignments);
 
         const createdIssueIds = [];
         const skippedChildIds = [];
@@ -1031,6 +1064,7 @@ exports.httpHandler = {
         createChildren(issue, rootManagedFields, template.children);
         const skippedRelations = linkHierarchy(issue, template, createdById, plan);
         utils.markHierarchyCreated(issue, template.id);
+        utils.storeReplacementTexts(issue, template, body.replacementTexts);
 
         ctx.response.json({
           success: true,
@@ -1091,6 +1125,7 @@ exports.httpHandler = {
         }
         issue.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
         utils.clearTemplatePending(issue, templateId);
+        utils.clearStoredReplacementTexts(issue, templateId);
 
         ctx.response.json({
           success: true,
@@ -1117,6 +1152,7 @@ exports.httpHandler = {
           validTemplateIds: validTemplateIds,
           isTemplate: articleProps?.isTemplate || false,
           createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(article),
+          replacementTexts: utils.getStoredReplacementTexts(article),
         });
       },
     },
@@ -1214,10 +1250,13 @@ exports.httpHandler = {
         // Add template to used templates.
         usedTemplateIds.push(templateId);
         article.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
+        // Remember the entered texts for later steps, e.g. creating the hierarchy.
+        utils.storeReplacementTexts(article, template, body.replacementTexts);
 
         ctx.response.json({
           success: true,
           usedTemplateIds: usedTemplateIds,
+          replacementTexts: utils.getStoredReplacementTexts(article),
         });
       },
     },
@@ -1281,11 +1320,13 @@ exports.httpHandler = {
         utils.applyTags(article, rootTags.tagNames);
         createChildren(article, template.children);
         utils.markHierarchyCreated(article, template.id);
+        utils.storeReplacementTexts(article, template, body.replacementTexts);
 
         ctx.response.json({
           success: true,
           createdArticleIds: createdArticleIds,
           createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(article),
+          replacementTexts: utils.getStoredReplacementTexts(article),
         });
       },
     },
@@ -1359,10 +1400,12 @@ exports.httpHandler = {
           usedTemplateIds.splice(index, 1);
         }
         article.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
+        utils.clearStoredReplacementTexts(article, templateId);
 
         ctx.response.json({
           success: true,
           usedTemplateIds: usedTemplateIds,
+          replacementTexts: utils.getStoredReplacementTexts(article),
         });
       },
     },

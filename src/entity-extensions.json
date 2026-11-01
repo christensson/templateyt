@@ -27,6 +27,10 @@
         "createdFromChildTemplateId": {
           "type": "string",
           "multi": false
+        },
+        "templateReplacementTexts": {
+          "type": "string",
+          "multi": false
         }
       }
     },
@@ -46,6 +50,10 @@
           "multi": false
         },
         "createdFromChildTemplateId": {
+          "type": "string",
+          "multi": false
+        },
+        "templateReplacementTexts": {
           "type": "string",
           "multi": false
         }

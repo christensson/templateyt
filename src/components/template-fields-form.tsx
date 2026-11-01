@@ -26,11 +26,16 @@ import {
   type TemplateRelation,
   type TextReplacement,
 } from "../../@types/template";
-import { formatHierarchyLabel } from "../apply-template";
+import {
+  formatHierarchyLabel,
+  getReplacementPreconditions,
+  hasMissingRequiredInput,
+  type ReplacementPrecondition,
+  type ReplacementPreconditions,
+} from "../apply-template";
 import {
   ACTION_LABELS,
   formatPendingTitle,
-  hasMissingReplacementTexts,
   type ChildFieldValues,
   type FieldValues,
   type PendingApply,
@@ -38,7 +43,15 @@ import {
 } from "../template-client";
 
 const EMPTY_FIELDS_HINT = "Fields left empty are not changed.";
-const MISSING_TEXTS_HINT = "Fill in all texts to continue.";
+const MISSING_INPUT_HINT = "Fill in all required values to continue.";
+
+// Shown when replacement texts were filled in from the texts stored on the ticket or article.
+const RememberedTextsHint: React.FunctionComponent<{ show?: boolean }> = ({ show }) =>
+  show ? (
+    <Text size={Text.Size.S} info>
+      Filled in with the texts used when the template was applied.
+    </Text>
+  ) : null;
 
 interface EffectRowProps {
   label: string;
@@ -61,21 +74,114 @@ const EffectList: React.FunctionComponent<{ children?: React.ReactNode }> = ({ c
   <div className="template-effect-list">{children}</div>
 );
 
+interface UserInputFieldSelectProps {
+  field: TemplateField;
+  fieldInfos: Array<ProjectFieldInfo>;
+  value: string | null;
+  onChange: (fieldName: string, value: string | null) => void;
+  label?: string;
+}
+
+const UserInputFieldSelect: React.FunctionComponent<UserInputFieldSelectProps> = ({
+  field,
+  fieldInfos,
+  value,
+  onChange,
+  label,
+}) => {
+  const items = useMemo(() => {
+    const info = fieldInfos.find((f) => f.name === field.fieldName);
+    return info ? info.values.map((v) => ({ key: v.name, label: v.presentation })) : [];
+  }, [fieldInfos, field.fieldName]);
+  const selected = items.find((item) => item.key === value) || null;
+  return (
+    <Select
+      clear
+      filter
+      label={label ?? (field.additive ? "Add a value…" : "Choose…")}
+      type={Select.Type.INLINE}
+      size={Select.Size.AUTO}
+      data={items}
+      selected={selected}
+      onSelect={(item: SelectItem | null) =>
+        onChange(field.fieldName, item ? String(item.key) : null)
+      }
+    />
+  );
+};
+
+// Values chosen for empty ticket fields that field replacements use, keyed by field name.
+export type ReplacementFieldInput = {
+  values: FieldValues;
+  setValues: React.Dispatch<React.SetStateAction<FieldValues>>;
+};
+
 interface ReplacementRowProps {
+  template: Template;
   replacement: TextReplacement;
+  // How a field replacement gets its text; undefined for user-input replacements.
+  precondition?: ReplacementPrecondition;
   texts: ReplacementTexts;
   setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
   // Display texts of the root ticket's fields; null values mean the field is empty. Undefined
   // when there is no root ticket (articles).
   currentFieldPresentations?: Record<string, string | null>;
+  fieldInfos: Array<ProjectFieldInfo>;
+  fieldInput?: ReplacementFieldInput;
 }
+
+// Text of a field replacement that does not need a value from the user.
+const describeFieldReplacement = (
+  template: Template,
+  fieldName: string,
+  precondition: ReplacementPrecondition | undefined,
+  currentFieldPresentations: Record<string, string | null> | undefined,
+): React.ReactNode => {
+  if (precondition?.kind === "set_by_template") {
+    const setter = getTemplateFields(template).find((field) => field.fieldName === fieldName);
+    return (
+      <Text size={Text.Size.M}>
+        {setter?.mode === "fixed" ? setter.fieldValue : "The value chosen above"}{" "}
+        <Text size={Text.Size.S} info>
+          from {fieldName}, set by this template
+        </Text>
+      </Text>
+    );
+  }
+  if (precondition?.kind === "article" || currentFieldPresentations === undefined) {
+    return (
+      <Text size={Text.Size.M} info>
+        Not available: articles have no ticket field {fieldName}.
+      </Text>
+    );
+  }
+  if (precondition?.kind === "missing_field") {
+    return (
+      <Text size={Text.Size.M} info>
+        Not available: this project has no field {fieldName}.
+      </Text>
+    );
+  }
+  return (
+    <Text size={Text.Size.M}>
+      {currentFieldPresentations[fieldName]}{" "}
+      <Text size={Text.Size.S} info>
+        from {fieldName}
+      </Text>
+    </Text>
+  );
+};
 
 // A text replacement: the text a field replacement inserts, or a required input for user text.
 const ReplacementRow: React.FunctionComponent<ReplacementRowProps> = ({
+  template,
   replacement,
+  precondition,
   texts,
   setTexts,
   currentFieldPresentations,
+  fieldInfos,
+  fieldInput,
 }) => {
   if (replacement.mode === "user_input") {
     return (
@@ -92,30 +198,24 @@ const ReplacementRow: React.FunctionComponent<ReplacementRowProps> = ({
       </EffectRow>
     );
   }
-  const text = currentFieldPresentations?.[replacement.fieldName];
-  let value: React.ReactNode;
-  if (currentFieldPresentations === undefined) {
-    value = (
-      <Text size={Text.Size.M} info>
-        Not replaced: ticket field {replacement.fieldName} is not available for articles.
-      </Text>
-    );
-  } else if (text) {
-    value = (
-      <Text size={Text.Size.M}>
-        {text}{" "}
+  const fieldName = replacement.fieldName;
+  if (precondition?.kind === "empty" && fieldInput !== undefined) {
+    return (
+      <EffectRow label={replacement.search} code>
+        <UserInputFieldSelect
+          field={{ fieldName, mode: "user_input" }}
+          fieldInfos={fieldInfos}
+          value={fieldInput.values[fieldName] ?? null}
+          onChange={(name, value) => fieldInput.setValues((prev) => ({ ...prev, [name]: value }))}
+          label="Choose… (required)"
+        />{" "}
         <Text size={Text.Size.S} info>
-          from {replacement.fieldName}
+          {fieldName} is empty; the value is also set on this ticket
         </Text>
-      </Text>
-    );
-  } else {
-    value = (
-      <Text size={Text.Size.M} info>
-        Not replaced: {replacement.fieldName} is empty.
-      </Text>
+      </EffectRow>
     );
   }
+  const value = describeFieldReplacement(template, fieldName, precondition, currentFieldPresentations);
   return (
     <EffectRow label={replacement.search} code>
       {value}
@@ -125,64 +225,40 @@ const ReplacementRow: React.FunctionComponent<ReplacementRowProps> = ({
 
 interface ReplacementInputsProps {
   template: Template;
+  preconditions: ReplacementPreconditions;
   texts: ReplacementTexts;
   setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
   currentFieldPresentations?: Record<string, string | null>;
+  fieldInfos: Array<ProjectFieldInfo>;
+  fieldInput?: ReplacementFieldInput;
 }
 
-// What a template's text replacements will insert.
+// What a template's text replacements will insert, asking for texts and empty field values.
 export const ReplacementInputs: React.FunctionComponent<ReplacementInputsProps> = ({
   template,
+  preconditions,
   texts,
   setTexts,
   currentFieldPresentations,
+  fieldInfos,
+  fieldInput,
 }) => (
   <EffectList>
     {getTemplateReplacements(template).map((replacement) => (
       <ReplacementRow
         key={`replacement-${replacement.search}`}
+        template={template}
         replacement={replacement}
+        precondition={preconditions.items.find((item) => item.search === replacement.search)}
         texts={texts}
         setTexts={setTexts}
         currentFieldPresentations={currentFieldPresentations}
+        fieldInfos={fieldInfos}
+        fieldInput={fieldInput}
       />
     ))}
   </EffectList>
 );
-
-interface UserInputFieldSelectProps {
-  field: TemplateField;
-  fieldInfos: Array<ProjectFieldInfo>;
-  value: string | null;
-  onChange: (fieldName: string, value: string | null) => void;
-}
-
-const UserInputFieldSelect: React.FunctionComponent<UserInputFieldSelectProps> = ({
-  field,
-  fieldInfos,
-  value,
-  onChange,
-}) => {
-  const items = useMemo(() => {
-    const info = fieldInfos.find((f) => f.name === field.fieldName);
-    return info ? info.values.map((v) => ({ key: v.name, label: v.presentation })) : [];
-  }, [fieldInfos, field.fieldName]);
-  const selected = items.find((item) => item.key === value) || null;
-  return (
-    <Select
-      clear
-      filter
-      label={field.additive ? "Add a value…" : "Choose…"}
-      type={Select.Type.INLINE}
-      size={Select.Size.AUTO}
-      data={items}
-      selected={selected}
-      onSelect={(item: SelectItem | null) =>
-        onChange(field.fieldName, item ? String(item.key) : null)
-      }
-    />
-  );
-};
 
 interface EffectRowsProps {
   template: Template;
@@ -194,6 +270,8 @@ interface EffectRowsProps {
   onChange: (fieldName: string, value: string | null) => void;
   // Which child templates will be created; relations to the others are skipped.
   inclusion?: Record<string, ChildInclusion>;
+  // User-input fields that must be chosen, because a text replacement needs their value.
+  requiredFields?: Array<string>;
 }
 
 // What a template or child template sets: fixed field values as text, user-input fields as
@@ -206,6 +284,7 @@ const EffectRows: React.FunctionComponent<EffectRowsProps> = ({
   values,
   onChange,
   inclusion,
+  requiredFields = [],
 }) => {
   const tags = getTemplateTags(owner);
   return (
@@ -222,6 +301,7 @@ const EffectRows: React.FunctionComponent<EffectRowsProps> = ({
               fieldInfos={fieldInfos}
               value={values[field.fieldName] ?? null}
               onChange={onChange}
+              label={requiredFields.includes(field.fieldName) ? "Choose… (required)" : undefined}
             />
           )}
         </EffectRow>
@@ -292,7 +372,7 @@ const FormActions: React.FunctionComponent<FormActionsProps> = ({
     </Button>
     {missingTexts && (
       <Text size={Text.Size.S} info>
-        {MISSING_TEXTS_HINT}
+        {MISSING_INPUT_HINT}
       </Text>
     )}
   </Panel>
@@ -307,6 +387,26 @@ const formatApplyDescription = (pending: PendingApply, forArticle: boolean): str
     : "Adds the template content to the description and sets the values below.";
 };
 
+const NO_VALUES: FieldValues = {};
+
+// What the apply form has to show for a template.
+const getFormContent = (template: Template, forArticle: boolean) => {
+  const hasFields = getTemplateFields(template).length > 0;
+  // Relations to fixed tickets are added when the template is applied (not for articles).
+  const fixedRelations = forArticle
+    ? []
+    : getTemplateRelations(template).filter((relation) => relation.target === "fixed");
+  return {
+    hasFields,
+    fixedRelations,
+    hasChanges:
+      (hasFields && !forArticle) ||
+      getTemplateTags(template).length > 0 ||
+      fixedRelations.length > 0,
+    hasReplacements: getTemplateReplacements(template).length > 0,
+  };
+};
+
 interface TemplateFieldsFormProps {
   pending: PendingApply;
   fieldInfos: Array<ProjectFieldInfo>;
@@ -315,6 +415,10 @@ interface TemplateFieldsFormProps {
   texts: ReplacementTexts;
   setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
   currentFieldPresentations?: Record<string, string | null>;
+  // Values for empty ticket fields that field replacements use (tickets only).
+  fieldInput?: ReplacementFieldInput;
+  // The texts were filled in from the texts stored when the template was applied.
+  textsRemembered?: boolean;
   submitting: boolean;
   onConfirm: () => void;
   onBack: () => void;
@@ -332,6 +436,8 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
   texts,
   setTexts,
   currentFieldPresentations,
+  fieldInput,
+  textsRemembered = false,
   submitting,
   onConfirm,
   onBack,
@@ -343,14 +449,21 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
     [setValues],
   );
   const template = pending.template;
-  const hasFields = getTemplateFields(template).length > 0;
-  // Relations to fixed tickets are added when the template is applied (not for articles).
-  const fixedRelations = forArticle
-    ? []
-    : getTemplateRelations(template).filter((relation) => relation.target === "fixed");
-  const hasChanges =
-    (hasFields && !forArticle) || getTemplateTags(template).length > 0 || fixedRelations.length > 0;
-  const hasReplacements = getTemplateReplacements(template).length > 0;
+  const { hasFields, fixedRelations, hasChanges, hasReplacements } = getFormContent(
+    template,
+    forArticle,
+  );
+  const replacementValues = fieldInput?.values ?? NO_VALUES;
+  const preconditions = getReplacementPreconditions(
+    template,
+    forArticle ? "article" : "ticket",
+    fieldInfos,
+    currentFieldPresentations,
+    true,
+  );
+  const requiredFields = preconditions.items
+    .filter((item) => item.required && item.kind === "set_by_template")
+    .map((item) => item.fieldName);
 
   return (
     <>
@@ -371,6 +484,7 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
                 fieldInfos={fieldInfos}
                 values={values}
                 onChange={onChange}
+                requiredFields={requiredFields}
               />
             </EffectList>
             {!forArticle && hasUserInputFields(template) && (
@@ -387,11 +501,15 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
         )}
         {hasReplacements && (
           <FormSection title="Text replacements">
+            <RememberedTextsHint show={textsRemembered}/>
             <ReplacementInputs
               template={template}
+              preconditions={preconditions}
               texts={texts}
               setTexts={setTexts}
               currentFieldPresentations={currentFieldPresentations}
+              fieldInfos={fieldInfos}
+              fieldInput={fieldInput}
             />
           </FormSection>
         )}
@@ -399,7 +517,13 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
       <FormActions
         label={ACTION_LABELS[pending.mode]}
         submitting={submitting}
-        missingTexts={hasMissingReplacementTexts(template, texts)}
+        missingTexts={hasMissingRequiredInput(
+          template,
+          texts,
+          preconditions,
+          values,
+          replacementValues,
+        )}
         onConfirm={onConfirm}
         onBack={onBack}
         backLabel="Back"
@@ -531,6 +655,8 @@ interface ArticleHierarchyFormProps {
   setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
   // A hierarchy for this template was created for the article before.
   alreadyCreated: boolean;
+  // The texts were filled in from the texts stored when the template was applied.
+  textsRemembered?: boolean;
   submitting: boolean;
   onConfirm: () => void;
   onBack: () => void;
@@ -544,6 +670,7 @@ export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormP
   texts,
   setTexts,
   alreadyCreated,
+  textsRemembered = false,
   submitting,
   onConfirm,
   onBack,
@@ -551,6 +678,7 @@ export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormP
 }) => {
   const flat = flattenChildTemplates(getChildTemplates(template));
   const hasReplacements = getTemplateReplacements(template).length > 0;
+  const preconditions = getReplacementPreconditions(template, "article", [], undefined, false);
 
   return (
     <>
@@ -559,7 +687,14 @@ export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormP
         {alreadyCreated && <AlreadyCreatedBanner noun="sub-articles" parent="article"/>}
         {hasReplacements && (
           <FormSection title="Text replacements, used in every sub-article">
-            <ReplacementInputs template={template} texts={texts} setTexts={setTexts}/>
+            <RememberedTextsHint show={textsRemembered}/>
+            <ReplacementInputs
+              template={template}
+              preconditions={preconditions}
+              texts={texts}
+              setTexts={setTexts}
+              fieldInfos={[]}
+            />
           </FormSection>
         )}
         <FormSection title={formatArticleCount(flat.length)}>
@@ -578,7 +713,7 @@ export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormP
       <FormActions
         label={formatHierarchyLabel("article", alreadyCreated)}
         submitting={submitting}
-        missingTexts={hasMissingReplacementTexts(template, texts)}
+        missingTexts={hasMissingRequiredInput(template, texts, preconditions, {}, {})}
         onConfirm={onConfirm}
         onBack={onBack}
         backLabel={backLabel}
@@ -599,6 +734,10 @@ interface HierarchyFormProps {
   setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
   // A hierarchy for this template was created for the ticket before.
   alreadyCreated: boolean;
+  // Values for empty root ticket fields that field replacements use.
+  fieldInput: ReplacementFieldInput;
+  // The texts were filled in from the texts stored when the template was applied.
+  textsRemembered?: boolean;
   submitting: boolean;
   onConfirm: () => void;
   onBack: () => void;
@@ -617,12 +756,21 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   texts,
   setTexts,
   alreadyCreated,
+  fieldInput,
+  textsRemembered = false,
   submitting,
   onConfirm,
   onBack,
   backLabel = "Back",
 }) => {
   const flat = flattenChildTemplates(getChildTemplates(template));
+  const preconditions = getReplacementPreconditions(
+    template,
+    "ticket",
+    fieldInfos,
+    currentFieldPresentations,
+    false,
+  );
   const inclusion = evaluateChildInclusion(template, currentFieldValues);
   const createdCount = flat.filter(({ child }) => inclusion[child.id]?.created).length;
   const hasReplacements = getTemplateReplacements(template).length > 0;
@@ -644,11 +792,15 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
         {alreadyCreated && <AlreadyCreatedBanner noun="subtasks" parent="ticket"/>}
         {hasReplacements && (
           <FormSection title="Text replacements, used in every subtask">
+            <RememberedTextsHint show={textsRemembered}/>
             <ReplacementInputs
               template={template}
+              preconditions={preconditions}
               texts={texts}
               setTexts={setTexts}
               currentFieldPresentations={currentFieldPresentations}
+              fieldInfos={fieldInfos}
+              fieldInput={fieldInput}
             />
           </FormSection>
         )}
@@ -693,7 +845,13 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
       <FormActions
         label={formatHierarchyLabel("ticket", alreadyCreated)}
         submitting={submitting}
-        missingTexts={hasMissingReplacementTexts(template, texts)}
+        missingTexts={hasMissingRequiredInput(
+          template,
+          texts,
+          preconditions,
+          {},
+          fieldInput.values,
+        )}
         onConfirm={onConfirm}
         onBack={onBack}
         backLabel={backLabel}

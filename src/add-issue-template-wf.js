@@ -101,11 +101,19 @@ const applyTemplateFields = (ctx, issue, template) => {
 };
 
 // Texts of the field replacements of a template for the issue. User-input replacements are only
-// available on manual application; unresolvable field replacements are logged and skipped.
+// available on manual application; unresolvable field replacements are logged and skipped. A
+// replacement whose root ticket field is empty marks the template as waiting for user input, so
+// that "Set fields" in the Apply template menu asks for the field.
 const resolveReplacementValues = (issue, template) => {
   const replacements = utils.resolveReplacements(issue, template, {}, false);
   for (const error of replacements.errors) {
     log(`Issue ${issue.id}: Template "${template.name}" (${template.id}) replacement skipped: ${error}`);
+  }
+  if (replacements.emptyFields.length > 0) {
+    utils.markTemplatePending(issue, template.id);
+    log(
+      `Issue ${issue.id}: Template "${template.name}" (${template.id}) waits for fields ${replacements.emptyFields.join(", ")}`,
+    );
   }
   return replacements.values;
 };
@@ -248,6 +256,7 @@ exports.rule = entities.Issue.onChange({
         usedTemplateIds.splice(index, 1);
       }
       utils.clearTemplatePending(issue, template.id);
+      utils.clearStoredReplacementTexts(issue, template.id);
     }
 
     // Apply new templates, skipping already-applied ones.

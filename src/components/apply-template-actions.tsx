@@ -62,6 +62,8 @@ interface ApplyActionsPanelProps {
   template: Template | null;
   status: ApplyStatus | null;
   target: TemplateTarget;
+  // Why the template cannot be used here, shown instead of its status; null when it can.
+  blockedReason?: string | null;
   submitting: boolean;
   onAction: (key: ApplyActionKey) => void;
 }
@@ -72,6 +74,7 @@ export const ApplyActionsPanel: React.FunctionComponent<ApplyActionsPanelProps> 
   template,
   status,
   target,
+  blockedReason = null,
   submitting,
   onAction,
 }) => {
@@ -103,19 +106,19 @@ export const ApplyActionsPanel: React.FunctionComponent<ApplyActionsPanelProps> 
   }
   return (
     <Panel className="apply-template-panel">
-      <Text size={Text.Size.M} info>
-        {formatStatusSummary(status, target)}{" "}
+      <Text size={Text.Size.M} info={blockedReason === null}>
+        {blockedReason ?? formatStatusSummary(status, target)}{" "}
         <Link href={`/articles/${template.articleId}`} target="_blank">
           Preview content ↗
         </Link>
       </Text>
       <div className="apply-template-buttons">
-        {getApplyActions(template, status, target).map((action) => (
+        {getApplyActions(template, status, target, blockedReason !== null).map((action) => (
           <Button
             key={action.key}
             primary={action.primary}
             loader={submitting && action.primary}
-            disabled={submitting}
+            disabled={submitting || action.disabled === true}
             onClick={() =>
               action.key === "remove" ? setConfirmingRemove(true) : onAction(action.key)
             }

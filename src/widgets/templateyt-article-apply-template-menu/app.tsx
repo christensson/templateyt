@@ -10,6 +10,7 @@ import {
   getApplyGroupOrder,
   getApplyStatus,
   getErrorMessage,
+  getReplacementPreconditions,
   notify,
   type ApplyActionKey,
 } from "../../apply-template";
@@ -24,9 +25,11 @@ import {
   addTemplateToArticle,
   createHierarchy,
   getInitialReplacementTexts,
+  hasStoredReplacementTexts,
   removeTemplate,
   type FieldValues,
   type ReplacementTexts,
+  type StoredReplacementTexts,
 } from "../../template-client";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
@@ -42,12 +45,22 @@ type ArticleTemplateInfo = {
   isTemplate: boolean;
   // Applied templates whose hierarchy has been created below the article.
   createdHierarchyTemplateIds: Array<string>;
+  // Texts entered when the templates were applied; missing from older backends.
+  replacementTexts?: StoredReplacementTexts;
 };
+
+// Why a template cannot be applied to articles (it uses ticket fields), or null.
+const getBlockedReason = (template: Template): string | null =>
+  getReplacementPreconditions(template, TARGET, [], undefined, true).blockedReason;
 
 const getRowStatus = (info: ArticleTemplateInfo | null): { [id: string]: TemplateRowStatus } => {
   const result: { [id: string]: TemplateRowStatus } = {};
   for (const template of info?.templates ?? []) {
-    const status = formatRowStatus(getApplyStatus(info as ArticleTemplateInfo, template), TARGET);
+    const status = formatRowStatus(
+      getApplyStatus(info as ArticleTemplateInfo, template),
+      TARGET,
+      getBlockedReason(template) !== null,
+    );
     if (status !== null) {
       result[template.id] = status;
     }
@@ -112,14 +125,23 @@ const AppComponent: React.FunctionComponent = () => {
     setArticleTemplateInfo((prev) => (prev === null ? prev : { ...prev, usedTemplateIds }));
   }, []);
 
+  // Keeps the stored replacement texts in sync with an action's response.
+  const applyStoredTexts = useCallback((stored?: StoredReplacementTexts) => {
+    if (stored !== undefined) {
+      setArticleTemplateInfo((prev) => (prev === null ? prev : { ...prev, replacementTexts: stored }));
+    }
+  }, []);
+  const storedTexts = articleTemplateInfo?.replacementTexts;
+
   // Opens the sub-article form, keeping replacement texts that were just entered.
   const openHierarchy = useCallback(
     (template: Template, texts: ReplacementTexts, afterApply: boolean) => {
       setFailMessage("");
-      setReplacementTexts({ ...getInitialReplacementTexts(template), ...texts });
+      // Texts stored when the template was applied, unless texts were just entered.
+      setReplacementTexts({ ...getInitialReplacementTexts(template, storedTexts), ...texts });
       setHierarchy({ template, afterApply });
     },
-    [],
+    [storedTexts],
   );
 
   // Applies a template; continues with the sub-articles of a hierarchical template, or closes
@@ -143,6 +165,7 @@ const AppComponent: React.FunctionComponent = () => {
         }
         setFailMessage("");
         applyUsedTemplateIds(result.usedTemplateIds);
+        applyStoredTexts(result.replacementTexts);
         notify(host, `${template.name} applied.`);
         if (countChildren(template) > 0) {
           openHierarchy(template, texts, true);
@@ -157,7 +180,7 @@ const AppComponent: React.FunctionComponent = () => {
         setSubmitting(false);
       }
     },
-    [checkTemplate, applyUsedTemplateIds, openHierarchy],
+    [checkTemplate, applyUsedTemplateIds, applyStoredTexts, openHierarchy],
   );
 
   // Applies the selected template, asking for replacement texts first when it needs any.
@@ -168,12 +191,12 @@ const AppComponent: React.FunctionComponent = () => {
     }
     if (hasUserInputReplacements(selectedTemplate)) {
       setFailMessage("");
-      setReplacementTexts(getInitialReplacementTexts(selectedTemplate));
+      setReplacementTexts(getInitialReplacementTexts(selectedTemplate, storedTexts));
       setPendingTemplate(selectedTemplate);
       return;
     }
     submitAdd(selectedTemplate, {});
-  }, [selectedTemplate, submitAdd]);
+  }, [selectedTemplate, storedTexts, submitAdd]);
 
   const confirmPending = useCallback(async () => {
     if (pendingTemplate === null) {
@@ -204,6 +227,7 @@ const AppComponent: React.FunctionComponent = () => {
           prev === null ? prev : { ...prev, createdHierarchyTemplateIds },
         );
       }
+      applyStoredTexts(result.replacementTexts);
       notify(host, formatCreatedMessage(result.createdArticleIds, TARGET));
       setHierarchy(null);
       closeDialog(host);
@@ -212,7 +236,7 @@ const AppComponent: React.FunctionComponent = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [hierarchy, replacementTexts, checkTemplate]);
+  }, [hierarchy, replacementTexts, checkTemplate, applyStoredTexts]);
 
   const removeTemplateFromArticle = useCallback(
     async (template: Template | null) => {
@@ -233,6 +257,7 @@ const AppComponent: React.FunctionComponent = () => {
         }
         setFailMessage("");
         applyUsedTemplateIds(result.usedTemplateIds);
+        applyStoredTexts(result.replacementTexts);
         notify(host, `${template.name} removed.`);
       } catch (error) {
         setFailMessage(getErrorMessage(error));
@@ -240,7 +265,7 @@ const AppComponent: React.FunctionComponent = () => {
         setSubmitting(false);
       }
     },
-    [checkTemplate, applyUsedTemplateIds],
+    [checkTemplate, applyUsedTemplateIds, applyStoredTexts],
   );
 
   const onAction = useCallback(
@@ -283,6 +308,7 @@ const AppComponent: React.FunctionComponent = () => {
           submitting={submitting}
           onConfirm={confirmPending}
           onBack={() => setPendingTemplate(null)}
+          textsRemembered={hasStoredReplacementTexts(pendingTemplate, storedTexts)}
           forArticle
         />
         {failBanner}
@@ -303,6 +329,7 @@ const AppComponent: React.FunctionComponent = () => {
           submitting={submitting}
           onConfirm={confirmCreateHierarchy}
           onBack={() => setHierarchy(null)}
+          textsRemembered={hasStoredReplacementTexts(hierarchy.template, storedTexts)}
           backLabel={hierarchy.afterApply ? "Not now" : "Back"}
         />
         {failBanner}
@@ -357,6 +384,7 @@ const AppComponent: React.FunctionComponent = () => {
         <ApplyActionsPanel
           template={selected}
           status={selected === null ? null : getApplyStatus(articleTemplateInfo, selected)}
+          blockedReason={selected === null ? null : getBlockedReason(selected)}
           target={TARGET}
           submitting={submitting}
           onAction={onAction}

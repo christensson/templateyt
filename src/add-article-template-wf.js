@@ -163,6 +163,7 @@ exports.rule = entities.Article.onChange({
         const index = usedTemplateIds.indexOf(template.id);
         usedTemplateIds.splice(index, 1);
       }
+      utils.clearStoredReplacementTexts(article, template.id);
     }
 
     // Apply new templates, skipping already-applied ones.

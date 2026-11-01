@@ -1,5 +1,6 @@
 // Shared, UI-independent logic of the "Apply template" dialogs for tickets and articles.
 import type { HostAPI } from "../@types/globals";
+import type { ProjectFieldInfo } from "../@types/project-info";
 import {
   flattenChildTemplates,
   getChildTemplates,
@@ -10,6 +11,7 @@ import {
   type Template,
   type TemplateTarget,
 } from "../@types/template";
+import { hasMissingReplacementTexts, type FieldValues, type ReplacementTexts } from "./template-client";
 
 // What the apply dialogs know about the templates of the current ticket or article.
 export type ApplyInfo = {
@@ -73,7 +75,11 @@ export const getApplyGroupMap = (
 export const formatRowStatus = (
   status: ApplyStatus | null,
   target: TemplateTarget,
+  blocked: boolean = false,
 ): { text: string; warning: boolean } | null => {
+  if (blocked) {
+    return { text: "Can't apply", warning: true };
+  }
   if (status === "needs_input") {
     return { text: "Needs input", warning: true };
   }
@@ -115,6 +121,8 @@ export type ApplyAction = {
   key: ApplyActionKey;
   label: string;
   primary: boolean;
+  // Shown but not usable, because a precondition of the template is not met.
+  disabled?: boolean;
 };
 
 export const formatChildrenNoun = (target: TemplateTarget): string =>
@@ -123,9 +131,8 @@ export const formatChildrenNoun = (target: TemplateTarget): string =>
 export const formatHierarchyLabel = (target: TemplateTarget, again: boolean): string =>
   `Create ${formatChildrenNoun(target)}${again ? " again" : ""}`;
 
-// The actions offered for a template in a given state; at most one of them is primary.
-// Articles have no fields, so they are never offered "Set fields".
-export const getApplyActions = (
+// The actions for a template in a given state, before preconditions are considered.
+const getEnabledApplyActions = (
   template: Template,
   status: ApplyStatus,
   target: TemplateTarget,
@@ -158,6 +165,19 @@ export const getApplyActions = (
   actions.push({ key: "remove", label: "Remove", primary: false });
   return actions;
 };
+
+// The actions offered for a template in a given state; at most one of them is primary.
+// Articles have no fields, so they are never offered "Set fields". When the template is blocked
+// by an unmet precondition, every action except Remove is disabled.
+export const getApplyActions = (
+  template: Template,
+  status: ApplyStatus,
+  target: TemplateTarget,
+  blocked: boolean = false,
+): Array<ApplyAction> =>
+  getEnabledApplyActions(template, status, target).map((action) =>
+    blocked && action.key !== "remove" ? { ...action, disabled: true } : action,
+  );
 
 // Maximum number of created ids listed one by one in a success message.
 const MAX_LISTED_IDS = 4;
@@ -205,3 +225,97 @@ export const closeDialog = (host: HostAPI) => {
     console.warn("Failed to close dialog", error);
   }
 };
+
+// How a field replacement (a word replaced by a root ticket field) gets its text:
+// - "filled": from the field's current value.
+// - "empty": the field is empty; the user chooses a value, which is also set on the ticket.
+// - "set_by_template": from the value the template itself sets in the same action.
+// - "missing_field": the field does not exist in the project or cannot be used (blocks).
+// - "article": articles have no ticket fields (blocks).
+export type ReplacementPreconditionKind =
+  | "filled"
+  | "empty"
+  | "set_by_template"
+  | "missing_field"
+  | "article";
+
+export type ReplacementPrecondition = {
+  search: string;
+  fieldName: string;
+  kind: ReplacementPreconditionKind;
+  // The user must choose a value: for "empty" a replacement field value, for "set_by_template" the
+  // template's own user-input field, when the ticket field is empty.
+  required: boolean;
+};
+
+export type ReplacementPreconditions = {
+  items: Array<ReplacementPrecondition>;
+  // Why the template cannot be used here at all, or null.
+  blockedReason: string | null;
+};
+
+const formatBlockedReason = (item: ReplacementPrecondition): string =>
+  item.kind === "article"
+    ? `Can't apply to articles: ${item.search} is replaced by ticket field ${item.fieldName}.`
+    : `Can't apply: ${item.search} is replaced by field ${item.fieldName}, which this project doesn't have.`;
+
+// The preconditions of a template's field replacements. fieldInfos lists the project fields that
+// templates can use (none for articles); currentFieldPresentations holds the ticket's current
+// display texts. templateSetsFields is true for actions that also set the template's fields
+// (apply, set fields), false when creating subtasks.
+export const getReplacementPreconditions = (
+  template: Template,
+  target: TemplateTarget,
+  fieldInfos: Array<ProjectFieldInfo>,
+  currentFieldPresentations: Record<string, string | null> | undefined,
+  templateSetsFields: boolean,
+): ReplacementPreconditions => {
+  const templateFields = templateSetsFields && target === "ticket" ? getTemplateFields(template) : [];
+  const items: Array<ReplacementPrecondition> = [];
+  for (const replacement of getTemplateReplacements(template)) {
+    if (replacement.mode !== "field") {
+      continue;
+    }
+    const { search, fieldName } = replacement;
+    const isFilled = Boolean(currentFieldPresentations?.[fieldName]);
+    const setter = templateFields.find((field) => field.fieldName === fieldName);
+    let kind: ReplacementPreconditionKind;
+    let required = false;
+    if (target === "article") {
+      kind = "article";
+    } else if (!fieldInfos.some((info) => info.name === fieldName)) {
+      kind = "missing_field";
+    } else if (setter !== undefined) {
+      kind = "set_by_template";
+      required = setter.mode === "user_input" && !isFilled;
+    } else if (isFilled) {
+      kind = "filled";
+    } else {
+      kind = "empty";
+      required = true;
+    }
+    items.push({ search, fieldName, kind, required });
+  }
+  const blocking = items.find((item) => item.kind === "article" || item.kind === "missing_field");
+  return { items, blockedReason: blocking ? formatBlockedReason(blocking) : null };
+};
+
+// Whether the user still has to choose values for empty replacement fields.
+export const needsReplacementFieldInput = (preconditions: ReplacementPreconditions): boolean =>
+  preconditions.items.some((item) => item.kind === "empty");
+
+// Whether required input is missing: user-input replacement texts, values for empty replacement
+// fields, or template fields whose value a replacement needs.
+export const hasMissingRequiredInput = (
+  template: Template,
+  texts: ReplacementTexts,
+  preconditions: ReplacementPreconditions,
+  fieldValues: FieldValues,
+  replacementFieldValues: FieldValues,
+): boolean =>
+  hasMissingReplacementTexts(template, texts) ||
+  preconditions.items.some(
+    (item) =>
+      item.required &&
+      !(item.kind === "empty" ? replacementFieldValues : fieldValues)[item.fieldName],
+  );
