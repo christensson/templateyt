@@ -11,6 +11,8 @@
 }
 
 .template-toolbar {
+  display: flex;
+  align-items: center;
   width: auto;
   gap: calc(var(--ring-unit) / 2);
   padding: calc(var(--ring-unit) / 2);
@@ -18,6 +20,12 @@
   margin-left: calc(var(--ring-unit));
   margin-right: calc(var(--ring-unit));
   margin-bottom: calc(var(--ring-unit));
+}
+
+.template-list-filter,
+.template-list-empty {
+  display: block;
+  margin: 0 calc(var(--ring-unit)) calc(var(--ring-unit));
 }
 
 .template-list-panel {
@@ -33,7 +41,9 @@
 .template-edit-help-content {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--ring-unit) * 2);
+  gap: calc(var(--ring-unit));
+  padding-bottom: calc(var(--ring-unit) * 2);
+  border-bottom: 1px solid var(--ring-line-color);
 }
 
 .template-edit-extra-info {
@@ -79,7 +89,61 @@
 
 .template-edit-actions {
   display: flex;
+  align-items: center;
   gap: calc(var(--ring-unit) / 2);
+}
+
+/* Title of the selected template with its actions, so Save and Cancel are reachable without
+   scrolling: the app iframe grows with its content, so a sticky bar would not stay in view. */
+.template-edit-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--ring-unit));
+  padding-bottom: calc(var(--ring-unit));
+  border-bottom: 1px solid var(--ring-line-color);
+}
+
+.template-edit-header-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-section {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit));
+}
+
+.template-section + .template-section {
+  padding-top: calc(var(--ring-unit) * 2);
+  border-top: 1px solid var(--ring-line-color);
+}
+
+.template-section-title {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ring-unit) / 2);
+  margin: 0;
+}
+
+.template-section-warning {
+  color: var(--ring-warning-color);
+}
+
+.template-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ring-unit) * 2);
+}
+
+.template-error-list {
+  margin: 0;
+  padding-left: calc(var(--ring-unit) * 2);
 }
 
 /* Doubles the gap before the "..." menu, setting it apart from the main actions. Flex makes
@@ -108,4 +172,20 @@
 .template-json-code {
   max-height: 60vh;
   overflow: auto;
+}
+
+/* "+ Add tag" select, aligned with the "+ Add field" style buttons. */
+.template-add-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ring-unit) / 2);
+  color: var(--ring-link-color);
+}
+
+.template-add-row-icon {
+  color: var(--ring-link-color);
+}
+
+.template-edit-header-child {
+  color: var(--ring-secondary-color);
 }

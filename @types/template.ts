@@ -459,7 +459,7 @@ export const formatTemplateValidCondition = (template: Template): string => {
     return `Valid when ${parts[0]}.`;
   }
 
-  return `Valid when any of; ${parts.join(", or ")}.`;
+  return `Valid when ${parts.join(" or ")}.`;
 };
 
 export const formatTemplateAddCondition = (template: Template): string => {
@@ -498,6 +498,22 @@ export const formatTemplateRelation = (relation: TemplateRelation, template: Tem
   `Adds relation ${relation.linkName} to ${formatRelationTarget(relation, template)}.`;
 
 // Returns an error message for an incomplete relation of the template or a child template, or null.
+// Validates the relations of one template or child template. Returns an error message, or null.
+const validateOwnerRelations = (owner: HasRelations, subject: string): string | null => {
+  for (const relation of getTemplateRelations(owner)) {
+    if (relation.linkName.trim() === "") {
+      return `${subject} has a relation without link type.`;
+    }
+    if (relation.target === "fixed" && relation.issueId.trim() === "") {
+      return `${subject} relation "${relation.linkName}" needs a ticket id.`;
+    }
+    if (relation.target === "child" && relation.childId === "") {
+      return `${subject} relation "${relation.linkName}" needs a target ticket.`;
+    }
+  }
+  return null;
+};
+
 export const validateRelations = (template: Template): string | null => {
   const owners: Array<{ owner: HasRelations; subject: string }> = [
     { owner: template, subject: "Template" },
@@ -507,16 +523,9 @@ export const validateRelations = (template: Template): string | null => {
     })),
   ];
   for (const { owner, subject } of owners) {
-    for (const relation of getTemplateRelations(owner)) {
-      if (relation.linkName.trim() === "") {
-        return `${subject} has a relation without link type.`;
-      }
-      if (relation.target === "fixed" && relation.issueId.trim() === "") {
-        return `${subject} relation "${relation.linkName}" needs a ticket id.`;
-      }
-      if (relation.target === "child" && relation.childId === "") {
-        return `${subject} relation "${relation.linkName}" needs a target ticket.`;
-      }
+    const error = validateOwnerRelations(owner, subject);
+    if (error !== null) {
+      return error;
     }
   }
   return null;
@@ -668,7 +677,7 @@ export const formatChildTemplate = (child: ChildTemplate): string => {
   if (fields) {
     parts.push(fields);
   }
-  return parts.length > 0 ? parts.join(" ") : "No fields set.";
+  return parts.join(" ");
 };
 
 // Validates a field list. `subject` prefixes the messages, e.g. `Template` or
@@ -716,6 +725,31 @@ export const validateTemplateFields = (template: Template): string | null => {
   return null;
 };
 
+// Problems of one child template's own settings, at most one per check, in the order the checks
+// have always run: name, add conditions, fields. Relations are checked by validateRelations.
+const validateChildSettings = (child: ChildTemplate): Array<TemplateValidationError> => {
+  const errors: Array<TemplateValidationError> = [];
+  if (!child.name || child.name.trim() === "") {
+    errors.push({ section: "general", message: `Child template for article ${child.articleId} needs a name.` });
+  }
+  const label = child.name && child.name.trim() !== "" ? child.name : child.articleId;
+  for (const cond of getChildAddConditions(child)) {
+    if (!cond.fieldName) {
+      errors.push({ section: "when", message: `Child template "${label}" condition is missing a field name.` });
+      break;
+    }
+    if (!cond.fieldValue) {
+      errors.push({ section: "when", message: `Child template "${label}" condition is missing a value.` });
+      break;
+    }
+  }
+  const fieldsError = validateFieldList(getTemplateFields(child), `Child template "${label}"`);
+  if (fieldsError !== null) {
+    errors.push({ section: "effects", message: fieldsError });
+  }
+  return errors;
+};
+
 // Validates the child templates of a hierarchical template. Returns an error message, or null.
 // Keep in sync with validateChildTemplates in backend.js.
 export const validateChildTemplates = (template: Template): string | null => {
@@ -727,30 +761,80 @@ export const validateChildTemplates = (template: Template): string | null => {
     return "Hierarchical template has no child templates, import child articles first.";
   }
   for (const { child } of flat) {
-    if (!child.name || child.name.trim() === "") {
-      return `Child template for article ${child.articleId} needs a name.`;
-    }
-    for (const cond of getChildAddConditions(child)) {
-      if (!cond.fieldName) {
-        return `Child template "${child.name}" condition is missing a field name.`;
-      }
-      if (!cond.fieldValue) {
-        return `Child template "${child.name}" condition is missing a value.`;
-      }
-    }
-    const error = validateFieldList(getTemplateFields(child), `Child template "${child.name}"`);
-    if (error !== null) {
-      return error;
+    const errors = validateChildSettings(child);
+    if (errors.length > 0) {
+      return errors[0].message;
     }
   }
   return null;
 };
 
+// Every problem of one child template, including its relations, by editor section. Empty when
+// the child template is fine or the template is not hierarchical (child templates are unused).
+export const validateChildTemplate = (
+  template: Template,
+  child: ChildTemplate,
+): Array<TemplateValidationError> => {
+  if (!template.hierarchical) {
+    return [];
+  }
+  const errors = validateChildSettings(child);
+  const relationsError = validateOwnerRelations(child, `Child template "${child.name}"`);
+  if (relationsError !== null) {
+    errors.push({ section: "effects", message: relationsError });
+  }
+  return errors;
+};
+
+// Sections of the template editor, used to place validation errors next to their cause.
+export type TemplateSection = "general" | "when" | "effects" | "hierarchy";
+
+export type TemplateValidationError = {
+  section: TemplateSection;
+  message: string;
+};
+
+// Validates a template for storing. Returns every problem found, at most one per check, in the
+// order the checks were historically run, so the first entry is the message shown before the
+// editor listed all errors. Empty when the template can be stored.
+export const validateTemplate = (template: Template): Array<TemplateValidationError> => {
+  const errors: Array<TemplateValidationError> = [];
+  const add = (section: TemplateSection, message: string | null) => {
+    if (message !== null) {
+      errors.push({ section, message });
+    }
+  };
+  add("general", (template.name ?? "").trim() === "" ? "Template name is required." : null);
+  add("general", (template.articleId ?? "").trim() === "" ? "Template article is required." : null);
+  add(
+    "when",
+    getValidConditions(template).length === 0
+      ? "Template missing valid conditions, please define when valid."
+      : null,
+  );
+  add("effects", validateTemplateFields(template));
+  add("hierarchy", validateChildTemplates(template));
+  add("effects", validateReplacements(template));
+  add("effects", validateRelations(template));
+  return errors;
+};
+
+// The template payload to store and its validation errors. The payload keeps the stored shape:
+// only relations to child templates that no longer exist are dropped.
+export const prepareTemplateForStore = (
+  template: Template,
+): { template: Template; errors: Array<TemplateValidationError> } => {
+  const pruned = pruneDanglingRelations(template);
+  return { template: pruned, errors: validateTemplate(pruned) };
+};
+
+// New templates start as available for tickets, the most common case, so a template that is
+// only named and given an article can be stored right away.
 export const createEmptyTemplate = (): Template => ({
   id: uuidv4(),
   name: "",
   articleId: "",
-  validCondition: [],
+  validCondition: [{ when: "entity_is", entityType: "issue" }],
   addCondition: null,
   fields: [],
   replacements: [],
@@ -769,3 +853,92 @@ export const createNullTemplate = (): Template => ({
   hierarchical: false,
   children: [],
 });
+
+// Options of the "Apply automatically" choice in the template editor.
+export type AddConditionKey = "none" | AddCondition["when"];
+
+export const getAddConditionKey = (template: Template): AddConditionKey =>
+  template.addCondition?.when ?? "none";
+
+// The empty add condition stored when the user picks an "Apply automatically" option.
+export const addConditionForKey = (key: AddConditionKey): AddCondition | null => {
+  if (key === "field_becomes") {
+    return { when: "field_becomes", fieldName: "", fieldValue: "" };
+  }
+  if (key === "tag_added") {
+    return { when: "tag_added", tagName: "" };
+  }
+  return null;
+};
+
+// A copy of the template to store as a new template: new template id, new child template ids
+// (relations between child templates follow them), name prefixed with "Copy of".
+export const duplicateTemplate = (template: Template): Template => {
+  const copy: Template = JSON.parse(JSON.stringify(template));
+  const idMap = new Map<string, string>();
+  const renumber = (children: Array<ChildTemplate>) => {
+    for (const child of children) {
+      const newId = uuidv4();
+      idMap.set(child.id, newId);
+      child.id = newId;
+      renumber(getChildTemplates(child));
+    }
+  };
+  renumber(getChildTemplates(copy));
+  const remap = (owner: HasRelations) => {
+    if (Array.isArray(owner.relations)) {
+      owner.relations = owner.relations.map((relation) =>
+        relation.target === "child" && idMap.has(relation.childId)
+          ? { ...relation, childId: idMap.get(relation.childId) as string }
+          : relation,
+      );
+    }
+  };
+  remap(copy);
+  flattenChildTemplates(getChildTemplates(copy)).forEach(({ child }) => remap(child));
+  return { ...copy, id: uuidv4(), name: `Copy of ${template.name}` };
+};
+
+const countLabel = (count: number, singular: string, plural: string = `${singular}s`): string =>
+  `${count} ${count === 1 ? singular : plural}`;
+
+const formatShortValidCondition = (cond: ValidCondition): string => {
+  if (cond.when === "entity_is") {
+    return cond.entityType === "issue" ? "ticket" : "article";
+  }
+  if (cond.when === "field_is") {
+    return `${cond.fieldName} is ${cond.fieldValue}`;
+  }
+  return `tag ${cond.tagName}`;
+};
+
+// Compact, scannable summary of a template for list rows, e.g.
+// ["Ticket or article", "Auto: Type → Task", "3 fields", "11 subtasks"].
+export const formatTemplateSummaryTokens = (template: Template): Array<string> => {
+  const tokens: Array<string> = [];
+  const conditions = getValidConditions(template);
+  if (conditions.length > 0) {
+    tokens.push(capitalizeFirst(conditions.map(formatShortValidCondition).join(" or ")));
+  }
+  const addCond = template.addCondition;
+  if (addCond?.when === "field_becomes") {
+    tokens.push(`Auto: ${addCond.fieldName} → ${addCond.fieldValue}`);
+  } else if (addCond?.when === "tag_added") {
+    tokens.push(`Auto: tag ${addCond.tagName}`);
+  }
+  const counts: Array<[number, string, string?]> = [
+    [getTemplateFields(template).length, "field"],
+    [getTemplateTags(template).length, "tag"],
+    [getTemplateRelations(template).length, "relation"],
+    [getTemplateReplacements(template).length, "replacement"],
+  ];
+  for (const [count, singular, plural] of counts) {
+    if (count > 0) {
+      tokens.push(countLabel(count, singular, plural));
+    }
+  }
+  if (template.hierarchical) {
+    tokens.push(countLabel(flattenChildTemplates(getChildTemplates(template)).length, "subtask"));
+  }
+  return tokens;
+};

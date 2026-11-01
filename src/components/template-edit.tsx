@@ -1,6 +1,8 @@
+import AddIcon from "@jetbrains/icons/add-12px";
 import ArticleIcon from "@jetbrains/icons/article";
 import ConditionIcon from "@jetbrains/icons/buildType-12px";
 import CodeIcon from "@jetbrains/icons/code";
+import CopyIcon from "@jetbrains/icons/copy";
 import ImportIcon from "@jetbrains/icons/download";
 import RelationIcon from "@jetbrains/icons/link-12px";
 import MoreOptionsIcon from "@jetbrains/icons/more-options";
@@ -14,16 +16,20 @@ import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Checkbox from "@jetbrains/ring-ui-built/components/checkbox/checkbox";
 import Confirm from "@jetbrains/ring-ui-built/components/confirm/confirm";
 import DropdownMenu from "@jetbrains/ring-ui-built/components/dropdown-menu/dropdown-menu";
+import { H2 } from "@jetbrains/ring-ui-built/components/heading/heading";
 import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
+import Radio from "@jetbrains/ring-ui-built/components/radio/radio";
 import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isConditionField, type ProjectFieldInfo, type TagInfo } from "../../@types/project-info";
 import {
+  addConditionForKey,
   collectManualArticleIds,
   createNullTemplate,
+  duplicateTemplate,
   findChildTemplate,
   flattenChildTemplates,
   formatAddCondition,
@@ -31,8 +37,8 @@ import {
   formatTemplateField,
   formatTemplateTag,
   formatTemplateRelation,
-  formatTemplateHierarchy,
   formatValidCondition,
+  getAddConditionKey,
   getChildTemplates,
   getTemplateFields,
   getTemplateTags,
@@ -42,13 +48,13 @@ import {
   getValidConditions,
   insertManualChild,
   mergeImportedChildren,
-  validateChildTemplates,
-  validateReplacements,
-  validateRelations,
-  pruneDanglingRelations,
-  validateTemplateFields,
+  prepareTemplateForStore,
+  type AddConditionKey,
+  type ChildTemplate,
   type IssueLinkTypeInfo,
   type Template,
+  type TemplateSection as TemplateSectionKey,
+  type TemplateValidationError,
   type ValidCondition,
 } from "../../@types/template";
 import type { TemplateArticle } from "../../@types/template-article";
@@ -68,6 +74,7 @@ import TemplateFieldsPanel from "./template-fields-panel";
 import TemplateJsonDialog from "./template-json-dialog";
 import TemplateRelationsPanel, { type IssueChecker } from "./template-relations-panel";
 import TemplateReplacementsPanel from "./template-replacements-panel";
+import TemplateSection from "./template-section";
 import TemplateTagsPanel from "./template-tags-panel";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
@@ -83,22 +90,29 @@ const fetchArticleTree: ArticleTreeFetcher = (articleId) =>
 
 const TAG_PAGE_SIZE = 50;
 
-const SELECT_VALID_CONDITION = [
-  { key: "entity_is", label: "When ticket/article" },
-  { key: "field_is", label: "When ticket field is" },
-  { key: "tag_is", label: "When ticket/article has tag" },
-];
-
-const SELECT_ACTION_DATA = [
-  { key: "none", label: "Not added automatically" },
-  { key: "field_becomes", label: "Added when ticket field becomes a specific value" },
-  { key: "tag_added", label: "Added when ticket or article tagged with a specific tag" },
-];
-
-type FailMessage = {
-  mode: "info" | "error" | "success" | "warning" | "purple" | "grey";
-  message: string;
+// Transient confirmation in YouTrack; best effort, the result is already visible on the page.
+const notify = (message: string) => {
+  try {
+    host.alert(message);
+  } catch (error) {
+    console.warn("Failed to show notification", error);
+  }
 };
+
+const SELECT_VALID_CONDITION = [
+  { key: "entity_is", label: "Ticket or article" },
+  { key: "field_is", label: "Ticket field has a value" },
+  { key: "tag_is", label: "Ticket or article has a tag" },
+];
+
+const ADD_CONDITION_OPTIONS: Array<{ key: AddConditionKey; label: string }> = [
+  { key: "none", label: "Never, only from the Apply template menu" },
+  { key: "field_becomes", label: "When a ticket field changes to a value" },
+  { key: "tag_added", label: "When a ticket or article gets a tag" },
+];
+
+const VALID_CONDITIONS_TITLE = "Available in the Apply template menu when any of these match";
+const ADD_CONDITION_TITLE = "Apply automatically";
 
 const createValidCondition = (key: string): ValidCondition => {
   if (key === "entity_is") {
@@ -110,132 +124,161 @@ const createValidCondition = (key: string): ValidCondition => {
   return { when: "tag_is", tagName: "" };
 };
 
+const hasSectionError = (errors: Array<TemplateValidationError>, section: TemplateSectionKey) =>
+  errors.some((error) => error.section === section);
+
+interface LabeledValueProps {
+  label: string;
+  children: React.ReactNode;
+}
+
+// Small grey label above its content, as used for every setting in the view.
+const LabeledValue: React.FunctionComponent<LabeledValueProps> = ({ label, children }) => (
+  <div className="template-edit-field-panel">
+    <Text size={Text.Size.S} info>
+      {label}
+    </Text>
+    {children}
+  </div>
+);
+
+interface EffectsViewProps {
+  template: Template;
+}
+
+// Read-only list of what a template does when applied; lists only configured kinds.
+const EffectsView: React.FunctionComponent<EffectsViewProps> = ({ template }) => {
+  const templateFields = getTemplateFields(template);
+  const tags = getTemplateTags(template);
+  const relations = getTemplateRelations(template);
+  const replacements = getTemplateReplacements(template);
+  const kinds: Array<[string, number]> = [
+    ["fields", templateFields.length],
+    ["tags", tags.length],
+    ["relations", relations.length],
+    ["text replacements", replacements.length],
+  ];
+  const notConfigured = kinds.filter(([, count]) => count === 0).map(([name]) => name);
+
+  return (
+    <>
+      {templateFields.length > 0 && (
+        <LabeledValue label="Ticket fields">
+          {templateFields.map((field) => (
+            <Text size={Text.Size.M} key={`field-text-${field.fieldName}`}>
+              <Icon glyph={FieldIcon}/> {formatTemplateField(field, true)}
+            </Text>
+          ))}
+        </LabeledValue>
+      )}
+      {tags.length > 0 && (
+        <LabeledValue label="Tags">
+          {tags.map((tag) => (
+            <Text size={Text.Size.M} key={`tag-text-${tag}`}>
+              <Icon glyph={TagIcon}/> {formatTemplateTag(tag)}
+            </Text>
+          ))}
+        </LabeledValue>
+      )}
+      {relations.length > 0 && (
+        <LabeledValue label="Relations">
+          {relations.map((relation, idx) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <Text size={Text.Size.M} key={`relation-text-${idx}`}>
+              <Icon glyph={RelationIcon}/> {formatTemplateRelation(relation, template)}
+            </Text>
+          ))}
+        </LabeledValue>
+      )}
+      {replacements.length > 0 && (
+        <LabeledValue label="Text replacements">
+          {replacements.map((replacement) => (
+            <Text size={Text.Size.M} key={`replacement-text-${replacement.search}`}>
+              <Icon glyph={ReplaceIcon}/> {formatReplacement(replacement)}
+            </Text>
+          ))}
+        </LabeledValue>
+      )}
+      {notConfigured.length === kinds.length && (
+        <Text size={Text.Size.M}>Only adds the template article content.</Text>
+      )}
+      {notConfigured.length > 0 && notConfigured.length < kinds.length && (
+        <Text size={Text.Size.S} info>
+          Not configured: {notConfigured.join(", ")}.
+        </Text>
+      )}
+    </>
+  );
+};
+
 interface TemplateViewProps {
   template: Template;
   templateArticleSelectItems: Array<TemplateArticleSelectItem>;
 }
 
-// Read-only presentation of a template.
+// Read-only presentation of a template, grouped like the edit form.
 const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
   template,
   templateArticleSelectItems,
 }) => {
   const validConditions = getValidConditions(template);
-  const templateFields = getTemplateFields(template);
+  const childCount = flattenChildTemplates(getChildTemplates(template)).length;
+
   return (
     <>
-      <div className="template-edit-field-panel">
-        <Text size={Text.Size.S} info>
-          Name
-        </Text>
-        <Text size={Text.Size.M}>{template.name}</Text>
-      </div>
-      <div className="template-edit-field-panel">
-        <div className="template-edit-field-panel">
-          <Text size={Text.Size.S} info>
-            Template article
-          </Text>
+      <TemplateSection title="General">
+        <LabeledValue label="Template article">
           <Text size={Text.Size.M}>
             {templateArticleSelectItems.find((item) => item.key === template?.articleId)?.label ||
-              "Not set..."}
+              "Not set"}
           </Text>
-        </div>
-        {template?.articleId && (
-          <Button href={`/articles/${template.articleId}`} target="_blank" icon={ArticleIcon}>
-            Open {template.articleId}
-          </Button>
-        )}
-      </div>
-      <div className="template-edit-field-panel">
-        <Text size={Text.Size.S} info>
-          Conditions when template is valid (any matches)
-        </Text>
-        {validConditions.length === 0 ? (
-          <Text size={Text.Size.M}>No validity conditions.</Text>
-        ) : (
-          <div className="template-edit-valid-cond-list">
-            {validConditions.map((cond, idx) => (
-              // Conditions have no identity of their own; the list is small and rendered read-only.
-              // eslint-disable-next-line react/no-array-index-key
-              <Text size={Text.Size.M} key={`valid-cond-text-${idx}`}>
-                <Icon glyph={ConditionIcon}/> {formatValidCondition(cond, true)}.
-              </Text>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="template-edit-field-panel">
-        <Text size={Text.Size.S} info>
-          Condition when template is added automatically
-        </Text>
-        {template.addCondition == null ? (
-          <Text size={Text.Size.M}>No automatic condition set.</Text>
-        ) : (
+          {template?.articleId && (
+            <div>
+              <Button href={`/articles/${template.articleId}`} target="_blank" icon={ArticleIcon} inline>
+                Open {template.articleId}
+              </Button>
+            </div>
+          )}
+        </LabeledValue>
+      </TemplateSection>
+      <TemplateSection title="When to use">
+        <LabeledValue label={VALID_CONDITIONS_TITLE}>
+          {validConditions.length === 0 ? (
+            <Text size={Text.Size.M}>Never, no conditions set.</Text>
+          ) : (
+            <div className="template-edit-valid-cond-list">
+              {validConditions.map((cond, idx) => (
+                // Conditions have no identity of their own; the list is small and rendered read-only.
+                // eslint-disable-next-line react/no-array-index-key
+                <Text size={Text.Size.M} key={`valid-cond-text-${idx}`}>
+                  <Icon glyph={ConditionIcon}/> {formatValidCondition(cond, true)}.
+                </Text>
+              ))}
+            </div>
+          )}
+        </LabeledValue>
+        <LabeledValue label={ADD_CONDITION_TITLE}>
           <Text size={Text.Size.M}>
-            <Icon glyph={ConditionIcon}/> {formatAddCondition(template.addCondition, true)}
+            {template.addCondition == null ? (
+              ADD_CONDITION_OPTIONS[0].label + "."
+            ) : (
+              <>
+                <Icon glyph={ConditionIcon}/> When {formatAddCondition(template.addCondition)}
+              </>
+            )}
           </Text>
-        )}
-      </div>
-      <div className="template-edit-field-panel">
-        <Text size={Text.Size.S} info>
-          Ticket fields set by template
+        </LabeledValue>
+      </TemplateSection>
+      <TemplateSection title="What it does">
+        <EffectsView template={template}/>
+      </TemplateSection>
+      <TemplateSection title="Hierarchy">
+        <Text size={Text.Size.M}>
+          {template.hierarchical
+            ? `Creates subtasks from ${childCount} child template${childCount === 1 ? "" : "s"}. Select one in the list to see it.`
+            : "Not hierarchical."}
         </Text>
-        {templateFields.length === 0 ? (
-          <Text size={Text.Size.M}>No fields set.</Text>
-        ) : (
-          <div className="template-edit-valid-cond-list">
-            {templateFields.map((field) => (
-              <Text size={Text.Size.M} key={`field-text-${field.fieldName}`}>
-                <Icon glyph={FieldIcon}/> {formatTemplateField(field, true)}
-              </Text>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="template-edit-field-panel">
-        <Text size={Text.Size.S} info>
-          Tags added by template
-        </Text>
-        {getTemplateTags(template).length === 0 && <Text size={Text.Size.M}>No tags set.</Text>}
-        {getTemplateTags(template).map((tag) => (
-          <Text size={Text.Size.M} key={`tag-text-${tag}`}>
-            <Icon glyph={TagIcon}/> {formatTemplateTag(tag)}
-          </Text>
-        ))}
-      </div>
-      <div className="template-edit-field-panel">
-        <Text size={Text.Size.S} info>
-          Relations added by template
-        </Text>
-        {getTemplateRelations(template).length === 0 && (
-          <Text size={Text.Size.M}>No relations set.</Text>
-        )}
-        {getTemplateRelations(template).map((relation, idx) => (
-          // eslint-disable-next-line react/no-array-index-key
-          <Text size={Text.Size.M} key={`relation-text-${idx}`}>
-            <Icon glyph={RelationIcon}/> {formatTemplateRelation(relation, template)}
-          </Text>
-        ))}
-      </div>
-      <div className="template-edit-field-panel">
-        <Text size={Text.Size.S} info>
-          Text replacements
-        </Text>
-        {getTemplateReplacements(template).length === 0 && (
-          <Text size={Text.Size.M}>No text replacements.</Text>
-        )}
-        {getTemplateReplacements(template).map((replacement) => (
-          <Text size={Text.Size.M} key={`replacement-text-${replacement.search}`}>
-            <Icon glyph={ReplaceIcon}/> {formatReplacement(replacement)}
-          </Text>
-        ))}
-      </div>
-      <div className="template-edit-field-panel">
-        <Text size={Text.Size.S} info>
-          Ticket hierarchy
-        </Text>
-        <Text size={Text.Size.M}>{formatTemplateHierarchy(template) || "Not hierarchical."}</Text>
-      </div>
+      </TemplateSection>
     </>
   );
 };
@@ -284,12 +327,9 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({
   };
 
   return (
-    <div className="template-edit-field-panel">
-      <Text size={Text.Size.S} info>
-        Ticket hierarchy
-      </Text>
+    <>
       <Checkbox
-        label="Enable hierarchical template"
+        label="Create a subtask for each child article (from the Apply template menu)"
         checked={template.hierarchical}
         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
           const hierarchical = e.target.checked;
@@ -298,40 +338,42 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({
       />
       {template.hierarchical && (
         <>
-          <div>
-            <Button
-              onClick={importChildren}
-              disabled={!template.articleId || importing}
-              loader={importing}
-              icon={ImportIcon}
-              inline
-            >
-              Import child articles
-            </Button>
-          </div>
           <Text size={Text.Size.M}>
             {childCount === 0
-              ? "No child templates yet. Import the child articles of the template article or insert an article."
+              ? "No child templates yet."
               : `${childCount} child template${childCount === 1 ? "" : "s"}. Select one in the list to configure it.`}
           </Text>
-          <InsertChildArticle
-            template={template}
-            templateArticleSelectItems={templateArticleSelectItems}
-            onInsert={(article) => setTemplate((prev) => insertManualChild(prev, null, article))}
-          />
-          {importMessage && (
-            <Text size={Text.Size.S} info>
-              {importMessage}
-            </Text>
-          )}
+          <LabeledValue label="Child articles of the template article">
+            <div>
+              <Button
+                onClick={importChildren}
+                disabled={!template.articleId || importing}
+                loader={importing}
+                icon={ImportIcon}
+                inline
+              >
+                {childCount === 0 ? "Import child articles" : "Re-import child articles"}
+              </Button>
+            </div>
+            {importMessage && (
+              <Text size={Text.Size.S} info>
+                {importMessage}
+              </Text>
+            )}
+          </LabeledValue>
+          <LabeledValue label="Any other template article">
+            <InsertChildArticle
+              template={template}
+              templateArticleSelectItems={templateArticleSelectItems}
+              onInsert={(article) => setTemplate((prev) => insertManualChild(prev, null, article))}
+            />
+          </LabeledValue>
           <Text size={Text.Size.S} info>
-            Hierarchies are created manually from the Apply template menu of a ticket or an
-            article. For articles, sub-articles are created with text replacements and tags only;
-            fields, inheritance and add conditions of child templates do not apply.
+            For articles, sub-articles get text replacements and tags only.
           </Text>
         </>
       )}
-    </div>
+    </>
   );
 };
 
@@ -347,6 +389,7 @@ interface TemplateEditFormProps {
   onTagsLoadMore: () => void;
   linkNames: Array<string>;
   checkIssue: IssueChecker;
+  errors: Array<TemplateValidationError>;
 }
 
 // Editable form for a template.
@@ -362,39 +405,10 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
   onTagsLoadMore,
   linkNames,
   checkIssue,
+  errors,
 }) => {
   const validConditions = getValidConditions(template);
-
-  const onSelectAddCondition = (selected: SelectItem | null) => {
-    if (selected === null || selected.key === "none") {
-      setTemplate((prev) => (prev !== null ? { ...prev, addCondition: null } : prev));
-    } else if (selected.key === "field_becomes") {
-      setTemplate((prev) =>
-        prev !== null
-          ? {
-              ...prev,
-              addCondition: {
-                when: "field_becomes",
-                fieldName: "",
-                fieldValue: "",
-              },
-            }
-          : prev,
-      );
-    } else if (selected.key === "tag_added") {
-      setTemplate((prev) =>
-        prev !== null
-          ? {
-              ...prev,
-              addCondition: {
-                when: "tag_added",
-                tagName: "",
-              },
-            }
-          : prev,
-      );
-    }
-  };
+  const addConditionKey = getAddConditionKey(template);
 
   const renderValidConditionInput = (cond: ValidCondition, idx: number) => {
     if (cond.when === "entity_is") {
@@ -434,154 +448,199 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
 
   return (
     <>
-      <Input
-        label="Name"
-        value={template.name}
-        onChange={(e) =>
-          setTemplate((prev) => (prev !== null ? { ...prev, name: e.target.value } : prev))
-        }
-        size={Size.M}
-      />
-      <div className="template-edit-field-panel">
-        <Select
-          clear
-          filter
-          selectedLabel="Template article"
-          label="Select template article..."
-          data={templateArticleSelectItems}
-          selected={templateArticleSelectItems.find(
-            (item) => item.templateArticleItem.articleId === template?.articleId,
-          )}
-          onChange={(selected: TemplateArticleSelectItem | null) => {
-            if (selected != null) {
-              setTemplate((prev) =>
-                prev !== null
-                  ? {
-                      ...prev,
-                      articleId: selected.templateArticleItem.articleId,
-                    }
-                  : prev,
-              );
-            }
-          }}
+      <TemplateSection title="General" hasError={hasSectionError(errors, "general")}>
+        <Input
+          label="Name"
+          value={template.name}
+          onChange={(e) =>
+            setTemplate((prev) => (prev !== null ? { ...prev, name: e.target.value } : prev))
+          }
+          size={Size.L}
         />
-        {template?.articleId && (
-          <Button href={`/articles/${template.articleId}`} target="_blank" icon={ArticleIcon}>
-            Open {template.articleId}
-          </Button>
-        )}
-      </div>
-      <div className="template-edit-field-panel">
-        <Text size={Text.Size.S} info>
-          Conditions when template is valid (any matches)
-        </Text>
-        {validConditions.length === 0 && (
-          <Text size={Text.Size.M}>No validity conditions yet.</Text>
-        )}
-        {validConditions.map((cond, idx) => (
-          // Conditions have no identity of their own and the inputs are fully controlled by
-          // `template`, so the position is the only stable key.
-          // eslint-disable-next-line react/no-array-index-key
-          <div key={`valid-cond-${idx}`} style={{ display: "flex", gap: 8 }}>
-            {renderValidConditionInput(cond, idx)}
-            <Button
-              onClick={() =>
-                setTemplate((prev) => {
-                  const list = getValidConditions(prev);
-                  const updated = [...list];
-                  updated.splice(idx, 1);
-                  return { ...prev, validCondition: updated };
-                })
+        <div className="template-edit-field-panel">
+          <Select
+            filter
+            size={Select.Size.L}
+            selectedLabel="Template article"
+            label="Select template article..."
+            data={templateArticleSelectItems}
+            selected={templateArticleSelectItems.find(
+              (item) => item.templateArticleItem.articleId === template?.articleId,
+            )}
+            onChange={(selected: TemplateArticleSelectItem | null) => {
+              if (selected != null) {
+                setTemplate((prev) =>
+                  prev !== null
+                    ? {
+                        ...prev,
+                        articleId: selected.templateArticleItem.articleId,
+                      }
+                    : prev,
+                );
               }
-              icon={TrashIcon}
-              title="Remove condition"
+            }}
+          />
+          {templateArticleSelectItems.length === 0 && (
+            <Text size={Text.Size.S} info>
+              No template articles yet. Open an article&apos;s &quot;...&quot; menu and select
+              &quot;Configure as template&quot; to make it available here.
+            </Text>
+          )}
+          {template?.articleId && (
+            <div>
+              <Button href={`/articles/${template.articleId}`} target="_blank" icon={ArticleIcon} inline>
+                Open {template.articleId}
+              </Button>
+            </div>
+          )}
+        </div>
+      </TemplateSection>
+      <TemplateSection title="When to use" hasError={hasSectionError(errors, "when")}>
+        <LabeledValue label={VALID_CONDITIONS_TITLE}>
+          {validConditions.length === 0 && (
+            <Text size={Text.Size.M}>No conditions yet, add at least one.</Text>
+          )}
+          {validConditions.map((cond, idx) => (
+            // Conditions have no identity of their own and the inputs are fully controlled by
+            // `template`, so the position is the only stable key.
+            // eslint-disable-next-line react/no-array-index-key
+            <div key={`valid-cond-${idx}`} className="template-replacement-row">
+              {renderValidConditionInput(cond, idx)}
+              <Button
+                onClick={() =>
+                  setTemplate((prev) => {
+                    const list = getValidConditions(prev);
+                    const updated = [...list];
+                    updated.splice(idx, 1);
+                    return { ...prev, validCondition: updated };
+                  })
+                }
+                icon={TrashIcon}
+                title="Remove condition"
+              />
+            </div>
+          ))}
+          <div>
+            <DropdownMenu
+              anchor={(
+                <Button icon={AddIcon} inline>
+                  Add condition
+                </Button>
+              )}
+              data={SELECT_VALID_CONDITION}
+              onSelect={(selected: SelectItem | null) => {
+                if (!selected) {
+                  return;
+                }
+                const newCond = createValidCondition(selected.key as string);
+                setTemplate((prev) => ({
+                  ...prev,
+                  validCondition: [...getValidConditions(prev), newCond],
+                }));
+              }}
             />
           </div>
-        ))}
-        <DropdownMenu
-          anchor={"Add condition"}
-          data={SELECT_VALID_CONDITION}
-          onSelect={(selected: SelectItem | null) => {
-            if (!selected) {
-              return;
+        </LabeledValue>
+        <LabeledValue label={ADD_CONDITION_TITLE}>
+          <Radio
+            value={addConditionKey}
+            onChange={(key: string) =>
+              setTemplate((prev) => ({
+                ...prev,
+                addCondition: addConditionForKey(key as AddConditionKey),
+              }))
             }
-            const newCond = createValidCondition(selected.key as string);
-            setTemplate((prev) => ({
-              ...prev,
-              validCondition: [...getValidConditions(prev), newCond],
-            }));
-          }}
-        />
-      </div>
-      <div className="template-edit-field-panel">
-        <Select
-          clear
-          selectedLabel={"Condition when template is added automatically"}
-          size={Size.L}
-          data={SELECT_ACTION_DATA}
-          selected={SELECT_ACTION_DATA.find(
-            (item) => item.key === (template?.addCondition?.when || "none"),
+          >
+            {ADD_CONDITION_OPTIONS.map((option) => (
+              <Radio.Item key={option.key} value={option.key}>
+                {option.label}
+              </Radio.Item>
+            ))}
+          </Radio>
+          {template?.addCondition?.when === "field_becomes" && (
+            <FieldConditionInput
+              fields={conditionFields}
+              conditionType="add"
+              template={template}
+              setTemplate={setTemplate}
+            />
           )}
-          onChange={onSelectAddCondition}
+          {template?.addCondition?.when === "tag_added" && (
+            <TagConditionInput
+              tags={projectTags}
+              tagsLoading={tagsLoading}
+              onFilter={onTagsFilter}
+              onLoadMore={onTagsLoadMore}
+              conditionType="add"
+              template={template}
+              setTemplate={setTemplate}
+            />
+          )}
+        </LabeledValue>
+      </TemplateSection>
+      <TemplateSection title="What it does" hasError={hasSectionError(errors, "effects")}>
+        <TemplateFieldsPanel
+          title="Ticket fields"
+          fields={getTemplateFields(template)}
+          onFieldsChange={(fields) => setTemplate((prev) => ({ ...prev, fields }))}
+          projectFields={projectFields}
+          addCondition={template.addCondition}
         />
-        {template?.addCondition?.when === "field_becomes" && (
-          <FieldConditionInput
-            fields={conditionFields}
-            conditionType="add"
-            template={template}
-            setTemplate={setTemplate}
-          />
-        )}
-        {template?.addCondition?.when === "tag_added" && (
-          <TagConditionInput
-            tags={projectTags}
-            tagsLoading={tagsLoading}
-            onFilter={onTagsFilter}
-            onLoadMore={onTagsLoadMore}
-            conditionType="add"
-            template={template}
-            setTemplate={setTemplate}
-          />
-        )}
-      </div>
-      <TemplateFieldsPanel
-        title="Ticket fields set by template"
-        fields={getTemplateFields(template)}
-        onFieldsChange={(fields) => setTemplate((prev) => ({ ...prev, fields }))}
-        projectFields={projectFields}
-        addCondition={template.addCondition}
-      />
-      <TemplateTagsPanel
-        title="Tags added by template"
-        tags={getTemplateTags(template)}
-        onTagsChange={(tags) => setTemplate((prev) => ({ ...prev, tags }))}
-        projectTags={projectTags}
-        tagsLoading={tagsLoading}
-        onTagsFilter={onTagsFilter}
-        onTagsLoadMore={onTagsLoadMore}
-        hint="Tags are only added when the template is applied manually from the Apply template menu of a ticket."
-      />
-      <TemplateRelationsPanel
-        title="Relations added by template"
-        template={template}
-        ownerChildId={null}
-        relations={getTemplateRelations(template)}
-        onRelationsChange={(relations) => setTemplate((prev) => ({ ...prev, relations }))}
-        linkNames={linkNames}
-        checkIssue={checkIssue}
-        hint="Relations to fixed tickets are added when the template is applied, also automatically. Relations to tickets in the hierarchy are added when the hierarchy is created."
-      />
-      <TemplateReplacementsPanel
-        replacements={getTemplateReplacements(template)}
-        onReplacementsChange={(replacements) => setTemplate((prev) => ({ ...prev, replacements }))}
-        projectFields={projectFields}
-      />
-      <HierarchyPanel
-        template={template}
-        templateArticleSelectItems={templateArticleSelectItems}
-        setTemplate={setTemplate}
-      />
+        <TemplateTagsPanel
+          title="Tags"
+          tags={getTemplateTags(template)}
+          onTagsChange={(tags) => setTemplate((prev) => ({ ...prev, tags }))}
+          projectTags={projectTags}
+          tagsLoading={tagsLoading}
+          onTagsFilter={onTagsFilter}
+          onTagsLoadMore={onTagsLoadMore}
+          hint="Only added when applied manually from the Apply template menu of a ticket."
+        />
+        <TemplateRelationsPanel
+          title="Relations"
+          template={template}
+          ownerChildId={null}
+          relations={getTemplateRelations(template)}
+          onRelationsChange={(relations) => setTemplate((prev) => ({ ...prev, relations }))}
+          linkNames={linkNames}
+          checkIssue={checkIssue}
+          hint="Relations to subtasks are added when the hierarchy is created."
+        />
+        <TemplateReplacementsPanel
+          replacements={getTemplateReplacements(template)}
+          onReplacementsChange={(replacements) => setTemplate((prev) => ({ ...prev, replacements }))}
+          projectFields={projectFields}
+        />
+      </TemplateSection>
+      <TemplateSection title="Hierarchy" hasError={hasSectionError(errors, "hierarchy")}>
+        <HierarchyPanel
+          template={template}
+          templateArticleSelectItems={templateArticleSelectItems}
+          setTemplate={setTemplate}
+        />
+      </TemplateSection>
     </>
+  );
+};
+
+interface EditorTitleProps {
+  template: Template;
+  // Child template shown in the editor, if any.
+  child: ChildTemplate | null;
+}
+
+// "Template name" or "Template name › Child template name" in the editor header.
+const EditorTitle: React.FunctionComponent<EditorTitleProps> = ({ template, child }) => {
+  const templateName = template.name.trim() || "New template";
+  const childName = child !== null ? child.name.trim() || child.articleId : null;
+  return (
+    <H2
+      className="template-edit-header-title"
+      title={childName !== null ? `${templateName} › ${childName}` : templateName}
+    >
+      {templateName}
+      {childName !== null && <span className="template-edit-header-child"> › {childName}</span>}
+    </H2>
   );
 };
 
@@ -597,6 +656,8 @@ interface TemplateEditProps {
   // Child template selected in the list, shown instead of the template itself.
   selectedChildId: string | null;
   setSelectedChildId: (childId: string | null) => void;
+  // Starts editing the given template as a new, unsaved draft (used by Duplicate).
+  startDraft?: (template: Template) => void;
 }
 
 const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
@@ -610,6 +671,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   setTemplates,
   selectedChildId,
   setSelectedChildId,
+  startDraft,
 }) => {
   const [projectFields, setProjectFields] = useState<Array<ProjectFieldInfo>>([]);
   const [projectTags, setProjectTags] = useState<Array<TagInfo>>([]);
@@ -617,7 +679,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   const [tagsHasMore, setTagsHasMore] = useState<boolean>(false);
   const tagsFilterRef = useRef<string>("");
   const tagsSkipRef = useRef<number>(0);
-  const [editFailMessage, setEditFailMessage] = useState<FailMessage | null>(null);
+  // Error returned by the backend when storing or removing failed.
+  const [backendError, setBackendError] = useState<string | null>(null);
+  // Validation errors are shown, and kept up to date, once the user tried to save.
+  const [saveAttempted, setSaveAttempted] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
   const [templateSnapshot, setTemplateSnapshot] = useState<Template>(template);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState<boolean>(false);
   const [jsonDialogOpen, setJsonDialogOpen] = useState<boolean>(false);
@@ -627,8 +693,29 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   useEffect(() => {
     if (!editing) {
       setTemplateSnapshot(template);
+      setSaveAttempted(false);
     }
   }, [template, editing]);
+
+  const validationErrors = useMemo(
+    () => (editing && saveAttempted ? prepareTemplateForStore(template).errors : []),
+    [editing, saveAttempted, template],
+  );
+
+  const hasUnsavedChanges =
+    editing && (isDraft || JSON.stringify(template) !== JSON.stringify(templateSnapshot));
+
+  // Warn before reloading or closing the page with unsaved changes.
+  useEffect(() => {
+    if (!hasUnsavedChanges) {
+      return undefined;
+    }
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   const fetchTags = useCallback(async (filter: string, reset: boolean) => {
     setTagsLoading(true);
@@ -703,74 +790,48 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   const conditionFields = useMemo(() => projectFields.filter(isConditionField), [projectFields]);
 
   const addOrUpdateTemplate = async (editedTemplate: Template) => {
-    const templateToStore = pruneDanglingRelations(editedTemplate);
-    if (templateToStore.name.trim() === "") {
-      setEditFailMessage({ mode: "error", message: "Template name is required." });
-      return;
-    }
-    if (templateToStore.articleId.trim() === "") {
-      setEditFailMessage({ mode: "error", message: "Template article is required." });
-      return;
-    }
-    if (getValidConditions(templateToStore).length === 0) {
-      setEditFailMessage({
-        mode: "error",
-        message: "Template missing valid conditions, please define when valid.",
-      });
-      return;
-    }
-    const fieldsError = validateTemplateFields(templateToStore);
-    if (fieldsError !== null) {
-      setEditFailMessage({ mode: "error", message: fieldsError });
-      return;
-    }
-    const childrenError = validateChildTemplates(templateToStore);
-    if (childrenError !== null) {
-      setEditFailMessage({ mode: "error", message: childrenError });
-      return;
-    }
-    const replacementsError = validateReplacements(templateToStore);
-    if (replacementsError !== null) {
-      setEditFailMessage({ mode: "error", message: replacementsError });
-      return;
-    }
-    const relationsError = validateRelations(templateToStore);
-    if (relationsError !== null) {
-      setEditFailMessage({ mode: "error", message: relationsError });
+    const { template: templateToStore, errors } = prepareTemplateForStore(editedTemplate);
+    setBackendError(null);
+    if (errors.length > 0) {
+      setSaveAttempted(true);
       return;
     }
 
-    const result = await host.fetchApp<{
-      success: boolean;
-      message?: string;
-      templates?: Array<Template>;
-    }>("backend/addTemplate", {
-      scope: true,
-      method: "POST",
-      body: { template: templateToStore },
-    });
-    console.log("Add template result", result);
-    if (result.success) {
-      setEditFailMessage({ mode: "success", message: "Template stored successfully." });
-      setIsDraft(false);
-      setEditing(false);
-      // Saved, store snapshot.
-      setTemplate(templateToStore);
-      setTemplateSnapshot(templateToStore);
-      if (setTemplates) {
-        setTemplates(result.templates || []);
-      }
-    } else {
-      setEditFailMessage({
-        mode: "error",
-        message: result.message || "Failed to add or update template.",
+    setSaving(true);
+    try {
+      const result = await host.fetchApp<{
+        success: boolean;
+        message?: string;
+        templates?: Array<Template>;
+      }>("backend/addTemplate", {
+        scope: true,
+        method: "POST",
+        body: { template: templateToStore },
       });
+      console.log("Add template result", result);
+      if (result.success) {
+        notify(isDraft ? "Template added." : "Template saved.");
+        setSaveAttempted(false);
+        setIsDraft(false);
+        setEditing(false);
+        // Saved, store snapshot.
+        setTemplate(templateToStore);
+        setTemplateSnapshot(templateToStore);
+        if (setTemplates) {
+          setTemplates(result.templates || []);
+        }
+      } else {
+        setBackendError(result.message || "Failed to add or update template.");
+      }
+    } finally {
+      setSaving(false);
     }
   };
 
   const removeTemplate = async (templateToRemove: Template) => {
+    setConfirmRemoveOpen(false);
     if (templateToRemove.id.trim() === "") {
-      setEditFailMessage({ mode: "error", message: "Template has no id, cannot remove." });
+      setBackendError("Template has no id, cannot remove.");
       return;
     }
     const result = await host.fetchApp<{
@@ -784,7 +845,8 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     });
     console.log("Remove template result", result);
     if (result.success) {
-      setEditFailMessage(null);
+      notify(`Template "${templateToRemove.name}" removed.`);
+      setBackendError(null);
       setIsDraft(false);
       setEditing(false);
       setTemplate(createNullTemplate());
@@ -792,10 +854,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         setTemplates(result.templates || []);
       }
     } else {
-      setEditFailMessage({
-        mode: "error",
-        message: result.message || "Failed to remove template.",
-      });
+      setBackendError(result.message || "Failed to remove template.");
     }
   };
 
@@ -809,8 +868,15 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     }
 
     setEditing(false);
-    setEditFailMessage(null);
+    setBackendError(null);
+    setSaveAttempted(false);
   }, [isDraft, templateSnapshot, setTemplate, setIsDraft, setEditing]);
+
+  const startEdit = () => {
+    // Capture current state as snapshot before entering edit mode.
+    setTemplateSnapshot(template);
+    setEditing(true);
+  };
 
   const templateArticleSelectItems = useMemo(
     () => getTemplateArticleSelectItems(templateArticles),
@@ -839,6 +905,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           linkNames={linkNames}
           checkIssue={checkIssue}
           onBack={() => setSelectedChildId(null)}
+          showErrors={editing && saveAttempted}
         />
       );
     }
@@ -856,6 +923,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
           onTagsLoadMore={onTagsLoadMore}
           linkNames={linkNames}
           checkIssue={checkIssue}
+          errors={validationErrors}
         />
       );
     }
@@ -864,60 +932,73 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
     );
   };
 
+  const moreActions = [
+    { label: "Show JSON", glyph: CodeIcon, onClick: () => setJsonDialogOpen(true) },
+    ...(!editing && startDraft
+      ? [
+          {
+            label: "Duplicate template",
+            glyph: CopyIcon,
+            onClick: () => startDraft(duplicateTemplate(template)),
+          },
+        ]
+      : []),
+    ...(!isDraft
+      ? [
+          {
+            label: "Remove template",
+            glyph: TrashIcon,
+            onClick: () => setConfirmRemoveOpen(true),
+          },
+        ]
+      : []),
+  ];
+
+  const editActions = (
+    <>
+      <Button onClick={() => addOrUpdateTemplate(template)} primary loader={saving} disabled={saving}>
+        {isDraft ? "Add template" : "Save"}
+      </Button>
+      <Button onClick={() => cancelEdit()}>Cancel</Button>
+    </>
+  );
+
   return (
     <div className="template-edit">
-      {renderBody()}
-      {editFailMessage !== null && (
-        <Banner
-          mode={editFailMessage.mode}
-          title={
-            editFailMessage.mode === "success"
-              ? "Template stored successfully"
-              : "Failed to store template"
-          }
-          withIcon
-          onClose={() => setEditFailMessage(null)}
-        >
-          {editFailMessage.message}
+      <div className="template-edit-header">
+        <EditorTitle template={template} child={selectedChild}/>
+        <div className="template-edit-actions">
+          {editing ? (
+            editActions
+          ) : (
+            <Button onClick={startEdit} icon={EditIcon}>
+              Edit
+            </Button>
+          )}
+          <DropdownMenu
+            className="template-edit-more-actions"
+            anchor={<Button icon={MoreOptionsIcon} title="More actions"/>}
+            data={moreActions}
+          />
+        </div>
+      </div>
+      {validationErrors.length > 0 && (
+        <Banner mode="error" title="Fix the following before saving" withIcon>
+          <ul className="template-error-list">
+            {validationErrors.map((error) => (
+              <li key={`${error.section}-${error.message}`}>{error.message}</li>
+            ))}
+          </ul>
         </Banner>
       )}
-      <div className="template-edit-actions">
-        {editing && (
-          <Button onClick={() => addOrUpdateTemplate(template)} primary>
-            {isDraft ? "Add template" : "Save template"}
-          </Button>
-        )}
-        {editing && <Button onClick={() => cancelEdit()}>Cancel edit</Button>}
-        {!editing && (
-          <Button
-            onClick={() => {
-              // Capture current state as snapshot before entering edit mode.
-              setTemplateSnapshot(template);
-              setEditing(true);
-            }}
-            icon={EditIcon}
-          >
-            Edit template
-          </Button>
-        )}
-        <DropdownMenu
-          className="template-edit-more-actions"
-          anchor={<Button icon={MoreOptionsIcon} title="More actions"/>}
-          data={[
-            { label: "Show JSON", glyph: CodeIcon, onClick: () => setJsonDialogOpen(true) },
-            ...(editing && !isDraft
-              ? [
-                  {
-                    label: "Remove template",
-                    glyph: TrashIcon,
-                    onClick: () => setConfirmRemoveOpen(true),
-                  },
-                ]
-              : []),
-          ]}
-        />
-      </div>
-      {editing && !isDraft && (
+      {backendError !== null && (
+        <Banner mode="error" title="Failed to store template" withIcon onClose={() => setBackendError(null)}>
+          {backendError}
+        </Banner>
+      )}
+      {renderBody()}
+      {editing && <div className="template-edit-actions">{editActions}</div>}
+      {!isDraft && (
         <Confirm
           show={confirmRemoveOpen}
           text="Remove template?"

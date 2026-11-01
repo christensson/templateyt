@@ -1,0 +1,29 @@
+[
+  {
+    "id": "legacy-minimal",
+    "name": "Created before fields existed",
+    "articleId": "SAN-A-1",
+    "validCondition": [{ "when": "entity_is", "entityType": "issue" }],
+    "addCondition": null
+  },
+  {
+    "id": "legacy-field-trigger",
+    "name": "Created before tags, relations and hierarchy",
+    "articleId": "SAN-A-3",
+    "validCondition": [{ "when": "field_is", "fieldName": "Type", "fieldValue": "Bug" }],
+    "addCondition": { "when": "field_becomes", "fieldName": "Type", "fieldValue": "Bug" },
+    "fields": [{ "fieldName": "Priority", "mode": "fixed", "fieldValue": "Normal" }],
+    "replacements": []
+  },
+  {
+    "id": "legacy-no-validity",
+    "name": "Stored without validity condition",
+    "articleId": "SAN-A-7",
+    "validCondition": [],
+    "addCondition": { "when": "tag_added", "tagName": "Extra Review" },
+    "fields": [],
+    "replacements": [],
+    "hierarchical": false,
+    "children": []
+  }
+]

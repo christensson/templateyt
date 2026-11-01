@@ -116,7 +116,6 @@ const TemplateReplacementsPanel: React.FunctionComponent<TemplateReplacementsPan
       <Text size={Text.Size.S} info>
         Text replacements
       </Text>
-      {replacements.length === 0 && <Text size={Text.Size.M}>No text replacements.</Text>}
       {replacements.map((replacement, idx) => (
         // Replacements are keyed by position: the word is user-editable and may be empty or
         // temporarily duplicated while editing, and the inputs are fully controlled.
@@ -136,10 +135,7 @@ const TemplateReplacementsPanel: React.FunctionComponent<TemplateReplacementsPan
         </Button>
       </div>
       <Text size={Text.Size.S} info>
-        Whole words only: VERSION matches in &quot;Release VERSION.&quot; but not in VERSION-1 or
-        MY_VERSION. Applied to the ticket summary, the template content and, for hierarchical
-        templates, all subtasks. Text entered by the user is required when the template is applied
-        manually; a root ticket field inserts the display text of that field.
+        Replaces whole words in the summary, the content and all subtasks. See Help for details.
       </Text>
     </div>
   );

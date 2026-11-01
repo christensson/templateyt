@@ -46,18 +46,20 @@ automatically to tickets or articles, and which ticket fields the template sets.
 
 - Navigate to project.
 - Open *"Ticket Templates Config"*.
-- Click *"Add new template"*.
+- Click *"Add new template"*. The editor groups the settings into *General*, *When to use*,
+  *What it does* and *Hierarchy*.
 - Set template properties:
   - *Name*: Give the template a name for easy identication.
   - *Template article*: Select template article, note that only template articles configured to be
     used as ticket templates are available in drop-down.
-  - *Conditions when template is valid*: Add conditions when the template is valid. Multiple
+  - *Available in the Apply template menu when any of these match* (under *When to use*): Add
+    conditions when the template is valid. New templates start as available for tickets. Multiple
     conditions can be selected and template is valid when any of the condition matches. Possible
     conditions are:
     - When entity is *ticket* or *article*.
     - When ticket *field*[^1] is assigned a specific value.
     - When ticket or article is assigned a specific *tag*.
-  - *Ticket fields set by template*: Optionally add ticket *fields*[^2] that the template sets when
+  - *Ticket fields* (under *What it does*): Optionally add ticket *fields*[^2] that the template sets when
     it is applied. Each field is set either:
     - To a *fixed value* configured in the template. Fixed values are set both when the template
       is added automatically and when it is applied manually, and always overwrite the current
@@ -68,7 +70,7 @@ automatically to tickets or articles, and which ticket fields the template sets.
       *"Set fields"* in the *"Apply template"* menu to fill them in afterwards.
     For multi-value fields such as *Fix versions*, each entry can either replace the field's
     values or add an *additional value*, both for fixed values and values chosen by the user.
-  - *Optional condition when template is added automatically*:
+  - *Apply automatically* (under *When to use*): *Never*, or:
     - Added when ticket *field*[^1] is assigned a specific value.
     - Added when ticket or article is tagged with a specific *tag*.
 
@@ -106,7 +108,8 @@ A template whose template article has child articles can create a ticket hierarc
 per child article, nested like the articles, with the article title as summary and the article
 content as description.
 
-- In the template configuration, check *"Enable hierarchical template"* and click
+- In the template configuration, under *Hierarchy*, check *"Create a subtask for each child
+  article"* and click
   *"Import child articles"*. The child templates appear indented below the template in the list.
   Re-importing refreshes the tree from the knowledge base while keeping the configuration of
   articles already imported.

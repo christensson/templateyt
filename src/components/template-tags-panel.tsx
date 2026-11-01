@@ -1,3 +1,4 @@
+import AddIcon from "@jetbrains/icons/add-12px";
 import TagIcon from "@jetbrains/icons/tag-12px";
 import TrashIcon from "@jetbrains/icons/trash";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
@@ -39,7 +40,6 @@ const TemplateTagsPanel: React.FunctionComponent<TemplateTagsPanelProps> = ({
       <Text size={Text.Size.S} info>
         {title}
       </Text>
-      {tags.length === 0 && <Text size={Text.Size.M}>No tags set yet.</Text>}
       {tags.map((tag) => (
         <div key={`template-tag-${tag}`} className="template-replacement-row">
           <Icon glyph={TagIcon}/>
@@ -51,8 +51,8 @@ const TemplateTagsPanel: React.FunctionComponent<TemplateTagsPanelProps> = ({
           />
         </div>
       ))}
-      <div>
-        <Text size={Text.Size.M}>Add tag </Text>
+      <div className="template-add-row">
+        <Icon glyph={AddIcon} className="template-add-row-icon"/>
         {/* Remounted per added tag so the select shows its placeholder again. */}
         <TagSelect
           key={`add-tag-${tags.length}`}
@@ -61,6 +61,7 @@ const TemplateTagsPanel: React.FunctionComponent<TemplateTagsPanelProps> = ({
           onFilter={onTagsFilter}
           onLoadMore={onTagsLoadMore}
           selected={null}
+          label="Add tag"
           onSelect={(tagName) => {
             if (tagName !== null && !tags.includes(tagName)) {
               onTagsChange([...tags, tagName]);

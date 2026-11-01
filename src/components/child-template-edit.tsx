@@ -37,16 +37,19 @@ import {
   moveChildUnder,
   removeChild,
   updateChildTemplate,
+  validateChildTemplate,
   type ChildTemplate,
   type FieldStateCondition,
   type ImportedArticle,
   type InsertedArticle,
   type Template,
+  type TemplateSection as TemplateSectionKey,
 } from "../../@types/template";
 import FieldValueConditionInput from "./field-value-condition-input";
 import type { TemplateArticleSelectItem } from "./template-article-select-items";
 import TemplateFieldsPanel from "./template-fields-panel";
 import TemplateRelationsPanel, { type IssueChecker } from "./template-relations-panel";
+import TemplateSection from "./template-section";
 import TemplateTagsPanel from "./template-tags-panel";
 
 export type ArticleTreeResponse = ImportedArticle & { success?: boolean; message?: string };
@@ -69,7 +72,6 @@ export const InsertChildArticle: React.FunctionComponent<InsertChildArticleProps
   templateArticleSelectItems,
   onInsert,
 }) => {
-  const [selected, setSelected] = useState<TemplateArticleSelectItem | null>(null);
   const items = useMemo(
     () =>
       templateArticleSelectItems.filter(
@@ -80,30 +82,24 @@ export const InsertChildArticle: React.FunctionComponent<InsertChildArticleProps
     [templateArticleSelectItems, template],
   );
 
-  const insert = () => {
-    if (selected === null) {
-      return;
-    }
-    onInsert(selected.templateArticleItem);
-    setSelected(null);
-  };
-
   return (
     <div className="template-edit-field-panel">
-      <div className="template-replacement-row">
-        <Text size={Text.Size.M}>Insert article </Text>
+      <div className="template-add-row">
+        <Icon glyph={AddIcon} className="template-add-row-icon"/>
         <Select
+          key={`insert-article-${items.length}`}
           filter
-          clear
-          size={Select.Size.M}
-          label="Select template article..."
+          type={Select.Type.INLINE}
+          size={Select.Size.AUTO}
+          label="Insert article as child template"
           data={items}
-          selected={selected}
-          onChange={(item: TemplateArticleSelectItem | null) => setSelected(item)}
+          selected={null}
+          onChange={(item: TemplateArticleSelectItem | null) => {
+            if (item !== null) {
+              onInsert(item.templateArticleItem);
+            }
+          }}
         />
-        <Button onClick={insert} disabled={selected === null} icon={AddIcon} inline>
-          Insert as child template
-        </Button>
       </div>
       {items.length === 0 && (
         <Text size={Text.Size.S} info>
@@ -143,11 +139,7 @@ const ChildAddConditionsPanel: React.FunctionComponent<ChildAddConditionsPanelPr
   return (
     <div className="template-edit-field-panel">
       <Text size={Text.Size.S} info>
-        Conditions on the root ticket for adding this child template (any matches)
-      </Text>
-      <Text size={Text.Size.S} info>
-        The root ticket is the ticket the hierarchy is created from. Without conditions the child
-        template is always added. Children of a skipped child template are skipped too.
+        Created when any of these match the root ticket (the ticket the hierarchy is created from)
       </Text>
       {!editing && <Text size={Text.Size.M}>{formatChildAddConditions(child)}</Text>}
       {editing && conditions.length === 0 && (
@@ -337,7 +329,7 @@ const ChildArticlesPanel: React.FunctionComponent<ChildArticlesPanelProps> = ({
       )}
       {!child.manual && (
         <Text size={Text.Size.S} info>
-          Imported child templates get their child articles from the import at the template.
+          Follows the article tree; re-import at the template to refresh.
         </Text>
       )}
       {message && (
@@ -351,6 +343,88 @@ const ChildArticlesPanel: React.FunctionComponent<ChildArticlesPanelProps> = ({
         onInsert={(article) => setTemplate((prev) => insertManualChild(prev, child.id, article))}
       />
     </div>
+  );
+};
+
+interface ChildLabeledValueProps {
+  label: string;
+  children: React.ReactNode;
+}
+
+const ChildLabeledValue: React.FunctionComponent<ChildLabeledValueProps> = ({ label, children }) => (
+  <div className="template-edit-field-panel">
+    <Text size={Text.Size.S} info>
+      {label}
+    </Text>
+    {children}
+  </div>
+);
+
+const formatInheritance = (child: ChildTemplate): string => {
+  if (child.inheritParentFields && child.inheritRootFields) {
+    return "From the parent and the root ticket.";
+  }
+  if (child.inheritParentFields) {
+    return "From the parent.";
+  }
+  if (child.inheritRootFields) {
+    return "From the root ticket.";
+  }
+  return "None.";
+};
+
+interface ChildEffectsViewProps {
+  template: Template;
+  child: ChildTemplate;
+}
+
+// Read-only fields, tags and relations of a child template; lists only configured kinds.
+const ChildEffectsView: React.FunctionComponent<ChildEffectsViewProps> = ({ template, child }) => {
+  const fields = getTemplateFields(child);
+  const tags = getTemplateTags(child);
+  const relations = getTemplateRelations(child);
+  const kinds: Array<[string, number]> = [
+    ["fields", fields.length],
+    ["tags", tags.length],
+    ["relations", relations.length],
+  ];
+  const notConfigured = kinds.filter(([, count]) => count === 0).map(([name]) => name);
+  return (
+    <>
+      {fields.length > 0 && (
+        <ChildLabeledValue label="Ticket fields">
+          {fields.map((field) => (
+            <Text size={Text.Size.M} key={`child-field-text-${field.fieldName}`}>
+              <Icon glyph={FieldIcon}/> {formatTemplateField(field, true)}
+            </Text>
+          ))}
+        </ChildLabeledValue>
+      )}
+      {tags.length > 0 && (
+        <ChildLabeledValue label="Tags">
+          {tags.map((tag) => (
+            <Text size={Text.Size.M} key={`child-tag-text-${tag}`}>
+              <Icon glyph={TagIcon}/> {formatTemplateTag(tag)}
+            </Text>
+          ))}
+        </ChildLabeledValue>
+      )}
+      {relations.length > 0 && (
+        <ChildLabeledValue label="Relations">
+          {relations.map((relation, idx) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <Text size={Text.Size.M} key={`child-relation-text-${idx}`}>
+              <Icon glyph={RelationIcon}/> {formatTemplateRelation(relation, template)}
+            </Text>
+          ))}
+        </ChildLabeledValue>
+      )}
+      {notConfigured.length > 0 && (
+        <Text size={Text.Size.S} info>
+          Not configured: {notConfigured.join(", ")}.
+        </Text>
+      )}
+    </>
   );
 };
 
@@ -370,6 +444,8 @@ interface ChildTemplateEditProps {
   linkNames: Array<string>;
   checkIssue: IssueChecker;
   onBack: () => void;
+  // Show the child template's problems (after the user tried to save).
+  showErrors: boolean;
 }
 
 // Configuration of one child template of a hierarchical template: name, conditions,
@@ -390,179 +466,144 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
   linkNames,
   checkIssue,
   onBack,
+  showErrors,
 }) => {
   const update = (updater: (prev: ChildTemplate) => ChildTemplate) =>
     setTemplate((prev) => updateChildTemplate(prev, child.id, updater));
   const childFields = getTemplateFields(child);
   const childTags = getTemplateTags(child);
   const childRelations = getTemplateRelations(child);
+  const childCount = getChildTemplates(child).length;
+  // Problems are shown once the user tried to save, like those of the template itself.
+  const errors = showErrors ? validateChildTemplate(template, child) : [];
+  const hasError = (section: TemplateSectionKey) => errors.some((error) => error.section === section);
 
   return (
     <>
       <div>
         <Button icon={ArrowLeftIcon} inline onClick={onBack}>
-          Back to template {template.name}
+          {template.name.trim() || "New template"}
         </Button>
       </div>
-      <Text size={Text.Size.S} info>
-        {child.manual ? "Child template (inserted manually)" : "Child template (imported)"}
-      </Text>
-      {editing ? (
-        <Input
-          label="Child template name (subtask summary)"
-          value={child.name}
-          onChange={(e) => update((prev) => ({ ...prev, name: e.target.value }))}
-          size={Size.M}
+      <TemplateSection title="General" hasError={hasError("general")}>
+        {editing ? (
+          <Input
+            label="Name (subtask summary)"
+            value={child.name}
+            onChange={(e) => update((prev) => ({ ...prev, name: e.target.value }))}
+            size={Size.L}
+          />
+        ) : (
+          <ChildLabeledValue label="Name (subtask summary)">
+            <Text size={Text.Size.M}>{child.name}</Text>
+          </ChildLabeledValue>
+        )}
+        <ChildLabeledValue
+          label={child.manual ? "Article (inserted manually)" : "Article (imported from the article tree)"}
+        >
+          <div>
+            <Button href={`/articles/${child.articleId}`} target="_blank" icon={ArticleIcon} inline>
+              Open {child.articleId}
+            </Button>
+          </div>
+        </ChildLabeledValue>
+      </TemplateSection>
+      <TemplateSection title="When created" hasError={hasError("when")}>
+        <ChildAddConditionsPanel
+          child={child}
+          editing={editing}
+          conditionFields={conditionFields}
+          onChange={(addConditions) => update((prev) => ({ ...prev, addConditions }))}
         />
-      ) : (
-        <div className="template-edit-field-panel">
-          <Text size={Text.Size.S} info>
-            Child template name (subtask summary)
-          </Text>
-          <Text size={Text.Size.M}>{child.name}</Text>
-        </div>
-      )}
-      <div className="template-edit-field-panel">
-        <Text size={Text.Size.S} info>
-          Child article
-        </Text>
-        <Button href={`/articles/${child.articleId}`} target="_blank" icon={ArticleIcon}>
-          Open {child.articleId}
-        </Button>
-      </div>
-      <ChildAddConditionsPanel
-        child={child}
-        editing={editing}
-        conditionFields={conditionFields}
-        onChange={(addConditions) => update((prev) => ({ ...prev, addConditions }))}
-      />
-      <div className="template-edit-field-panel">
+      </TemplateSection>
+      <TemplateSection title="What it does" hasError={hasError("effects")}>
+        <ChildLabeledValue label="Inherited fields">
+          {editing ? (
+            <>
+              <Checkbox
+                label="Inherit fields from parent"
+                checked={child.inheritParentFields}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  const inheritParentFields = e.target.checked;
+                  update((prev) => ({ ...prev, inheritParentFields }));
+                }}
+              />
+              <Checkbox
+                label="Inherit fields from root ticket"
+                checked={child.inheritRootFields}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  const inheritRootFields = e.target.checked;
+                  update((prev) => ({ ...prev, inheritRootFields }));
+                }}
+              />
+              <Text size={Text.Size.S} info>
+                Copies the values of the fields the parent or root template sets. Tickets only; see
+                Help for precedence.
+              </Text>
+            </>
+          ) : (
+            <Text size={Text.Size.M}>{formatInheritance(child)}</Text>
+          )}
+        </ChildLabeledValue>
         {editing ? (
           <>
-            <Checkbox
-              label="Inherit fields from parent"
-              checked={child.inheritParentFields}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                const inheritParentFields = e.target.checked;
-                update((prev) => ({ ...prev, inheritParentFields }));
-              }}
+            <TemplateFieldsPanel
+              title="Ticket fields"
+              fields={childFields}
+              onFieldsChange={(fields) => update((prev) => ({ ...prev, fields }))}
+              projectFields={projectFields}
+              addCondition={null}
             />
-            <Checkbox
-              label="Inherit fields from root ticket"
-              checked={child.inheritRootFields}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                const inheritRootFields = e.target.checked;
-                update((prev) => ({ ...prev, inheritRootFields }));
-              }}
+            <TemplateTagsPanel
+              title="Tags"
+              tags={childTags}
+              onTagsChange={(tags) => update((prev) => ({ ...prev, tags }))}
+              projectTags={projectTags}
+              tagsLoading={tagsLoading}
+              onTagsFilter={onTagsFilter}
+              onTagsLoadMore={onTagsLoadMore}
+            />
+            <TemplateRelationsPanel
+              title="Relations"
+              template={template}
+              ownerChildId={child.id}
+              relations={childRelations}
+              onRelationsChange={(relations) => update((prev) => ({ ...prev, relations }))}
+              linkNames={linkNames}
+              checkIssue={checkIssue}
+              hint="Relations to subtasks that are not created are skipped."
             />
           </>
         ) : (
-          <>
-            <Text size={Text.Size.M}>
-              {child.inheritParentFields
-                ? "Inherits fields from parent."
-                : "Does not inherit fields from parent."}
-            </Text>
-            <Text size={Text.Size.M}>
-              {child.inheritRootFields
-                ? "Inherits fields from root ticket."
-                : "Does not inherit fields from root ticket."}
-            </Text>
-          </>
+          <ChildEffectsView template={template} child={child}/>
         )}
-        <Text size={Text.Size.S} info>
-          Inherited fields are the fields configured by the parent template (copied from the parent
-          ticket) or by the root template (copied from the root ticket) when the hierarchy is
-          created. Precedence: own fields, then the closest parent, then the root ticket. Fields,
-          inheritance and add conditions only apply to ticket hierarchies, not to articles.
-        </Text>
-      </div>
-      {editing ? (
-        <TemplateFieldsPanel
-          title="Ticket fields set by child template"
-          fields={childFields}
-          onFieldsChange={(fields) => update((prev) => ({ ...prev, fields }))}
-          projectFields={projectFields}
-          addCondition={null}
-        />
-      ) : (
-        <div className="template-edit-field-panel">
-          <Text size={Text.Size.S} info>
-            Ticket fields set by child template
+      </TemplateSection>
+      <TemplateSection title="Position and child templates">
+        {editing ? (
+          <>
+            <ChildPositionPanel
+              template={template}
+              child={child}
+              setTemplate={setTemplate}
+              onRemoved={onBack}
+            />
+            <ChildArticlesPanel
+              template={template}
+              child={child}
+              setTemplate={setTemplate}
+              fetchArticleTree={fetchArticleTree}
+              templateArticleSelectItems={templateArticleSelectItems}
+            />
+          </>
+        ) : (
+          <Text size={Text.Size.M}>
+            {child.manual ? "Inserted manually." : "Follows the article tree."}{" "}
+            {childCount === 0
+              ? "No child templates below this one."
+              : `${childCount} direct child template${childCount === 1 ? "" : "s"} below this one.`}
           </Text>
-          {childFields.length === 0 && <Text size={Text.Size.M}>No fields set.</Text>}
-          {childFields.map((field) => (
-            <Text size={Text.Size.M} key={`child-field-text-${field.fieldName}`}>
-              <Icon glyph={FieldIcon}/> {formatTemplateField(field, true)}
-            </Text>
-          ))}
-        </div>
-      )}
-      {editing ? (
-        <TemplateTagsPanel
-          title="Tags added by child template"
-          tags={childTags}
-          onTagsChange={(tags) => update((prev) => ({ ...prev, tags }))}
-          projectTags={projectTags}
-          tagsLoading={tagsLoading}
-          onTagsFilter={onTagsFilter}
-          onTagsLoadMore={onTagsLoadMore}
-        />
-      ) : (
-        <div className="template-edit-field-panel">
-          <Text size={Text.Size.S} info>
-            Tags added by child template
-          </Text>
-          {childTags.length === 0 && <Text size={Text.Size.M}>No tags set.</Text>}
-          {childTags.map((tag) => (
-            <Text size={Text.Size.M} key={`child-tag-text-${tag}`}>
-              <Icon glyph={TagIcon}/> {formatTemplateTag(tag)}
-            </Text>
-          ))}
-        </div>
-      )}
-      {editing ? (
-        <TemplateRelationsPanel
-          title="Relations added by child template"
-          template={template}
-          ownerChildId={child.id}
-          relations={childRelations}
-          onRelationsChange={(relations) => update((prev) => ({ ...prev, relations }))}
-          linkNames={linkNames}
-          checkIssue={checkIssue}
-          hint="Relations are added when the hierarchy is created. Relations to subtasks that are not created are skipped."
-        />
-      ) : (
-        <div className="template-edit-field-panel">
-          <Text size={Text.Size.S} info>
-            Relations added by child template
-          </Text>
-          {childRelations.length === 0 && <Text size={Text.Size.M}>No relations set.</Text>}
-          {childRelations.map((relation, idx) => (
-            // eslint-disable-next-line react/no-array-index-key
-            <Text size={Text.Size.M} key={`child-relation-text-${idx}`}>
-              <Icon glyph={RelationIcon}/> {formatTemplateRelation(relation, template)}
-            </Text>
-          ))}
-        </div>
-      )}
-      {editing && (
-        <ChildPositionPanel
-          template={template}
-          child={child}
-          setTemplate={setTemplate}
-          onRemoved={onBack}
-        />
-      )}
-      {editing && (
-        <ChildArticlesPanel
-          template={template}
-          child={child}
-          setTemplate={setTemplate}
-          fetchArticleTree={fetchArticleTree}
-          templateArticleSelectItems={templateArticleSelectItems}
-        />
-      )}
+        )}
+      </TemplateSection>
     </>
   );
 };

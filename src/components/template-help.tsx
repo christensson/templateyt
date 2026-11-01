@@ -1,90 +1,62 @@
-import ChevronDownIcon from "@jetbrains/icons/chevron-down";
-import ChevronUpIcon from "@jetbrains/icons/chevron-up";
-import Button from "@jetbrains/ring-ui-built/components/button/button";
-import Collapse from "@jetbrains/ring-ui-built/components/collapse/collapse";
-import CollapseContent from "@jetbrains/ring-ui-built/components/collapse/collapse-content";
+import { H3 } from "@jetbrains/ring-ui-built/components/heading/heading";
 import Link from "@jetbrains/ring-ui-built/components/link/link";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React from "react";
 
 interface TemplateHelpProps {
-  collapsed: boolean;
-  setCollapsed: (collapsed: boolean) => void;
-  createNewTemplate: () => void;
+  // Omitted while a template is being edited, so the link cannot discard the edits.
+  createNewTemplate?: () => void;
 }
 
-const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({
-  collapsed,
-  setCollapsed,
-  createNewTemplate,
-}) => {
-  return (
-    <div className="template-edit-help">
-      <div>
-        <Button
-          icon={collapsed ? ChevronDownIcon : ChevronUpIcon}
-          onClick={() => setCollapsed(!collapsed)}
-          inline
-        >
-          {collapsed ? "Show help" : "Hide help"}
-        </Button>
-      </div>
-      <Collapse collapsed={collapsed}>
-        <CollapseContent>
-          <div className="template-edit-help-content">
-            <Text size={Text.Size.M}>
-              Configure a template using the following steps:
-              <ol>
-                <li>
-                  Create template article:
-                  <ul>
-                    <li>Add a knowledge base article to your project.</li>
-                    <li>Edit article content to define the template.</li>
-                    <li>
-                      Configure the article as a template by clicking the ...-menu and then
-                      selecting &quot;Configure as template&quot;.
-                    </li>
-                  </ul>
-                </li>
-                <li>
-                  Configure the template:
-                  <ul>
-                    <li>
-                      On the <i>Ticket Templats Config</i> page (current page) click{" "}
-                      <Link onClick={() => createNewTemplate()}>add new template</Link>.
-                    </li>
-                    <li>
-                      Name the template and search for the knowledge base article in the template
-                      article dropdown.
-                    </li>
-                    <li>
-                      Define when template is valid:
-                      <ul>
-                        <li>When ticket or article?</li>
-                        <li>When ticket field has a specific value.</li>
-                        <li>When ticket or article has a specific tag.</li>
-                      </ul>
-                    </li>
-                    <li>
-                      Define if template should be automatically applied:
-                      <ul>
-                        <li>When ticket field becomes a specific value.</li>
-                        <li>When ticket or article is assigned a specific tag.</li>
-                        <li>
-                          If not automatically applied, apply template using &quot;Apply template&quot; menu
-                          item available from ticket or article ...-menu.
-                        </li>
-                      </ul>
-                    </li>
-                  </ul>
-                </li>
-              </ol>
-            </Text>
-          </div>
-        </CollapseContent>
-      </Collapse>
-    </div>
-  );
-};
+// How templates work and how to set one up. Shown when no template is selected, or on demand.
+const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({ createNewTemplate }) => (
+  <div className="template-edit-help-content">
+    <H3 className="template-section-title">Getting started</H3>
+    <Text size={Text.Size.M}>
+      <ol>
+        <li>
+          Write the template content in a knowledge base article. Publish it, open its
+          &quot;...&quot; menu and select &quot;Configure as template&quot;.
+        </li>
+        <li>
+          {createNewTemplate ? (
+            <Link onClick={() => createNewTemplate()}>Add a new template</Link>
+          ) : (
+            "Add a new template"
+          )}
+          , name it and pick the article.
+        </li>
+        <li>
+          Under <i>When to use</i>, choose where the template is available in the Apply template
+          menu, and optionally when it is applied automatically.
+        </li>
+        <li>Optionally, under <i>What it does</i>, set fields, tags, relations and text replacements.</li>
+      </ol>
+    </Text>
+    <H3 className="template-section-title">Good to know</H3>
+    <Text size={Text.Size.M}>
+      <ul>
+        <li>
+          Templates applied automatically are added when a ticket field changes to a value, or
+          when a ticket or article gets a tag. Fixed field values are set then too; fields chosen
+          by the user and tags are only set when the template is applied manually.
+        </li>
+        <li>
+          Text replacements replace whole words only: VERSION matches in &quot;Release
+          VERSION.&quot; but not in VERSION-1 or MY_VERSION. They apply to the ticket summary, the
+          template content and all subtasks. Text entered by the user is required when applying
+          manually; a root ticket field inserts the display text of that field.
+        </li>
+        <li>
+          Hierarchical templates create one subtask per child article, from &quot;Create
+          hierarchy&quot; in the Apply template menu. Child templates can inherit fields from
+          their parent or the root ticket (own fields first, then the closest parent, then the
+          root ticket), and can be skipped based on root ticket fields. For articles, sub-articles
+          get text replacements and tags only.
+        </li>
+      </ul>
+    </Text>
+  </div>
+);
 
 export default TemplateHelp;

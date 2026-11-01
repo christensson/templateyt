@@ -40,7 +40,6 @@ const TemplateFieldsPanel: React.FunctionComponent<TemplateFieldsPanelProps> = (
       <Text size={Text.Size.S} info>
         {title}
       </Text>
-      {fields.length === 0 && <Text size={Text.Size.M}>No fields set yet.</Text>}
       {fields.map((field, idx) => (
         // Fields are keyed by position: the field name is user-editable and may be empty or
         // temporarily duplicated while editing, and the inputs are fully controlled by `fields`.
@@ -61,13 +60,12 @@ const TemplateFieldsPanel: React.FunctionComponent<TemplateFieldsPanelProps> = (
       </div>
       {hasUserInput && (
         <Text size={Text.Size.S} info>
-          Fields with a value chosen by the user are only set when the template is applied manually
-          from the Apply template menu of a ticket.
+          Values chosen by the user are only asked for when applied manually.
         </Text>
       )}
       {hasFieldTrigger && fields.length > 0 && (
         <Text size={Text.Size.S} info>
-          The field used in the automatic add condition can only be set to the triggering value.
+          The field that applies the template automatically can only be set to its trigger value.
         </Text>
       )}
     </div>

@@ -9,9 +9,9 @@
     "lint": "eslint --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint --fix",
     "build:frontend": "vite build",
-    "build": "npm run clean && npm run lint && npm run typecheck && npm run build:frontend && youtrack-app app validate",
+    "build": "npm run clean && npm run lint && npm run typecheck && npm test && npm run build:frontend && youtrack-app app validate",
     "build:nolint": "npm run clean && npm run build:frontend && youtrack-app app validate",
-    "test": "echo 'no tests'",
+    "test": "vitest run",
     "pack": "rm -rf templateyt.zip && cd dist/ && npmx --yes bestzip ../templateyt.zip *",
     "upload": "youtrack-app app upload"
   },
@@ -41,6 +41,7 @@
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.0.1",
     "vite": "^6.0.1",
-    "vite-plugin-static-copy": "^2.2.0"
+    "vite-plugin-static-copy": "^2.2.0",
+    "vitest": "^3.2.7"
   }
 }

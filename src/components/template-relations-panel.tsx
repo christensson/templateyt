@@ -96,7 +96,7 @@ const RelationRow: React.FunctionComponent<RelationRowProps> = ({
   return (
     <div>
       <div className="template-replacement-row">
-        <Text size={Text.Size.M}>Add relation </Text>
+        <Text size={Text.Size.M}>Link </Text>
         <Select
           filter
           label="..."
@@ -184,7 +184,6 @@ const TemplateRelationsPanel: React.FunctionComponent<TemplateRelationsPanelProp
       <Text size={Text.Size.S} info>
         {title}
       </Text>
-      {relations.length === 0 && <Text size={Text.Size.M}>No relations set yet.</Text>}
       {relations.map((relation, idx) => (
         <RelationRow
           // Relations are keyed by position: link name and target are user-editable and may be

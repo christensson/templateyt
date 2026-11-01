@@ -1,0 +1,425 @@
+[
+  {
+    "id": "eb4fd8ff-5fdd-4496-8239-466c20445300",
+    "name": "Extra Software Review",
+    "articleId": "SAN-A-7",
+    "validCondition": [
+      {
+        "when": "entity_is",
+        "entityType": "issue"
+      },
+      {
+        "when": "entity_is",
+        "entityType": "article"
+      }
+    ],
+    "addCondition": {
+      "when": "tag_added",
+      "tagName": "Extra Review"
+    },
+    "fields": [],
+    "hierarchical": false,
+    "children": [],
+    "replacements": [],
+    "tags": [],
+    "relations": []
+  },
+  {
+    "id": "1d3edb8c-a805-4564-811f-38f3f7d23d3f",
+    "name": "Task template",
+    "articleId": "SAN-A-1",
+    "validCondition": [
+      {
+        "when": "entity_is",
+        "entityType": "issue"
+      }
+    ],
+    "addCondition": {
+      "when": "field_becomes",
+      "fieldName": "Type",
+      "fieldValue": "Task"
+    },
+    "fields": [],
+    "hierarchical": false,
+    "children": [],
+    "replacements": [],
+    "tags": [],
+    "relations": []
+  },
+  {
+    "id": "07ad63c4-d746-4592-beb7-934b71e57287",
+    "name": "Meeting minutes template",
+    "articleId": "SAN-A-12",
+    "validCondition": [
+      {
+        "when": "entity_is",
+        "entityType": "article"
+      }
+    ],
+    "addCondition": null,
+    "fields": [],
+    "hierarchical": false,
+    "children": [],
+    "replacements": [],
+    "tags": [],
+    "relations": []
+  },
+  {
+    "id": "49aad11e-48ae-454c-abe4-e813a5315c82",
+    "name": "Won't fix template",
+    "articleId": "SAN-A-13",
+    "validCondition": [
+      {
+        "when": "entity_is",
+        "entityType": "issue"
+      }
+    ],
+    "addCondition": {
+      "when": "field_becomes",
+      "fieldName": "State",
+      "fieldValue": "Won't fix"
+    },
+    "fields": [],
+    "hierarchical": false,
+    "children": [],
+    "replacements": [],
+    "tags": [],
+    "relations": []
+  },
+  {
+    "id": "b77df5c9-5305-4972-bbb0-26db09f11e20",
+    "name": "Bug template",
+    "articleId": "SAN-A-3",
+    "validCondition": [
+      {
+        "when": "entity_is",
+        "entityType": "issue"
+      }
+    ],
+    "addCondition": {
+      "when": "field_becomes",
+      "fieldName": "Type",
+      "fieldValue": "Bug"
+    },
+    "fields": [
+      {
+        "fieldName": "Priority",
+        "mode": "fixed",
+        "fieldValue": "Minor"
+      },
+      {
+        "fieldName": "Subsystem",
+        "mode": "user_input"
+      },
+      {
+        "fieldName": "Assignee",
+        "mode": "user_input"
+      }
+    ],
+    "hierarchical": false,
+    "children": [],
+    "replacements": [],
+    "tags": [],
+    "relations": []
+  },
+  {
+    "id": "1fe062c8-6f65-4a21-9af4-569df586e4f4",
+    "name": "Release template",
+    "articleId": "SAN-A-28",
+    "validCondition": [
+      {
+        "when": "field_is",
+        "fieldName": "Type",
+        "fieldValue": "New"
+      },
+      {
+        "when": "entity_is",
+        "entityType": "article"
+      }
+    ],
+    "addCondition": null,
+    "fields": [
+      {
+        "fieldName": "Assignee",
+        "mode": "user_input"
+      },
+      {
+        "fieldName": "Fix versions",
+        "mode": "user_input",
+        "additive": false
+      }
+    ],
+    "hierarchical": true,
+    "children": [
+      {
+        "id": "d5618d86-4fee-4b10-9da1-19fbc5b2df80",
+        "articleId": "SAN-A-29",
+        "name": "CUSTOMER: Release notes review",
+        "manual": false,
+        "fields": [
+          {
+            "fieldName": "Type",
+            "mode": "fixed",
+            "fieldValue": "Feature"
+          }
+        ],
+        "addConditions": [],
+        "inheritParentFields": true,
+        "inheritRootFields": false,
+        "children": [
+          {
+            "id": "9b77e8a8-4b48-4637-87db-5a7ab4e98403",
+            "articleId": "SAN-A-37",
+            "name": "test",
+            "manual": false,
+            "fields": [
+              {
+                "fieldName": "Priority",
+                "mode": "user_input",
+                "additive": false
+              }
+            ],
+            "addConditions": [],
+            "inheritParentFields": false,
+            "inheritRootFields": false,
+            "children": [],
+            "tags": [],
+            "relations": []
+          }
+        ],
+        "tags": [],
+        "relations": []
+      },
+      {
+        "id": "80d7a7f2-fc4d-491a-ada8-8037ad969ad0",
+        "articleId": "SAN-A-30",
+        "name": "CUSTOMER: Release tests",
+        "manual": false,
+        "fields": [],
+        "addConditions": [],
+        "inheritParentFields": false,
+        "inheritRootFields": false,
+        "children": [
+          {
+            "id": "5fc77964-6b44-49af-8d19-2557284cf7c2",
+            "articleId": "SAN-A-32",
+            "name": "CUSTOMER: Review test results - high prio",
+            "manual": false,
+            "fields": [],
+            "addConditions": [
+              {
+                "when": "field_is",
+                "fieldName": "Priority",
+                "fieldValue": "Normal"
+              }
+            ],
+            "inheritParentFields": true,
+            "inheritRootFields": false,
+            "children": [
+              {
+                "id": "ca6c3c01-876a-4a25-9a04-5c802da20714",
+                "articleId": "SAN-A-35",
+                "name": "High prio thing",
+                "manual": false,
+                "fields": [],
+                "addConditions": [],
+                "inheritParentFields": false,
+                "inheritRootFields": false,
+                "children": [],
+                "tags": [],
+                "relations": []
+              }
+            ],
+            "tags": [],
+            "relations": []
+          },
+          {
+            "id": "0d958da9-efbe-4fc9-a16d-55844c20495f",
+            "articleId": "SAN-A-34",
+            "name": "CUSTOMER: Review test results - low prio",
+            "manual": false,
+            "fields": [],
+            "addConditions": [
+              {
+                "when": "field_is",
+                "fieldName": "Priority",
+                "fieldValue": "Minor"
+              }
+            ],
+            "inheritParentFields": false,
+            "inheritRootFields": false,
+            "children": [
+              {
+                "id": "6381a535-b320-490e-9bee-2df151af115c",
+                "articleId": "SAN-A-36",
+                "name": "Low prio thing",
+                "manual": false,
+                "fields": [],
+                "addConditions": [],
+                "inheritParentFields": false,
+                "inheritRootFields": false,
+                "children": [],
+                "tags": [],
+                "relations": []
+              }
+            ],
+            "tags": [],
+            "relations": [
+              {
+                "linkName": "relates to",
+                "target": "child",
+                "childId": "5fc77964-6b44-49af-8d19-2557284cf7c2"
+              }
+            ]
+          }
+        ],
+        "tags": [
+          "test1",
+          "test2"
+        ],
+        "relations": [
+          {
+            "linkName": "depends on",
+            "target": "child",
+            "childId": "d5618d86-4fee-4b10-9da1-19fbc5b2df80"
+          }
+        ]
+      },
+      {
+        "id": "da6a96a0-e13e-4287-9cc1-28a14016c01b",
+        "articleId": "SAN-A-31",
+        "name": "CUSTOMER: Release content review",
+        "manual": false,
+        "fields": [
+          {
+            "fieldName": "Assignee",
+            "mode": "user_input"
+          },
+          {
+            "fieldName": "Type",
+            "mode": "fixed",
+            "fieldValue": "Task"
+          }
+        ],
+        "addConditions": [],
+        "inheritParentFields": false,
+        "inheritRootFields": false,
+        "children": [
+          {
+            "id": "afeecfa3-2569-4cde-b842-50df418ca7fe",
+            "articleId": "SAN-A-1",
+            "name": "Task template",
+            "manual": true,
+            "fields": [],
+            "addConditions": [],
+            "inheritParentFields": false,
+            "inheritRootFields": false,
+            "children": [],
+            "tags": [],
+            "relations": []
+          },
+          {
+            "id": "a55aabc6-b480-4288-bb30-6757db803c17",
+            "articleId": "SAN-A-17",
+            "name": "testd",
+            "manual": true,
+            "fields": [],
+            "addConditions": [],
+            "inheritParentFields": false,
+            "inheritRootFields": false,
+            "children": [],
+            "tags": [],
+            "relations": []
+          }
+        ],
+        "tags": [],
+        "relations": []
+      },
+      {
+        "id": "045a4d8d-4175-4d7b-9818-7afcc5a7d2da",
+        "articleId": "SAN-A-33",
+        "name": "CUSTOMER: Additional review",
+        "manual": false,
+        "fields": [],
+        "addConditions": [],
+        "inheritParentFields": false,
+        "inheritRootFields": false,
+        "children": [],
+        "tags": [],
+        "relations": []
+      }
+    ],
+    "replacements": [
+      {
+        "search": "CUSTOMER",
+        "mode": "user_input"
+      },
+      {
+        "search": "APPROVER",
+        "mode": "field",
+        "fieldName": "Approver"
+      },
+      {
+        "search": "VERSION",
+        "mode": "field",
+        "fieldName": "Fix versions"
+      }
+    ],
+    "tags": [
+      "test4"
+    ],
+    "relations": []
+  },
+  {
+    "id": "277b39cc-678b-4fe9-97cf-bb75b5afd1b5",
+    "name": "SW Module Documentation",
+    "articleId": "SAN-A-38",
+    "validCondition": [
+      {
+        "when": "entity_is",
+        "entityType": "article"
+      }
+    ],
+    "addCondition": null,
+    "fields": [],
+    "replacements": [
+      {
+        "search": "MODULE_NAME",
+        "mode": "user_input"
+      }
+    ],
+    "hierarchical": true,
+    "children": [
+      {
+        "id": "1aa2ddd7-20a5-4166-b173-99b9c7002382",
+        "articleId": "SAN-A-39",
+        "name": "MODULE_NAME: Test strategy",
+        "manual": false,
+        "fields": [],
+        "addConditions": [],
+        "inheritParentFields": false,
+        "inheritRootFields": false,
+        "children": [],
+        "tags": [],
+        "relations": []
+      },
+      {
+        "id": "6ec307e1-f60b-4ee3-a1e4-2f28d094a788",
+        "articleId": "SAN-A-40",
+        "name": "MODULE_NAME: Detailed design",
+        "manual": false,
+        "fields": [],
+        "addConditions": [],
+        "inheritParentFields": false,
+        "inheritRootFields": false,
+        "children": [],
+        "tags": [],
+        "relations": []
+      }
+    ],
+    "tags": [
+      "SW_Module"
+    ],
+    "relations": []
+  }
+]
