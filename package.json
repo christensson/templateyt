@@ -12,7 +12,7 @@
     "build": "npm run clean && npm run lint && npm run typecheck && npm test && npm run build:frontend && youtrack-app app validate",
     "build:nolint": "npm run clean && npm run build:frontend && youtrack-app app validate",
     "test": "vitest run",
-    "pack": "rm -rf templateyt.zip && cd dist/ && npmx --yes bestzip ../templateyt.zip *",
+    "pack": "rm -rf templateyt.zip && cd dist/ && npx --yes bestzip ../templateyt.zip *",
     "upload": "youtrack-app app upload"
   },
   "dependencies": {
