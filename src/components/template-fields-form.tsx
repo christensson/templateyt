@@ -11,6 +11,8 @@ import type { ProjectFieldInfo } from "../../@types/project-info";
 import {
   evaluateChildInclusion,
   flattenChildTemplates,
+  formatChildConditionNote,
+  getChildConditionFields,
   getChildTemplates,
   getTemplateFields,
   getTemplateReplacements,
@@ -28,6 +30,7 @@ import {
 } from "../../@types/template";
 import {
   formatHierarchyLabel,
+  getChangedConditionValues,
   getReplacementPreconditions,
   hasMissingRequiredInput,
   type ReplacementPrecondition,
@@ -607,7 +610,10 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
     getTemplateFields(child).length > 0 || getTemplateTags(child).length > 0 || relations.length > 0;
   return (
     <div className="template-hierarchy-child" style={indentStyle(depth)}>
-      <ChildTitle child={child} note={formatInheritance(child)}/>
+      <ChildTitle
+        child={child}
+        note={[formatChildConditionNote(child), formatInheritance(child)].filter(Boolean).join(" · ")}
+      />
       {hasRows && (
         <div className="template-hierarchy-child-body">
           <EffectList>
@@ -722,6 +728,82 @@ export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormP
   );
 };
 
+interface ConditionFieldsSectionProps {
+  template: Template;
+  fieldInfos: Array<ProjectFieldInfo>;
+  currentFieldValues: FieldValues;
+  currentFieldPresentations: Record<string, string | null>;
+  fieldInput: ReplacementFieldInput;
+}
+
+// The root ticket fields that decide which conditional subtasks are created, with selects to
+// change them; changed values are set on the ticket when the subtasks are created.
+const ConditionFieldsSection: React.FunctionComponent<ConditionFieldsSectionProps> = ({
+  template,
+  fieldInfos,
+  currentFieldValues,
+  currentFieldPresentations,
+  fieldInput,
+}) => {
+  const fields = getChildConditionFields(template);
+  if (fields.length === 0) {
+    return null;
+  }
+  const changed = getChangedConditionValues(template, fieldInput.values, currentFieldValues);
+  const presentationOf = (fieldName: string, valueName: string): string =>
+    fieldInfos
+      .find((info) => info.name === fieldName)
+      ?.values.find((value) => value.name === valueName)?.presentation ?? valueName;
+  return (
+    <FormSection title="Decides which subtasks are created">
+      <EffectList>
+        {fields.map(({ fieldName, childIds }) => (
+          <EffectRow key={`condition-${fieldName}`} label={fieldName}>
+            <UserInputFieldSelect
+              field={{ fieldName, mode: "user_input" }}
+              fieldInfos={fieldInfos}
+              value={fieldInput.values[fieldName] ?? currentFieldValues[fieldName] ?? null}
+              onChange={(name, value) =>
+                fieldInput.setValues((prev) => ({ ...prev, [name]: value }))
+              }
+            />{" "}
+            <Text size={Text.Size.S} info>
+              {fieldName in changed
+                ? `Changes ${fieldName} from ${currentFieldPresentations[fieldName] ?? "empty"} to ${presentationOf(fieldName, changed[fieldName] as string)} on this ticket`
+                : `decides ${childIds.length === 1 ? "1 subtask" : `${childIds.length} subtasks`}`}
+            </Text>
+          </EffectRow>
+        ))}
+      </EffectList>
+      {Object.keys(changed).length > 0 && (
+        <Text size={Text.Size.S} info>
+          Changing these fields may trigger other workflows, e.g. templates added automatically.
+        </Text>
+      )}
+    </FormSection>
+  );
+};
+
+// Field values and display texts of the root ticket with the changed condition fields applied,
+// for previewing which subtasks are created and what replacements insert.
+const withChangedConditions = (
+  template: Template,
+  fieldInfos: Array<ProjectFieldInfo>,
+  currentFieldValues: FieldValues,
+  currentFieldPresentations: Record<string, string | null>,
+  chosen: FieldValues,
+) => {
+  const changed = getChangedConditionValues(template, chosen, currentFieldValues);
+  const presentations = { ...currentFieldPresentations };
+  for (const [fieldName, valueName] of Object.entries(changed)) {
+    presentations[fieldName] =
+      fieldInfos
+        .find((info) => info.name === fieldName)
+        ?.values.find((value) => value.name === valueName)?.presentation ?? valueName;
+  }
+  return { values: { ...currentFieldValues, ...changed }, presentations };
+};
+
 interface HierarchyFormProps {
   template: Template;
   fieldInfos: Array<ProjectFieldInfo>;
@@ -764,14 +846,22 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   backLabel = "Back",
 }) => {
   const flat = flattenChildTemplates(getChildTemplates(template));
+  // Preview with the condition fields the user changed in this form.
+  const effective = withChangedConditions(
+    template,
+    fieldInfos,
+    currentFieldValues,
+    currentFieldPresentations,
+    fieldInput.values,
+  );
   const preconditions = getReplacementPreconditions(
     template,
     "ticket",
     fieldInfos,
-    currentFieldPresentations,
+    effective.presentations,
     false,
   );
-  const inclusion = evaluateChildInclusion(template, currentFieldValues);
+  const inclusion = evaluateChildInclusion(template, effective.values);
   const createdCount = flat.filter(({ child }) => inclusion[child.id]?.created).length;
   const hasReplacements = getTemplateReplacements(template).length > 0;
   const rootRelations = getTemplateRelations(template);
@@ -790,6 +880,13 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
       <div className="template-fields-form">
         <H3>Create subtasks from {template.name}</H3>
         {alreadyCreated && <AlreadyCreatedBanner noun="subtasks" parent="ticket"/>}
+        <ConditionFieldsSection
+          template={template}
+          fieldInfos={fieldInfos}
+          currentFieldValues={currentFieldValues}
+          currentFieldPresentations={currentFieldPresentations}
+          fieldInput={fieldInput}
+        />
         {hasReplacements && (
           <FormSection title="Text replacements, used in every subtask">
             <RememberedTextsHint show={textsRemembered}/>
@@ -798,7 +895,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
               preconditions={preconditions}
               texts={texts}
               setTexts={setTexts}
-              currentFieldPresentations={currentFieldPresentations}
+              currentFieldPresentations={effective.presentations}
               fieldInfos={fieldInfos}
               fieldInput={fieldInput}
             />

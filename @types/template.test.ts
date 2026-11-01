@@ -7,7 +7,10 @@ import {
   duplicateTemplate,
   flattenChildTemplates,
   getAddConditionKey,
+  evaluateChildInclusion,
+  formatChildConditionNote,
   formatChildTemplate,
+  getChildConditionFields,
   formatTemplateEffectTokens,
   formatTemplateSummaryTokens,
   formatTemplateValidCondition,
@@ -405,7 +408,11 @@ describe("formatTemplateEffectTokens", () => {
     [
       "Release template",
       "ticket",
-      ["Asks for Assignee, Fix versions, CUSTOMER", "Tags test4", "Creates 11 subtasks"],
+      [
+        "Asks for Assignee, Fix versions, CUSTOMER",
+        "Tags test4",
+        "Creates 11 subtasks (2 conditional)",
+      ],
     ],
     ["Release template", "article", ["Asks for CUSTOMER", "Tags test4", "Creates 11 sub-articles"]],
     [
@@ -439,5 +446,56 @@ describe("formatTemplateEffectTokens", () => {
       expect(formatTemplateEffectTokens(template, "ticket").length).toBeGreaterThan(0);
       expect(formatTemplateEffectTokens(template, "article").length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("conditional child templates", () => {
+  const release = current.find((t) => t.name === "Release template") as Template;
+  const childByName = (name: string): ChildTemplate => {
+    const found = flattenChildTemplates(getChildTemplates(release)).find(
+      ({ child }) => child.name === name,
+    );
+    if (!found) {
+      throw new Error(`No child ${name}`);
+    }
+    return found.child;
+  };
+  const high = childByName("CUSTOMER: Review test results - high prio");
+  const low = childByName("CUSTOMER: Review test results - low prio");
+
+  it("lists the fields deciding which children are created", () => {
+    expect(getChildConditionFields(release)).toEqual([
+      { fieldName: "Priority", childIds: [high.id, low.id], values: ["Normal", "Minor"] },
+    ]);
+    expect(getChildConditionFields(current.find((t) => t.name === "Bug template") as Template)).toEqual([]);
+  });
+
+  it("merges conditions on the same field and children in nested levels", () => {
+    const nested = clone(release);
+    const nestedHigh = flattenChildTemplates(getChildTemplates(nested)).find(
+      ({ child }) => child.id === high.id,
+    )?.child as ChildTemplate;
+    nestedHigh.addConditions = [
+      { when: "field_is", fieldName: "Priority", fieldValue: "Normal" },
+      { when: "field_is", fieldName: "Priority", fieldValue: "Major" },
+      { when: "field_is", fieldName: "State", fieldValue: "Open" },
+    ];
+    expect(getChildConditionFields(nested)).toEqual([
+      { fieldName: "Priority", childIds: [high.id, low.id], values: ["Normal", "Major", "Minor"] },
+      { fieldName: "State", childIds: [high.id], values: ["Open"] },
+    ]);
+    expect(formatChildConditionNote(nestedHigh)).toBe("when Priority is Normal or Major, or State is Open");
+    expect(formatChildConditionNote(childByName("CUSTOMER: Release tests"))).toBeNull();
+  });
+
+  it("re-evaluates inclusion, with subtrees following their parent", () => {
+    const highChild = getChildTemplates(high)[0];
+    const lowChild = getChildTemplates(low)[0];
+    const normal = evaluateChildInclusion(release, { Priority: "Normal" });
+    expect([normal[high.id].created, normal[highChild.id].created]).toEqual([true, true]);
+    expect([normal[low.id].created, normal[lowChild.id].created]).toEqual([false, false]);
+    const minor = evaluateChildInclusion(release, { Priority: "Minor" });
+    expect([minor[high.id].created, minor[highChild.id].created]).toEqual([false, false]);
+    expect([minor[low.id].created, minor[lowChild.id].created]).toEqual([true, true]);
   });
 });

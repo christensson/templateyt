@@ -428,11 +428,12 @@ const validateTemplate = (template) => {
 };
 
 // Child templates that will be created for the root issue, in tree order, skipping those whose
-// add conditions do not match together with their subtrees.
-const getAddedChildTemplates = (rootIssue, children) =>
+// add conditions do not match together with their subtrees. valueOverrides: root field values
+// being set in the same request (see utils.isChildTemplateAdded).
+const getAddedChildTemplates = (rootIssue, children, valueOverrides) =>
   (Array.isArray(children) ? children : []).flatMap((child) =>
-    utils.isChildTemplateAdded(rootIssue, child)
-      ? [child, ...getAddedChildTemplates(rootIssue, child.children)]
+    utils.isChildTemplateAdded(rootIssue, child, valueOverrides)
+      ? [child, ...getAddedChildTemplates(rootIssue, child.children, valueOverrides)]
       : [],
   );
 
@@ -440,11 +441,11 @@ const getAddedChildTemplates = (rootIssue, children) =>
 // creating anything, so that a bad value leaves the ticket untouched.
 // Returns { errors: [string], byChildId: { [childId]: { content, assignments, tagNames,
 // fixedLinks } } }.
-const planHierarchy = (rootIssue, template, childFieldValues, user) => {
+const planHierarchy = (rootIssue, template, childFieldValues, user, valueOverrides) => {
   const project = rootIssue.project;
   const errors = [];
   const byChildId = {};
-  for (const child of getAddedChildTemplates(rootIssue, template.children)) {
+  for (const child of getAddedChildTemplates(rootIssue, template.children, valueOverrides)) {
     const article = entities.Article.findById(child.articleId);
     if (article == null) {
       errors.push(`Article ${child.articleId} for child template "${child.name}" not found.`);
@@ -981,7 +982,20 @@ exports.httpHandler = {
           return;
         }
 
-        const plan = planHierarchy(issue, template, body.childFieldValues, ctx.currentUser);
+        // New values chosen for root ticket fields that child add conditions depend on; the plan
+        // uses them before anything is written.
+        const conditionInputs = utils.resolveConditionFieldInputs(
+          issue,
+          template,
+          body.conditionFieldValues,
+        );
+        const plan = planHierarchy(
+          issue,
+          template,
+          body.childFieldValues,
+          ctx.currentUser,
+          conditionInputs.valueOverrides,
+        );
         // The root ticket gets the root template's tags and fixed relations it does not have
         // yet, e.g. when the template was added automatically.
         const rootTags = utils.resolveTemplateTags(template);
@@ -993,6 +1007,7 @@ exports.httpHandler = {
           body.replacementFieldValues,
         );
         const planErrors = rootTags.errors.concat(
+          conditionInputs.errors,
           fieldInputs.errors,
           rootRelations.errors,
           utils.getHierarchyRelationErrors(issue, template),
@@ -1008,13 +1023,19 @@ exports.httpHandler = {
           template,
           body.replacementTexts,
           true,
-          fieldInputs.overrides,
+          {
+            ...fieldInputs.overrides,
+            ...utils.getAssignmentOverrides(issue, conditionInputs.assignments),
+          },
         );
         const replacementError = getReplacementError(replacements);
         if (replacementError !== null) {
           badRequest(ctx, `Failed to create hierarchy: ${replacementError}`);
           return;
         }
+        // Set the chosen root ticket fields before creating subtasks, so that subtasks inheriting
+        // root ticket fields get the new values.
+        utils.applyFieldAssignments(issue, conditionInputs.assignments);
         utils.applyFieldAssignments(issue, fieldInputs.assignments);
 
         const createdIssueIds = [];
@@ -1025,7 +1046,7 @@ exports.httpHandler = {
         const createChildren = (parentIssue, parentManagedFields, children) => {
           for (const child of children) {
             // Skipped child templates take their whole subtree with them.
-            if (!utils.isChildTemplateAdded(issue, child)) {
+            if (!utils.isChildTemplateAdded(issue, child, conditionInputs.valueOverrides)) {
               skippedChildIds.push(child.id);
               continue;
             }

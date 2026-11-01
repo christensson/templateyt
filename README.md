@@ -132,6 +132,10 @@ content as description.
 - A child template can have *conditions when it is added*: one or more "ticket field is value"
   checks against the ticket the hierarchy is created from. It is created when any condition
   matches, or always when it has none. A skipped child template takes its own children with it.
+  The *"Create subtasks"* form lists the fields that decide which subtasks are created, and marks
+  conditional subtasks with their condition. Changing a field there updates the preview; the new
+  value is set on the ticket when the subtasks are created (which may trigger other workflows,
+  such as templates added automatically).
 - The hierarchy is created manually from *"Create subtasks"* (*"Create sub-articles"* for
   articles) in the *"Apply template"* menu. It is offered right after the template is applied,
   with the texts just entered for text replacements filled in, and later for the applied

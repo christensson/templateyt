@@ -190,11 +190,19 @@ export const createHierarchy = (
   replacementTexts: ReplacementTexts,
   // Values for empty root ticket fields that field replacements use; also set on the ticket.
   replacementFieldValues: FieldValues = {},
+  // New values for root ticket fields that child add conditions depend on; set on the ticket.
+  conditionFieldValues: FieldValues = {},
 ): Promise<CreateHierarchyResult> =>
   host.fetchApp<CreateHierarchyResult>("backend/createHierarchy", {
     scope: true,
     method: "POST",
-    body: { templateId, childFieldValues, replacementTexts, replacementFieldValues },
+    body: {
+      templateId,
+      childFieldValues,
+      replacementTexts,
+      replacementFieldValues,
+      conditionFieldValues,
+    },
   });
 
 // Applies a template to the current article (article-scoped addTemplate).

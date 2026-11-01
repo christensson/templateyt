@@ -68,14 +68,39 @@ const flattenChildTemplates = (children, depth) =>
 
 // A child template is added when it has no add conditions or any of them matches the root
 // ticket (the ticket the hierarchy is created from).
-const isChildTemplateAdded = (rootIssue, child) => {
+// valueOverrides (value name by field name) holds root ticket field values that are being set in
+// the same request; they are used instead of the root ticket's current values.
+const isChildTemplateAdded = (rootIssue, child, valueOverrides) => {
   const conditions = Array.isArray(child.addConditions) ? child.addConditions : [];
   if (conditions.length === 0) {
     return true;
   }
-  return conditions.some(
-    (cond) => cond.when === "field_is" && rootIssue.is(cond.fieldName, cond.fieldValue),
-  );
+  return conditions.some((cond) => {
+    if (cond.when !== "field_is") {
+      return false;
+    }
+    const override = valueOverrides ? valueOverrides[cond.fieldName] : undefined;
+    return typeof override === "string"
+      ? override === cond.fieldValue
+      : rootIssue.is(cond.fieldName, cond.fieldValue);
+  });
+};
+
+// Names of the root ticket fields that add conditions in the child tree depend on.
+const getChildConditionFieldNames = (template) => {
+  const names = [];
+  const visit = (children) => {
+    for (const child of Array.isArray(children) ? children : []) {
+      for (const cond of Array.isArray(child.addConditions) ? child.addConditions : []) {
+        if (cond.when === "field_is" && !names.includes(cond.fieldName)) {
+          names.push(cond.fieldName);
+        }
+      }
+      visit(child.children);
+    }
+  };
+  visit(template.children);
+  return names;
 };
 
 // Article tree below an article, in the shape the config UI imports.
@@ -535,6 +560,45 @@ const resolveReplacementFieldInputs = (issue, template, valuesByField) => {
   return { assignments: assignments, overrides: overrides, errors: errors };
 };
 
+// New values chosen for root ticket fields that child add conditions depend on, keyed by field
+// name. Only condition fields of the template's child tree with a condition field type are
+// accepted, and only values different from the current one; other keys are ignored. Returns
+// { assignments, valueOverrides: { fieldName: valueName }, errors } without modifying anything;
+// assignments have the shape of resolveTemplateFieldValues.
+const resolveConditionFieldInputs = (issue, template, valuesByField) => {
+  const assignments = [];
+  const valueOverrides = {};
+  const errors = [];
+  for (const fieldName of getChildConditionFieldNames(template)) {
+    const valueName = valuesByField ? valuesByField[fieldName] : null;
+    if (typeof valueName !== "string" || valueName === "") {
+      continue;
+    }
+    const projectField = findProjectField(issue.project, fieldName);
+    if (projectField === null || !CONDITION_FIELD_TYPES.includes(projectField.typeName)) {
+      continue;
+    }
+    const current = issue.fields[fieldName];
+    if (current && getFieldValueName(projectField.typeName, current) === valueName) {
+      continue;
+    }
+    const value = findFieldValue(projectField, valueName);
+    if (value === null) {
+      errors.push(`Value "${valueName}" not found for field "${fieldName}".`);
+      continue;
+    }
+    assignments.push({
+      fieldName: fieldName,
+      typeName: projectField.typeName,
+      value: value,
+      multi: false,
+      additive: false,
+    });
+    valueOverrides[fieldName] = valueName;
+  }
+  return { assignments: assignments, valueOverrides: valueOverrides, errors: errors };
+};
+
 // Display texts the issue's fields will have after the assignments, keyed by field name, so that
 // replacements insert the values being set rather than the previous ones.
 const getAssignmentOverrides = (issue, assignments) => {
@@ -703,6 +767,7 @@ module.exports = {
   applyReplacements,
   resolveReplacements,
   resolveReplacementFieldInputs,
+  resolveConditionFieldInputs,
   getAssignmentOverrides,
   resolveTemplateFieldValues,
   applyFieldAssignments,

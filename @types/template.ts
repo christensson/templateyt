@@ -608,6 +608,51 @@ export const formatChildAddConditions = (child: ChildTemplate): string => {
   return `Added when ${conditions.map(formatChildAddCondition).join(", or ")}.`;
 };
 
+// Short form of a child's add conditions for previews, e.g. "when Type is Bug or Task", or null
+// when the child is always added.
+export const formatChildConditionNote = (child: ChildTemplate): string | null => {
+  const requiredByField = new Map<string, Array<string>>();
+  for (const cond of getChildAddConditions(child)) {
+    requiredByField.set(cond.fieldName, [...(requiredByField.get(cond.fieldName) ?? []), cond.fieldValue]);
+  }
+  if (requiredByField.size === 0) {
+    return null;
+  }
+  const parts = Array.from(requiredByField.entries()).map(
+    ([fieldName, values]) => `${fieldName} is ${values.join(" or ")}`,
+  );
+  return `when ${parts.join(", or ")}`;
+};
+
+// A root ticket field that child add conditions depend on: the child templates it decides
+// (directly, not counting their subtrees) and the values they require.
+export type ChildConditionField = {
+  fieldName: string;
+  childIds: Array<string>;
+  values: Array<string>;
+};
+
+export const getChildConditionFields = (template: Template): Array<ChildConditionField> => {
+  const byField = new Map<string, ChildConditionField>();
+  for (const { child } of flattenChildTemplates(getChildTemplates(template))) {
+    for (const cond of getChildAddConditions(child)) {
+      const entry = byField.get(cond.fieldName) ?? {
+        fieldName: cond.fieldName,
+        childIds: [],
+        values: [],
+      };
+      if (!entry.childIds.includes(child.id)) {
+        entry.childIds.push(child.id);
+      }
+      if (!entry.values.includes(cond.fieldValue)) {
+        entry.values.push(cond.fieldValue);
+      }
+      byField.set(cond.fieldName, entry);
+    }
+  }
+  return Array.from(byField.values());
+};
+
 // Why unmet conditions skip a child, stating the root ticket's actual values, e.g.
 // "root ticket field Type is Feature, requires Bug or Task."
 const formatUnmetConditions = (
@@ -992,8 +1037,16 @@ export const formatTemplateEffectTokens = (
     ? flattenChildTemplates(getChildTemplates(template)).length
     : 0;
   if (children > 0) {
+    // Add conditions only apply to subtasks; sub-articles are always created.
+    const conditional = forTicket
+      ? flattenChildTemplates(getChildTemplates(template)).filter(
+        ({ child }) => getChildAddConditions(child).length > 0,
+      ).length
+      : 0;
     tokens.push(
-      `Creates ${forTicket ? countLabel(children, "subtask") : countLabel(children, "sub-article")}`,
+      `Creates ${forTicket ? countLabel(children, "subtask") : countLabel(children, "sub-article")}${
+        conditional > 0 ? ` (${conditional} conditional)` : ""
+      }`,
     );
   }
   if (tokens.length === 0) {

@@ -7,6 +7,7 @@ import {
   formatCreatedMessage,
   formatRowStatus,
   getApplyGroupMap,
+  getChangedConditionValues,
   getApplyGroupOrder,
   getApplyStatus,
   getErrorMessage,
@@ -254,6 +255,14 @@ const AppComponent: React.FunctionComponent = () => {
         pickChosenChildValues(childValues),
         replacementTexts,
         pickChosenValues(replacementFieldValues),
+        // Only condition fields the user changed are set on the ticket.
+        issueTemplateInfo === null
+          ? {}
+          : getChangedConditionValues(
+            hierarchy.template,
+            replacementFieldValues,
+            issueTemplateInfo.currentFieldValues,
+          ),
       );
       console.log(`Create hierarchy ${hierarchy.template.id} result`, result);
       if (!result.success) {
@@ -269,7 +278,14 @@ const AppComponent: React.FunctionComponent = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [hierarchy, childValues, replacementTexts, replacementFieldValues, checkTemplate]);
+  }, [
+    hierarchy,
+    childValues,
+    replacementTexts,
+    replacementFieldValues,
+    issueTemplateInfo,
+    checkTemplate,
+  ]);
 
   const removeTemplateFromIssue = useCallback(
     async (template: Template | null) => {

@@ -3,6 +3,7 @@ import type { HostAPI } from "../@types/globals";
 import type { ProjectFieldInfo } from "../@types/project-info";
 import {
   flattenChildTemplates,
+  getChildConditionFields,
   getChildTemplates,
   getTemplateFields,
   getTemplateRelations,
@@ -319,3 +320,20 @@ export const hasMissingRequiredInput = (
       item.required &&
       !(item.kind === "empty" ? replacementFieldValues : fieldValues)[item.fieldName],
   );
+
+// Values chosen in the subtask form for root ticket fields that child add conditions depend on,
+// keeping only those that differ from the ticket's current values: the fields to change.
+export const getChangedConditionValues = (
+  template: Template,
+  chosen: FieldValues,
+  current: FieldValues,
+): FieldValues => {
+  const changed: FieldValues = {};
+  for (const { fieldName } of getChildConditionFields(template)) {
+    const value = chosen[fieldName];
+    if (value && value !== (current[fieldName] ?? null)) {
+      changed[fieldName] = value;
+    }
+  }
+  return changed;
+};

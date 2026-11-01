@@ -9,6 +9,7 @@ import {
 } from "./template-client";
 import {
   formatCreatedMessage,
+  getChangedConditionValues,
   getReplacementPreconditions,
   hasMissingRequiredInput,
   needsReplacementFieldInput,
@@ -254,5 +255,21 @@ describe("getInitialReplacementTexts", () => {
     expect(getInitialReplacementTexts(release, stored)).toEqual({ CUSTOMER: "ACME" });
     expect(hasStoredReplacementTexts(release, stored)).toBe(true);
     expect(hasStoredReplacementTexts(release, { [release.id]: { OLD_WORD: "x" } })).toBe(false);
+  });
+});
+
+describe("getChangedConditionValues", () => {
+  it("keeps only changed values of condition fields", () => {
+    expect(
+      getChangedConditionValues(
+        release,
+        { Priority: "Minor", Approver: "jane", Assignee: null },
+        { Priority: "Normal" },
+      ),
+    ).toEqual({ Priority: "Minor" });
+    expect(getChangedConditionValues(release, { Priority: "Normal" }, { Priority: "Normal" })).toEqual({});
+    expect(getChangedConditionValues(release, { Priority: null }, { Priority: "Normal" })).toEqual({});
+    expect(getChangedConditionValues(release, { Priority: "Minor" }, {})).toEqual({ Priority: "Minor" });
+    expect(getChangedConditionValues(bug, { Priority: "Minor" }, {})).toEqual({});
   });
 });

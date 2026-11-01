@@ -24,6 +24,16 @@ type Utils = {
     errors: Array<string>;
   };
   getAssignmentOverrides: (issue: unknown, assignments: Array<unknown>) => Record<string, string>;
+  isChildTemplateAdded: (issue: unknown, child: unknown, overrides?: Record<string, string>) => boolean;
+  resolveConditionFieldInputs: (
+    issue: unknown,
+    template: unknown,
+    values: unknown,
+  ) => {
+    assignments: Array<{ fieldName: string; multi: boolean }>;
+    valueOverrides: Record<string, string>;
+    errors: Array<string>;
+  };
   getStoredReplacementTexts: (entity: unknown) => Record<string, Record<string, string>>;
   storeReplacementTexts: (entity: unknown, template: unknown, texts: unknown) => void;
   clearStoredReplacementTexts: (entity: unknown, templateId: string) => void;
@@ -224,5 +234,87 @@ describe("stored replacement texts", () => {
     expect(utils.getStoredReplacementTexts(entity)).toEqual({ other: { NAME: "x" } });
     utils.clearStoredReplacementTexts(entity, "t");
     expect(entity.writes()).toBe(1);
+  });
+});
+
+describe("conditional child templates", () => {
+  // Root ticket with single-value condition fields Priority (enum) and State (state), a user field
+  // and a multi-value enum field.
+  const values: Record<string, Array<{ name: string; login?: string }>> = {
+    Priority: [{ name: "Normal" }, { name: "Minor" }],
+    State: [{ name: "Open" }, { name: "Fixed" }],
+    Assignee: [{ name: "jane", login: "jane" }],
+    Labels: [{ name: "a" }],
+  };
+  const types: Record<string, string> = {
+    Priority: "enum[1]",
+    State: "state[1]",
+    Assignee: "user[1]",
+    Labels: "enum[*]",
+  };
+  const makeRoot = (fields: Record<string, { name: string } | null>) => ({
+    fields,
+    is: (fieldName: string, valueName: string) => fields[fieldName]?.name === valueName,
+    project: {
+      findFieldByName: (name: string) =>
+        name in types
+          ? {
+              typeName: types[name],
+              findValueByName: (n: string) => values[name].find((v) => v.name === n) ?? null,
+              findValueByLogin: (n: string) => values[name].find((v) => v.login === n) ?? null,
+            }
+          : null,
+    },
+  });
+  const cond = (fieldName: string, fieldValue: string) => ({ when: "field_is", fieldName, fieldValue });
+  const conditional = {
+    id: "t",
+    children: [
+      { id: "a", addConditions: [cond("Priority", "Minor")], children: [] },
+      {
+        id: "b",
+        addConditions: [],
+        children: [
+          { id: "c", addConditions: [cond("State", "Fixed"), cond("Assignee", "jane")], children: [] },
+          { id: "d", addConditions: [cond("Labels", "a")], children: [] },
+        ],
+      },
+    ],
+  };
+
+  it("uses value overrides instead of the root ticket's values", () => {
+    const root = makeRoot({ Priority: { name: "Normal" } });
+    const child = conditional.children[0];
+    expect(utils.isChildTemplateAdded(root, child)).toBe(false);
+    expect(utils.isChildTemplateAdded(root, child, { Priority: "Minor" })).toBe(true);
+    expect(utils.isChildTemplateAdded(makeRoot({ Priority: { name: "Minor" } }), child, { Priority: "Normal" })).toBe(false);
+    expect(utils.isChildTemplateAdded(root, conditional.children[1], { Priority: "x" })).toBe(true);
+  });
+
+  it("accepts changed values of single-value condition fields only", () => {
+    const root = makeRoot({ Priority: { name: "Normal" }, State: { name: "Open" } });
+    const result = utils.resolveConditionFieldInputs(root, conditional, {
+      Priority: "Minor",
+      State: "Open",
+      Assignee: "jane",
+      Labels: "a",
+      Unrelated: "x",
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.valueOverrides).toEqual({ Priority: "Minor" });
+    expect(result.assignments.map(({ fieldName, multi }) => ({ fieldName, multi }))).toEqual([
+      { fieldName: "Priority", multi: false },
+    ]);
+    expect(utils.resolveConditionFieldInputs(root, conditional, undefined).assignments).toEqual([]);
+  });
+
+  it("rejects unknown values and accepts values for empty fields", () => {
+    const root = makeRoot({ Priority: null, State: null });
+    const result = utils.resolveConditionFieldInputs(root, conditional, {
+      Priority: "Urgent",
+      State: "Fixed",
+    });
+    expect(result.errors).toEqual(['Value "Urgent" not found for field "Priority".']);
+    expect(result.valueOverrides).toEqual({ State: "Fixed" });
   });
 });
