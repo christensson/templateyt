@@ -19,7 +19,7 @@ interface TemplateTagsPanelProps {
   hint?: string;
 }
 
-// Editable list of the tags a template (or child template) adds to the ticket.
+// Editable list of the tags a template (or child template) adds to the ticket or article.
 const TemplateTagsPanel: React.FunctionComponent<TemplateTagsPanelProps> = ({
   title,
   tags,

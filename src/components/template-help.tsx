@@ -42,6 +42,12 @@ const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({ createNewTem
           by the user and tags are only set when the template is applied manually.
         </li>
         <li>
+          Articles have no fields or links: ticket fields, relations, field conditions and root
+          ticket field replacements only work on tickets. They cannot be configured for templates
+          only available for articles, and are marked &quot;tickets only&quot; for templates
+          available for both.
+        </li>
+        <li>
           Text replacements replace whole words only: VERSION matches in &quot;Release
           VERSION.&quot; but not in VERSION-1 or MY_VERSION. They apply to the ticket summary, the
           template content and all subtasks. Text entered by the user is required when applying

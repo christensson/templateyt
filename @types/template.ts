@@ -480,7 +480,8 @@ export const formatTemplateFields = (template: HasFields): string => {
   return `Sets fields: ${fields.map((field) => field.fieldName).join(", ")}.`;
 };
 
-export const formatTemplateTag = (tag: string): string => `Adds tag ${tag} to ticket.`;
+export const formatTemplateTag = (tag: string, targetNoun: string = "ticket"): string =>
+  `Adds tag ${tag} to ${targetNoun}.`;
 
 // The ticket a relation points to, e.g. "root ticket", "subtask Review" or "ticket ABC-12".
 export const formatRelationTarget = (relation: TemplateRelation, template: Template): string => {
@@ -772,6 +773,117 @@ export const validateTemplateFields = (template: Template): string | null => {
 
 // Problems of one child template's own settings, at most one per check, in the order the checks
 // have always run: name, add conditions, fields. Relations are checked by validateRelations.
+// Which entities a template is available for, from its validity conditions (any of them matches):
+// tickets for "ticket" and ticket field conditions, articles for "article", both for tags. A
+// template without conditions is treated as available for both, so nothing is restricted.
+export type TemplateScope = { tickets: boolean; articles: boolean };
+
+export const getTemplateScope = (template: Template): TemplateScope => {
+  const conditions = getValidConditions(template);
+  if (conditions.length === 0) {
+    return { tickets: true, articles: true };
+  }
+  let tickets = false;
+  let articles = false;
+  for (const cond of conditions) {
+    if (cond.when === "entity_is") {
+      tickets = tickets || cond.entityType === "issue";
+      articles = articles || cond.entityType === "article";
+    } else if (cond.when === "field_is") {
+      tickets = true;
+    } else {
+      tickets = true;
+      articles = true;
+    }
+  }
+  return { tickets, articles };
+};
+
+// What a template is applied to, from its scope: "ticket", "article" or "ticket or article";
+// for child templates "subtask", "sub-article" or "subtask or sub-article".
+export const formatTemplateTargetNoun = (template: Template, forChildren: boolean = false): string => {
+  const { tickets, articles } = getTemplateScope(template);
+  const ticket = forChildren ? "subtask" : "ticket";
+  const article = forChildren ? "sub-article" : "article";
+  if (tickets && articles) {
+    return `${ticket} or ${article}`;
+  }
+  return articles ? article : ticket;
+};
+
+// Templates only available for articles cannot use ticket fields or relations.
+export const isArticleOnly = (template: Template): boolean => !getTemplateScope(template).tickets;
+
+// Whether ticket-only features (fields, relations, field conditions and replacements) can be
+// configured: freely for ticket templates, marked as tickets only when the template is also
+// available for articles, and not at all for article-only templates.
+export type TicketFeatureAvailability = "allowed" | "marked" | "unavailable";
+
+export const getTicketFeatureAvailability = (template: Template): TicketFeatureAvailability => {
+  const scope = getTemplateScope(template);
+  if (!scope.tickets) {
+    return "unavailable";
+  }
+  return scope.articles ? "marked" : "allowed";
+};
+
+export const TICKETS_ONLY_HINT = "Tickets only: ignored when the template is applied to an article.";
+export const SUBTASKS_ONLY_HINT = "Subtasks only: sub-articles get text replacements and tags.";
+
+const ARTICLE_ONLY_HINT =
+  "this template is only available for articles. Remove them, or make the template available for tickets.";
+
+// Errors for ticket-only features configured on an article-only template.
+const validateArticleOnlyTemplate = (template: Template): Array<TemplateValidationError> => {
+  if (!isArticleOnly(template)) {
+    return [];
+  }
+  const errors: Array<TemplateValidationError> = [];
+  if (template.addCondition?.when === "field_becomes") {
+    errors.push({
+      section: "when",
+      message: "Applying automatically when a ticket field changes is not available, this template is only available for articles. Choose another option, or make the template available for tickets.",
+    });
+  }
+  if (getTemplateFields(template).length > 0) {
+    errors.push({ section: "effects", message: `Ticket fields are not available, ${ARTICLE_ONLY_HINT}` });
+  }
+  if (getTemplateRelations(template).length > 0) {
+    errors.push({ section: "effects", message: `Relations are not available, ${ARTICLE_ONLY_HINT}` });
+  }
+  if (getTemplateReplacements(template).some((replacement) => replacement.mode === "field")) {
+    errors.push({
+      section: "effects",
+      message: `Text replacements with a root ticket field are not available, ${ARTICLE_ONLY_HINT}`,
+    });
+  }
+  return errors;
+};
+
+// Subtask-only settings of a child template of an article-only template.
+const getArticleOnlyChildIssues = (child: ChildTemplate): Array<TemplateValidationError> => {
+  const label = child.name && child.name.trim() !== "" ? child.name : child.articleId;
+  const issues: Array<TemplateValidationError> = [];
+  if (getChildAddConditions(child).length > 0) {
+    issues.push({
+      section: "when",
+      message: `Child template "${label}" has conditions on ticket fields, but ${ARTICLE_ONLY_HINT.replace("Remove them", "Remove the conditions")}`,
+    });
+  }
+  const settings = [
+    ...(child.inheritParentFields || child.inheritRootFields ? ["field inheritance"] : []),
+    ...(getTemplateFields(child).length > 0 ? ["ticket fields"] : []),
+    ...(getTemplateRelations(child).length > 0 ? ["relations"] : []),
+  ];
+  if (settings.length > 0) {
+    issues.push({
+      section: "effects",
+      message: `Child template "${label}" has ${settings.join(", ")}, which are not available: ${ARTICLE_ONLY_HINT}`,
+    });
+  }
+  return issues;
+};
+
 const validateChildSettings = (child: ChildTemplate): Array<TemplateValidationError> => {
   const errors: Array<TemplateValidationError> = [];
   if (!child.name || child.name.trim() === "") {
@@ -828,6 +940,9 @@ export const validateChildTemplate = (
   if (relationsError !== null) {
     errors.push({ section: "effects", message: relationsError });
   }
+  if (isArticleOnly(template)) {
+    errors.push(...getArticleOnlyChildIssues(child));
+  }
   return errors;
 };
 
@@ -861,6 +976,15 @@ export const validateTemplate = (template: Template): Array<TemplateValidationEr
   add("hierarchy", validateChildTemplates(template));
   add("effects", validateReplacements(template));
   add("effects", validateRelations(template));
+  // Checked last, so that the first error of templates stored before these checks is unchanged.
+  errors.push(...validateArticleOnlyTemplate(template));
+  if (template.hierarchical && isArticleOnly(template)) {
+    const childIssue = flattenChildTemplates(getChildTemplates(template))
+      .flatMap(({ child }) => getArticleOnlyChildIssues(child))[0];
+    if (childIssue !== undefined) {
+      errors.push({ section: "hierarchy", message: childIssue.message });
+    }
+  }
   return errors;
 };
 

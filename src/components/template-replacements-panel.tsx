@@ -9,29 +9,38 @@ import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useMemo } from "react";
 import type { ProjectFieldInfo } from "../../@types/project-info";
-import type { TextReplacement } from "../../@types/template";
+import type { TextReplacement, TicketFeatureAvailability } from "../../@types/template";
 
-const MODE_ITEMS = [
+// Replacement modes; the root ticket field mode is marked or disabled when the template is
+// (also) available for articles, which have no fields.
+const getModeItems = (ticketFields: TicketFeatureAvailability): Array<SelectItem> => [
   { key: "user_input", label: "with text entered by user" },
-  { key: "field", label: "with root ticket field" },
+  {
+    key: "field",
+    label: ticketFields === "allowed" ? "with root ticket field" : "with root ticket field (tickets only)",
+    disabled: ticketFields === "unavailable",
+  },
 ];
 
 interface ReplacementRowProps {
   replacement: TextReplacement;
   projectFields: Array<ProjectFieldInfo>;
   onChange: (replacement: TextReplacement) => void;
+  ticketFields: TicketFeatureAvailability;
 }
 
 const ReplacementRow: React.FunctionComponent<ReplacementRowProps> = ({
   replacement,
   projectFields,
   onChange,
+  ticketFields,
 }) => {
+  const modeItems = useMemo(() => getModeItems(ticketFields), [ticketFields]);
   const fieldItems = useMemo(
     () => projectFields.map((field) => ({ key: field.name, label: field.name })),
     [projectFields],
   );
-  const selectedMode = MODE_ITEMS.find((item) => item.key === replacement.mode) || null;
+  const selectedMode = modeItems.find((item) => item.key === replacement.mode) || null;
   const selectedField =
     replacement.mode === "field"
       ? fieldItems.find((item) => item.key === replacement.fieldName) || null
@@ -62,7 +71,7 @@ const ReplacementRow: React.FunctionComponent<ReplacementRowProps> = ({
         label="..."
         type={Select.Type.INLINE}
         size={Select.Size.AUTO}
-        data={MODE_ITEMS}
+        data={modeItems}
         selected={selectedMode}
         onSelect={onSelectMode}
       />
@@ -94,6 +103,8 @@ interface TemplateReplacementsPanelProps {
   replacements: Array<TextReplacement>;
   onReplacementsChange: (replacements: Array<TextReplacement>) => void;
   projectFields: Array<ProjectFieldInfo>;
+  // Whether root ticket field replacements can be configured, see getTicketFeatureAvailability.
+  ticketFields?: TicketFeatureAvailability;
 }
 
 // Editable list of the whole-word text replacements a template applies.
@@ -101,6 +112,7 @@ const TemplateReplacementsPanel: React.FunctionComponent<TemplateReplacementsPan
   replacements,
   onReplacementsChange,
   projectFields,
+  ticketFields = "allowed",
 }) => {
   const updateReplacement = (idx: number, replacement: TextReplacement) =>
     onReplacementsChange(
@@ -125,6 +137,7 @@ const TemplateReplacementsPanel: React.FunctionComponent<TemplateReplacementsPan
             replacement={replacement}
             projectFields={projectFields}
             onChange={(updated) => updateReplacement(idx, updated)}
+            ticketFields={ticketFields}
           />
           <Button onClick={() => removeReplacement(idx)} icon={TrashIcon} title="Remove replacement"/>
         </div>

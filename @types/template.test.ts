@@ -10,7 +10,12 @@ import {
   evaluateChildInclusion,
   formatChildConditionNote,
   formatChildTemplate,
+  getChildAddConditions,
   getChildConditionFields,
+  formatTemplateTag,
+  formatTemplateTargetNoun,
+  getTemplateScope,
+  getTicketFeatureAvailability,
   formatTemplateEffectTokens,
   formatTemplateSummaryTokens,
   formatTemplateValidCondition,
@@ -497,5 +502,102 @@ describe("conditional child templates", () => {
     const minor = evaluateChildInclusion(release, { Priority: "Minor" });
     expect([minor[high.id].created, minor[highChild.id].created]).toEqual([false, false]);
     expect([minor[low.id].created, minor[lowChild.id].created]).toEqual([true, true]);
+  });
+});
+
+describe("ticket-only features", () => {
+  const byName = (name: string): Template => clone(current.find((t) => t.name === name) as Template);
+  const entity = (entityType: "issue" | "article") => ({ when: "entity_is" as const, entityType });
+  const fieldIs = { when: "field_is" as const, fieldName: "Type", fieldValue: "Bug" };
+  const tagIs = { when: "tag_is" as const, tagName: "x" };
+
+  it.each([
+    [[entity("issue")], true, false, "allowed"],
+    [[entity("article")], false, true, "unavailable"],
+    [[fieldIs], true, false, "allowed"],
+    [[tagIs], true, true, "marked"],
+    [[entity("article"), fieldIs], true, true, "marked"],
+    [[entity("article"), entity("issue")], true, true, "marked"],
+    [[], true, true, "marked"],
+  ] as const)("%j", (conditions, tickets, articles, availability) => {
+    const template = { ...byName("Meeting minutes template"), validCondition: [...conditions] };
+    expect(getTemplateScope(template)).toEqual({ tickets, articles });
+    expect(getTicketFeatureAvailability(template)).toBe(availability);
+  });
+
+  it("classifies the stored templates", () => {
+    expect(current.map((t) => [t.name, getTicketFeatureAvailability(t)])).toEqual([
+      ["Extra Software Review", "marked"],
+      ["Task template", "allowed"],
+      ["Meeting minutes template", "unavailable"],
+      ["Won't fix template", "allowed"],
+      ["Bug template", "allowed"],
+      ["Release template", "marked"],
+      ["SW Module Documentation", "unavailable"],
+    ]);
+  });
+
+  // Bug template's fields and trigger, made available for articles only.
+  const articleOnlyBug = (): Template => ({
+    ...byName("Bug template"),
+    validCondition: [entity("article")],
+  });
+
+  it("rejects ticket-only settings of article-only templates", () => {
+    const template: Template = {
+      ...articleOnlyBug(),
+      relations: [{ linkName: "relates to", target: "fixed", issueId: "SAN-1" }],
+      replacements: [{ search: "WHO", mode: "field", fieldName: "Assignee" }],
+    };
+    expect(validateTemplate(template).map(({ section, message }) => `${section}: ${message.split(",")[0]}`)).toEqual([
+      "when: Applying automatically when a ticket field changes is not available",
+      "effects: Ticket fields are not available",
+      "effects: Relations are not available",
+      "effects: Text replacements with a root ticket field are not available",
+    ]);
+  });
+
+  it("accepts the same settings when the template is also available for tickets", () => {
+    const template: Template = {
+      ...articleOnlyBug(),
+      validCondition: [entity("article"), entity("issue")],
+      relations: [{ linkName: "relates to", target: "fixed", issueId: "SAN-1" }],
+      replacements: [{ search: "WHO", mode: "field", fieldName: "Assignee" }],
+    };
+    expect(validateTemplate(template)).toEqual([]);
+  });
+
+  it("rejects subtask-only settings of child templates of article-only templates", () => {
+    const template: Template = { ...byName("Release template"), validCondition: [entity("article")] };
+    // Release template's own fields and field replacements are reported too; check the children.
+    const conditional = flattenChildTemplates(getChildTemplates(template)).find(
+      ({ child }) => getChildAddConditions(child).length > 0,
+    )?.child as ChildTemplate;
+    conditional.inheritRootFields = true;
+    const childErrors = validateChildTemplate(template, conditional).map((error) => error.section);
+    expect(childErrors).toEqual(["when", "effects"]);
+    expect(validateTemplate(template).some((error) => error.section === "hierarchy")).toBe(true);
+    // Available for tickets as well: the same child is fine.
+    const both = { ...template, validCondition: [entity("article"), entity("issue")] };
+    expect(validateChildTemplate(both, conditional)).toEqual([]);
+  });
+
+  it("adds no errors to stored templates", () => {
+    for (const template of current) {
+      expect(validateTemplate(template)).toEqual([]);
+    }
+  });
+});
+
+describe("formatTemplateTargetNoun", () => {
+  it.each([
+    ["Bug template", "ticket", "subtask"],
+    ["SW Module Documentation", "article", "sub-article"],
+    ["Release template", "ticket or article", "subtask or sub-article"],
+  ])("%s", (name, noun, childNoun) => {
+    const template = current.find((t) => t.name === name) as Template;
+    expect(formatTemplateTargetNoun(template)).toBe(noun);
+    expect(formatTemplateTargetNoun(template, true)).toBe(childNoun);
+    expect(formatTemplateTag("x", formatTemplateTargetNoun(template))).toBe(`Adds tag x to ${noun}.`);
   });
 });

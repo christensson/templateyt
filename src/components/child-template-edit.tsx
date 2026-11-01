@@ -23,6 +23,7 @@ import {
   formatChildAddConditions,
   formatTemplateField,
   formatTemplateTag,
+  formatTemplateTargetNoun,
   formatTemplateRelation,
   getChildAddConditions,
   getChildTemplates,
@@ -31,11 +32,13 @@ import {
   getTemplateFields,
   getTemplateTags,
   getTemplateRelations,
+  getTicketFeatureAvailability,
   insertManualChild,
   mergeImportedChildren,
   moveChild,
   moveChildUnder,
   removeChild,
+  SUBTASKS_ONLY_HINT,
   updateChildTemplate,
   validateChildTemplate,
   type ChildTemplate,
@@ -44,6 +47,7 @@ import {
   type InsertedArticle,
   type Template,
   type TemplateSection as TemplateSectionKey,
+  type TicketFeatureAvailability,
 } from "../../@types/template";
 import FieldValueConditionInput from "./field-value-condition-input";
 import type { TemplateArticleSelectItem } from "./template-article-select-items";
@@ -383,16 +387,24 @@ const ChildEffectsView: React.FunctionComponent<ChildEffectsViewProps> = ({ temp
   const fields = getTemplateFields(child);
   const tags = getTemplateTags(child);
   const relations = getTemplateRelations(child);
+  const ticketFeatures = getTicketFeatureAvailability(template);
+  // Fields and relations cannot be configured for sub-articles, so they are not listed as "not
+  // configured" for article-only templates.
   const kinds: Array<[string, number]> = [
-    ["fields", fields.length],
+    ...(ticketFeatures !== "unavailable" || fields.length > 0
+      ? [["fields", fields.length] as [string, number]]
+      : []),
     ["tags", tags.length],
-    ["relations", relations.length],
+    ...(ticketFeatures !== "unavailable" || relations.length > 0
+      ? [["relations", relations.length] as [string, number]]
+      : []),
   ];
+  const suffix = ticketFeatures === "allowed" ? "" : " (subtasks only)";
   const notConfigured = kinds.filter(([, count]) => count === 0).map(([name]) => name);
   return (
     <>
       {fields.length > 0 && (
-        <ChildLabeledValue label="Ticket fields">
+        <ChildLabeledValue label={`Ticket fields${suffix}`}>
           {fields.map((field) => (
             <Text size={Text.Size.M} key={`child-field-text-${field.fieldName}`}>
               <Icon glyph={FieldIcon}/> {formatTemplateField(field, true)}
@@ -404,13 +416,13 @@ const ChildEffectsView: React.FunctionComponent<ChildEffectsViewProps> = ({ temp
         <ChildLabeledValue label="Tags">
           {tags.map((tag) => (
             <Text size={Text.Size.M} key={`child-tag-text-${tag}`}>
-              <Icon glyph={TagIcon}/> {formatTemplateTag(tag)}
+              <Icon glyph={TagIcon}/> {formatTemplateTag(tag, formatTemplateTargetNoun(template, true))}
             </Text>
           ))}
         </ChildLabeledValue>
       )}
       {relations.length > 0 && (
-        <ChildLabeledValue label="Relations">
+        <ChildLabeledValue label={`Relations${suffix}`}>
           {relations.map((relation, idx) => (
             // eslint-disable-next-line react/no-array-index-key
             <Text size={Text.Size.M} key={`child-relation-text-${idx}`}>
@@ -423,6 +435,188 @@ const ChildEffectsView: React.FunctionComponent<ChildEffectsViewProps> = ({ temp
         <Text size={Text.Size.S} info>
           Not configured: {notConfigured.join(", ")}.
         </Text>
+      )}
+    </>
+  );
+};
+
+const ARTICLE_CHILD_NOTE = "Sub-articles get the template's text replacements and their own tags.";
+
+// Hint for a subtask-only setting: marked when the template is also for articles, or asking to
+// remove leftovers when it is only for articles.
+const getSubtaskOnlyHint = (
+  ticketFeatures: TicketFeatureAvailability,
+  what: string,
+): string | undefined => {
+  if (ticketFeatures === "marked") {
+    return SUBTASKS_ONLY_HINT;
+  }
+  return ticketFeatures === "unavailable"
+    ? `Not available for sub-articles: remove these ${what}, or make the template available for tickets.`
+    : undefined;
+};
+
+interface ChildWhenSectionProps {
+  child: ChildTemplate;
+  editing: boolean;
+  conditionFields: Array<ProjectFieldInfo>;
+  ticketFeatures: TicketFeatureAvailability;
+  onChange: (addConditions: Array<FieldStateCondition>) => void;
+}
+
+// When a child template is created: conditions on root ticket fields, which only apply to subtasks.
+const ChildWhenSection: React.FunctionComponent<ChildWhenSectionProps> = ({
+  child,
+  editing,
+  conditionFields,
+  ticketFeatures,
+  onChange,
+}) => {
+  const hasConditions = getChildAddConditions(child).length > 0;
+  if (ticketFeatures === "unavailable" && !hasConditions) {
+    return (
+      <Text size={Text.Size.M}>
+        Sub-articles are always created; conditions on ticket fields only apply to subtasks.
+      </Text>
+    );
+  }
+  const hint = getSubtaskOnlyHint(ticketFeatures, "conditions");
+  return (
+    <>
+      <ChildAddConditionsPanel
+        child={child}
+        editing={editing}
+        conditionFields={conditionFields}
+        onChange={onChange}
+      />
+      {hint && (
+        <Text size={Text.Size.S} info>
+          {hint}
+        </Text>
+      )}
+    </>
+  );
+};
+
+interface ChildInheritanceProps {
+  child: ChildTemplate;
+  editing: boolean;
+  ticketFeatures: TicketFeatureAvailability;
+  update: (updater: (prev: ChildTemplate) => ChildTemplate) => void;
+}
+
+// Field inheritance of a child template; subtasks only.
+const ChildInheritance: React.FunctionComponent<ChildInheritanceProps> = ({
+  child,
+  editing,
+  ticketFeatures,
+  update,
+}) => {
+  const inherits = child.inheritParentFields || child.inheritRootFields;
+  if (ticketFeatures === "unavailable" && !inherits) {
+    return null;
+  }
+  const hint = getSubtaskOnlyHint(ticketFeatures, "settings");
+  return (
+    <ChildLabeledValue label="Inherited fields">
+      {editing ? (
+        <>
+          <Checkbox
+            label="Inherit fields from parent"
+            checked={child.inheritParentFields}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+              const inheritParentFields = e.target.checked;
+              update((prev) => ({ ...prev, inheritParentFields }));
+            }}
+          />
+          <Checkbox
+            label="Inherit fields from root ticket"
+            checked={child.inheritRootFields}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+              const inheritRootFields = e.target.checked;
+              update((prev) => ({ ...prev, inheritRootFields }));
+            }}
+          />
+          <Text size={Text.Size.S} info>
+            Copies the values of the fields the parent or root template sets. See Help for
+            precedence.{hint ? ` ${hint}` : ""}
+          </Text>
+        </>
+      ) : (
+        <Text size={Text.Size.M}>{formatInheritance(child)}</Text>
+      )}
+    </ChildLabeledValue>
+  );
+};
+
+interface ChildEffectsEditProps {
+  template: Template;
+  child: ChildTemplate;
+  ticketFeatures: TicketFeatureAvailability;
+  update: (updater: (prev: ChildTemplate) => ChildTemplate) => void;
+  projectFields: Array<ProjectFieldInfo>;
+  projectTags: Array<TagInfo>;
+  tagsLoading: boolean;
+  onTagsFilter: (filter: string) => void;
+  onTagsLoadMore: () => void;
+  linkNames: Array<string>;
+  checkIssue: IssueChecker;
+}
+
+// Editable fields, tags and relations of a child template. Fields and relations only apply to
+// subtasks: for article-only templates they are shown only to remove leftovers.
+const ChildEffectsEdit: React.FunctionComponent<ChildEffectsEditProps> = ({
+  template,
+  child,
+  ticketFeatures,
+  update,
+  projectFields,
+  projectTags,
+  tagsLoading,
+  onTagsFilter,
+  onTagsLoadMore,
+  linkNames,
+  checkIssue,
+}) => {
+  const childFields = getTemplateFields(child);
+  const childRelations = getTemplateRelations(child);
+  const unavailable = ticketFeatures === "unavailable";
+  return (
+    <>
+      {unavailable && <Text size={Text.Size.S} info>{ARTICLE_CHILD_NOTE}</Text>}
+      {(!unavailable || childFields.length > 0) && (
+        <TemplateFieldsPanel
+          title="Ticket fields"
+          fields={childFields}
+          onFieldsChange={(fields) => update((prev) => ({ ...prev, fields }))}
+          projectFields={projectFields}
+          addCondition={null}
+          hint={getSubtaskOnlyHint(ticketFeatures, "fields")}
+        />
+      )}
+      <TemplateTagsPanel
+        title="Tags"
+        tags={getTemplateTags(child)}
+        onTagsChange={(tags) => update((prev) => ({ ...prev, tags }))}
+        projectTags={projectTags}
+        tagsLoading={tagsLoading}
+        onTagsFilter={onTagsFilter}
+        onTagsLoadMore={onTagsLoadMore}
+      />
+      {(!unavailable || childRelations.length > 0) && (
+        <TemplateRelationsPanel
+          title="Relations"
+          template={template}
+          ownerChildId={child.id}
+          relations={childRelations}
+          onRelationsChange={(relations) => update((prev) => ({ ...prev, relations }))}
+          linkNames={linkNames}
+          checkIssue={checkIssue}
+          hint={[
+            "Relations to subtasks that are not created are skipped.",
+            getSubtaskOnlyHint(ticketFeatures, "relations"),
+          ].filter(Boolean).join(" ")}
+        />
       )}
     </>
   );
@@ -470,10 +664,13 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
 }) => {
   const update = (updater: (prev: ChildTemplate) => ChildTemplate) =>
     setTemplate((prev) => updateChildTemplate(prev, child.id, updater));
-  const childFields = getTemplateFields(child);
-  const childTags = getTemplateTags(child);
-  const childRelations = getTemplateRelations(child);
   const childCount = getChildTemplates(child).length;
+  const ticketFeatures = getTicketFeatureAvailability(template);
+  const nameLabel = {
+    allowed: "Name (subtask summary)",
+    marked: "Name (subtask summary or sub-article title)",
+    unavailable: "Name (sub-article title)",
+  }[ticketFeatures];
   // Problems are shown once the user tried to save, like those of the template itself.
   const errors = showErrors ? validateChildTemplate(template, child) : [];
   const hasError = (section: TemplateSectionKey) => errors.some((error) => error.section === section);
@@ -488,13 +685,13 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
       <TemplateSection title="General" hasError={hasError("general")}>
         {editing ? (
           <Input
-            label="Name (subtask summary)"
+            label={nameLabel}
             value={child.name}
             onChange={(e) => update((prev) => ({ ...prev, name: e.target.value }))}
             size={Size.L}
           />
         ) : (
-          <ChildLabeledValue label="Name (subtask summary)">
+          <ChildLabeledValue label={nameLabel}>
             <Text size={Text.Size.M}>{child.name}</Text>
           </ChildLabeledValue>
         )}
@@ -509,71 +706,35 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
         </ChildLabeledValue>
       </TemplateSection>
       <TemplateSection title="When created" hasError={hasError("when")}>
-        <ChildAddConditionsPanel
+        <ChildWhenSection
           child={child}
           editing={editing}
           conditionFields={conditionFields}
+          ticketFeatures={ticketFeatures}
           onChange={(addConditions) => update((prev) => ({ ...prev, addConditions }))}
         />
       </TemplateSection>
       <TemplateSection title="What it does" hasError={hasError("effects")}>
-        <ChildLabeledValue label="Inherited fields">
-          {editing ? (
-            <>
-              <Checkbox
-                label="Inherit fields from parent"
-                checked={child.inheritParentFields}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                  const inheritParentFields = e.target.checked;
-                  update((prev) => ({ ...prev, inheritParentFields }));
-                }}
-              />
-              <Checkbox
-                label="Inherit fields from root ticket"
-                checked={child.inheritRootFields}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                  const inheritRootFields = e.target.checked;
-                  update((prev) => ({ ...prev, inheritRootFields }));
-                }}
-              />
-              <Text size={Text.Size.S} info>
-                Copies the values of the fields the parent or root template sets. Tickets only; see
-                Help for precedence.
-              </Text>
-            </>
-          ) : (
-            <Text size={Text.Size.M}>{formatInheritance(child)}</Text>
-          )}
-        </ChildLabeledValue>
+        <ChildInheritance
+          child={child}
+          editing={editing}
+          ticketFeatures={ticketFeatures}
+          update={update}
+        />
         {editing ? (
-          <>
-            <TemplateFieldsPanel
-              title="Ticket fields"
-              fields={childFields}
-              onFieldsChange={(fields) => update((prev) => ({ ...prev, fields }))}
-              projectFields={projectFields}
-              addCondition={null}
-            />
-            <TemplateTagsPanel
-              title="Tags"
-              tags={childTags}
-              onTagsChange={(tags) => update((prev) => ({ ...prev, tags }))}
-              projectTags={projectTags}
-              tagsLoading={tagsLoading}
-              onTagsFilter={onTagsFilter}
-              onTagsLoadMore={onTagsLoadMore}
-            />
-            <TemplateRelationsPanel
-              title="Relations"
-              template={template}
-              ownerChildId={child.id}
-              relations={childRelations}
-              onRelationsChange={(relations) => update((prev) => ({ ...prev, relations }))}
-              linkNames={linkNames}
-              checkIssue={checkIssue}
-              hint="Relations to subtasks that are not created are skipped."
-            />
-          </>
+          <ChildEffectsEdit
+            template={template}
+            child={child}
+            ticketFeatures={ticketFeatures}
+            update={update}
+            projectFields={projectFields}
+            projectTags={projectTags}
+            tagsLoading={tagsLoading}
+            onTagsFilter={onTagsFilter}
+            onTagsLoadMore={onTagsLoadMore}
+            linkNames={linkNames}
+            checkIssue={checkIssue}
+          />
         ) : (
           <ChildEffectsView template={template} child={child}/>
         )}

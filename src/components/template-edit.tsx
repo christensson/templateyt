@@ -36,6 +36,7 @@ import {
   formatReplacement,
   formatTemplateField,
   formatTemplateTag,
+  formatTemplateTargetNoun,
   formatTemplateRelation,
   formatValidCondition,
   getAddConditionKey,
@@ -56,6 +57,9 @@ import {
   type TemplateSection as TemplateSectionKey,
   type TemplateValidationError,
   type ValidCondition,
+  getTicketFeatureAvailability,
+  TICKETS_ONLY_HINT,
+  type TicketFeatureAvailability,
 } from "../../@types/template";
 import type { TemplateArticle } from "../../@types/template-article";
 import ChildTemplateEdit, {
@@ -111,6 +115,28 @@ const ADD_CONDITION_OPTIONS: Array<{ key: AddConditionKey; label: string }> = [
   { key: "tag_added", label: "When a ticket or article gets a tag" },
 ];
 
+// Label of an automatic add option; the ticket field option is marked as tickets only when the
+// template is (also) available for articles.
+const formatAddConditionOption = (
+  key: AddConditionKey,
+  label: string,
+  ticketFeatures: TicketFeatureAvailability,
+): string => (key === "field_becomes" && ticketFeatures !== "allowed" ? `${label} (tickets only)` : label);
+
+const ARTICLE_ONLY_NOTE =
+  "Ticket fields and relations are not available: this template is only available for articles.";
+
+// Hint for a ticket-only panel: marked when the template is also for articles, or asking to
+// remove leftovers when it is only for articles.
+const getTicketOnlyHint = (ticketFeatures: TicketFeatureAvailability, what: string): string | undefined => {
+  if (ticketFeatures === "marked") {
+    return TICKETS_ONLY_HINT;
+  }
+  return ticketFeatures === "unavailable"
+    ? `Not available for articles: remove these ${what}, or make the template available for tickets.`
+    : undefined;
+};
+
 const VALID_CONDITIONS_TITLE = "Available in the Apply template menu when any of these match";
 const ADD_CONDITION_TITLE = "Apply automatically";
 
@@ -152,18 +178,26 @@ const EffectsView: React.FunctionComponent<EffectsViewProps> = ({ template }) =>
   const tags = getTemplateTags(template);
   const relations = getTemplateRelations(template);
   const replacements = getTemplateReplacements(template);
+  const ticketFeatures = getTicketFeatureAvailability(template);
+  // Fields and relations cannot be configured for article-only templates, so they are not
+  // listed as "not configured" there.
   const kinds: Array<[string, number]> = [
-    ["fields", templateFields.length],
+    ...(ticketFeatures !== "unavailable" || templateFields.length > 0
+      ? [["fields", templateFields.length] as [string, number]]
+      : []),
     ["tags", tags.length],
-    ["relations", relations.length],
+    ...(ticketFeatures !== "unavailable" || relations.length > 0
+      ? [["relations", relations.length] as [string, number]]
+      : []),
     ["text replacements", replacements.length],
   ];
+  const ticketOnlySuffix = ticketFeatures === "allowed" ? "" : " (tickets only)";
   const notConfigured = kinds.filter(([, count]) => count === 0).map(([name]) => name);
 
   return (
     <>
       {templateFields.length > 0 && (
-        <LabeledValue label="Ticket fields">
+        <LabeledValue label={`Ticket fields${ticketOnlySuffix}`}>
           {templateFields.map((field) => (
             <Text size={Text.Size.M} key={`field-text-${field.fieldName}`}>
               <Icon glyph={FieldIcon}/> {formatTemplateField(field, true)}
@@ -175,13 +209,13 @@ const EffectsView: React.FunctionComponent<EffectsViewProps> = ({ template }) =>
         <LabeledValue label="Tags">
           {tags.map((tag) => (
             <Text size={Text.Size.M} key={`tag-text-${tag}`}>
-              <Icon glyph={TagIcon}/> {formatTemplateTag(tag)}
+              <Icon glyph={TagIcon}/> {formatTemplateTag(tag, formatTemplateTargetNoun(template))}
             </Text>
           ))}
         </LabeledValue>
       )}
       {relations.length > 0 && (
-        <LabeledValue label="Relations">
+        <LabeledValue label={`Relations${ticketOnlySuffix}`}>
           {relations.map((relation, idx) => (
             // eslint-disable-next-line react/no-array-index-key
             <Text size={Text.Size.M} key={`relation-text-${idx}`}>
@@ -377,6 +411,56 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({
   );
 };
 
+interface TicketOnlyPanelProps {
+  template: Template;
+  setTemplate: React.Dispatch<React.SetStateAction<Template>>;
+  ticketFeatures: TicketFeatureAvailability;
+}
+
+// Ticket fields of a template; for article-only templates only a note, plus any leftover fields
+// so that they can be removed.
+const TicketFieldsPanel: React.FunctionComponent<
+  TicketOnlyPanelProps & { projectFields: Array<ProjectFieldInfo> }
+> = ({ template, setTemplate, ticketFeatures, projectFields }) => (
+  <>
+    {ticketFeatures === "unavailable" && (
+      <Text size={Text.Size.S} info>
+        {ARTICLE_ONLY_NOTE}
+      </Text>
+    )}
+    {(ticketFeatures !== "unavailable" || getTemplateFields(template).length > 0) && (
+      <TemplateFieldsPanel
+        title="Ticket fields"
+        fields={getTemplateFields(template)}
+        onFieldsChange={(fields) => setTemplate((prev) => ({ ...prev, fields }))}
+        projectFields={projectFields}
+        addCondition={template.addCondition}
+        hint={getTicketOnlyHint(ticketFeatures, "fields")}
+      />
+    )}
+  </>
+);
+
+// Relations of a template; hidden for article-only templates unless there are leftovers.
+const TicketRelationsPanel: React.FunctionComponent<
+  TicketOnlyPanelProps & { linkNames: Array<string>; checkIssue: IssueChecker }
+> = ({ template, setTemplate, ticketFeatures, linkNames, checkIssue }) =>
+  ticketFeatures !== "unavailable" || getTemplateRelations(template).length > 0 ? (
+    <TemplateRelationsPanel
+      title="Relations"
+      template={template}
+      ownerChildId={null}
+      relations={getTemplateRelations(template)}
+      onRelationsChange={(relations) => setTemplate((prev) => ({ ...prev, relations }))}
+      linkNames={linkNames}
+      checkIssue={checkIssue}
+      hint={[
+        "Relations to subtasks are added when the hierarchy is created.",
+        getTicketOnlyHint(ticketFeatures, "relations"),
+      ].filter(Boolean).join(" ")}
+    />
+  ) : null;
+
 interface TemplateEditFormProps {
   template: Template;
   setTemplate: React.Dispatch<React.SetStateAction<Template>>;
@@ -409,6 +493,7 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
 }) => {
   const validConditions = getValidConditions(template);
   const addConditionKey = getAddConditionKey(template);
+  const ticketFeatures = getTicketFeatureAvailability(template);
 
   const renderValidConditionInput = (cond: ValidCondition, idx: number) => {
     if (cond.when === "entity_is") {
@@ -552,8 +637,17 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
             }
           >
             {ADD_CONDITION_OPTIONS.map((option) => (
-              <Radio.Item key={option.key} value={option.key}>
-                {option.label}
+              <Radio.Item
+                key={option.key}
+                value={option.key}
+                // An option already chosen stays selectable, so that the error can be seen.
+                disabled={
+                  option.key === "field_becomes" &&
+                  ticketFeatures === "unavailable" &&
+                  addConditionKey !== "field_becomes"
+                }
+              >
+                {formatAddConditionOption(option.key, option.label, ticketFeatures)}
               </Radio.Item>
             ))}
           </Radio>
@@ -579,12 +673,11 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
         </LabeledValue>
       </TemplateSection>
       <TemplateSection title="What it does" hasError={hasSectionError(errors, "effects")}>
-        <TemplateFieldsPanel
-          title="Ticket fields"
-          fields={getTemplateFields(template)}
-          onFieldsChange={(fields) => setTemplate((prev) => ({ ...prev, fields }))}
+        <TicketFieldsPanel
+          template={template}
+          setTemplate={setTemplate}
           projectFields={projectFields}
-          addCondition={template.addCondition}
+          ticketFeatures={ticketFeatures}
         />
         <TemplateTagsPanel
           title="Tags"
@@ -594,22 +687,20 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
           tagsLoading={tagsLoading}
           onTagsFilter={onTagsFilter}
           onTagsLoadMore={onTagsLoadMore}
-          hint="Only added when applied manually from the Apply template menu of a ticket."
+          hint={`Only added when applied manually from the Apply template menu of a ${formatTemplateTargetNoun(template)}.`}
         />
-        <TemplateRelationsPanel
-          title="Relations"
+        <TicketRelationsPanel
           template={template}
-          ownerChildId={null}
-          relations={getTemplateRelations(template)}
-          onRelationsChange={(relations) => setTemplate((prev) => ({ ...prev, relations }))}
+          setTemplate={setTemplate}
           linkNames={linkNames}
           checkIssue={checkIssue}
-          hint="Relations to subtasks are added when the hierarchy is created."
+          ticketFeatures={ticketFeatures}
         />
         <TemplateReplacementsPanel
           replacements={getTemplateReplacements(template)}
           onReplacementsChange={(replacements) => setTemplate((prev) => ({ ...prev, replacements }))}
           projectFields={projectFields}
+          ticketFields={ticketFeatures}
         />
       </TemplateSection>
       <TemplateSection title="Hierarchy" hasError={hasSectionError(errors, "hierarchy")}>

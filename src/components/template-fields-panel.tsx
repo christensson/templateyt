@@ -14,6 +14,7 @@ interface TemplateFieldsPanelProps {
   projectFields: Array<ProjectFieldInfo>;
   // The automatic add condition of the owning template, for the trigger-field hint.
   addCondition: AddCondition | null;
+  hint?: string;
 }
 
 // Editable list of the ticket fields a template (or child template) sets.
@@ -23,6 +24,7 @@ const TemplateFieldsPanel: React.FunctionComponent<TemplateFieldsPanelProps> = (
   onFieldsChange,
   projectFields,
   addCondition,
+  hint,
 }) => {
   const hasFieldTrigger = addCondition?.when === "field_becomes";
   const hasUserInput = fields.some((field) => field.mode === "user_input");
@@ -66,6 +68,11 @@ const TemplateFieldsPanel: React.FunctionComponent<TemplateFieldsPanelProps> = (
       {hasFieldTrigger && fields.length > 0 && (
         <Text size={Text.Size.S} info>
           The field that applies the template automatically can only be set to its trigger value.
+        </Text>
+      )}
+      {hint && (
+        <Text size={Text.Size.S} info>
+          {hint}
         </Text>
       )}
     </div>

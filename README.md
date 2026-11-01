@@ -59,6 +59,12 @@ automatically to tickets or articles, and which ticket fields the template sets.
     - When entity is *ticket* or *article*.
     - When ticket *field*[^1] is assigned a specific value.
     - When ticket or article is assigned a specific *tag*.
+
+    Articles have no fields or links, so ticket fields, relations, applying automatically when a
+    ticket field changes, root ticket field replacements and the child template settings for
+    subtasks (conditions, inherited fields, fields, relations) only work on tickets. They cannot
+    be configured for templates only available for articles, and are marked *tickets only* (or
+    *subtasks only*) for templates available for both.
   - *Ticket fields* (under *What it does*): Optionally add ticket *fields*[^2] that the template sets when
     it is applied. Each field is set either:
     - To a *fixed value* configured in the template. Fixed values are set both when the template
