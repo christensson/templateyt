@@ -11,6 +11,23 @@ const badRequest = (ctx, message) => {
   ctx.response.json({ success: false, message: message });
 };
 
+// Endpoints needing more than one permission declare one of them and check the rest here.
+// A `permissions` array means *any* of the listed permissions, and the object form
+// `{ allOf: [...] }` that requires all of them is not accepted by YouTrack 2026.2 (upload fails
+// with "Script output property 'permissions' should be stored as type Array").
+// Returns true if the current user has the permission in the project, otherwise responds 403.
+const requirePermission = (ctx, permission, project, action) => {
+  if (ctx.currentUser.hasPermission(permission, project)) {
+    return true;
+  }
+  ctx.response.status = 403;
+  ctx.response.json({
+    success: false,
+    message: `You need the ${permission} permission in project ${project.name} to ${action}.`,
+  });
+  return false;
+};
+
 // Returns an error message if the valid-condition is inconsistent, otherwise null.
 const validateValidCondition = (cond) => {
   if (cond.hasOwnProperty("when") === false) {
@@ -718,10 +735,14 @@ exports.httpHandler = {
       method: "POST",
       path: "setArticleInfo",
       // Marking an article as template makes it selectable in any project's template
-      // configuration, so it requires permission to update the article's project.
-      permissions: { allOf: ["UPDATE_ARTICLE", "UPDATE_PROJECT"] },
+      // configuration, so it also requires UPDATE_PROJECT in the article's project. That is
+      // checked in the handler, not with `{ allOf: [...] }`: see requirePermission.
+      permissions: ["UPDATE_ARTICLE"],
       handle: function handle(ctx) {
         const article = ctx.article;
+        if (!requirePermission(ctx, "UPDATE_PROJECT", article.project, "change template articles")) {
+          return;
+        }
         const props = article.extensionProperties;
         const usedTemplateIds = utils.parseIdList(props.usedTemplateIds);
         const articleInfo = JSON.parse(ctx.request.body);
@@ -996,11 +1017,16 @@ exports.httpHandler = {
       scope: "issue",
       method: "POST",
       path: "createHierarchy",
-      permissions: { allOf: ["UPDATE_ISSUE", "CREATE_ISSUE"] },
+      // Also requires CREATE_ISSUE, checked in the handler, not with `{ allOf: [...] }`: see
+      // requirePermission.
+      permissions: ["UPDATE_ISSUE"],
       // Creates subtasks below the issue from the child templates of an applied hierarchical
       // template, nested like the child articles.
       handle: function handle(ctx) {
         const issue = ctx.issue;
+        if (!requirePermission(ctx, "CREATE_ISSUE", issue.project, "create subtasks")) {
+          return;
+        }
         const usedTemplateIds = utils.parseIdList(issue.extensionProperties.usedTemplateIds);
         const templates = utils.getTemplates(ctx);
 
@@ -1328,12 +1354,17 @@ exports.httpHandler = {
       scope: "article",
       method: "POST",
       path: "createHierarchy",
-      permissions: { allOf: ["UPDATE_ARTICLE", "CREATE_ARTICLE"] },
+      // Also requires CREATE_ARTICLE, checked in the handler, not with `{ allOf: [...] }`: see
+      // requirePermission.
+      permissions: ["UPDATE_ARTICLE"],
       // Creates sub-articles below the article from the child templates of an applied
       // hierarchical template, nested like the child templates. Replacements and tags apply;
       // fields, inheritance and add conditions do not.
       handle: function handle(ctx) {
         const article = ctx.article;
+        if (!requirePermission(ctx, "CREATE_ARTICLE", article.project, "create sub-articles")) {
+          return;
+        }
         const templates = utils.getTemplates(ctx);
 
         const body = JSON.parse(ctx.request.body);

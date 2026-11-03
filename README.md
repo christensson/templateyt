@@ -196,20 +196,23 @@ something, and checks article access itself. Requires YouTrack 2026.1 or later, 
 
 ### Endpoint permissions
 
-A list in `permissions` means *any* of the listed permissions; `allOf` means *all* of them.
-Project permissions are checked in the project of the endpoint's ticket, article or project.
+Each endpoint declares one permission in `permissions`. Project permissions are checked in the
+project of the endpoint's ticket, article or project. Where a second permission is needed
+(*checked in code* below), the handler checks it with `User.hasPermission` and responds 403:
+a `permissions` list means *any* of the listed permissions, and the `{ allOf: [...] }` form that
+requires all of them is not accepted by YouTrack 2026.2.
 
 | Scope | Endpoint | Used by | Permissions |
 | --- | --- | --- | --- |
 | project | `templates` (GET), `getProjectInfo`, `getTemplateArticles`, `getChildArticles`, `addTemplate`, `removeTemplate` | Ticket Templates Config | `UPDATE_PROJECT` |
 | article | `getArticleInfo` (GET) | Configure as template | read access only |
-| article | `setArticleInfo` | Configure as template | `allOf: UPDATE_ARTICLE, UPDATE_PROJECT` |
+| article | `setArticleInfo` | Configure as template | `UPDATE_ARTICLE`, `UPDATE_PROJECT` checked in code |
 | issue | `templates` (GET) | Apply template (ticket) | read access only |
 | issue | `addTemplate`, `applyTemplateFields`, `removeTemplate` | Apply template (ticket) | `UPDATE_ISSUE` |
-| issue | `createHierarchy` | Apply template (ticket) | `allOf: UPDATE_ISSUE, CREATE_ISSUE` |
+| issue | `createHierarchy` | Apply template (ticket) | `UPDATE_ISSUE`, `CREATE_ISSUE` checked in code |
 | article | `templates` (GET) | Apply template (article) | read access only |
 | article | `addTemplate`, `removeTemplate` | Apply template (article) | `UPDATE_ARTICLE` |
-| article | `createHierarchy` | Apply template (article) | `allOf: UPDATE_ARTICLE, CREATE_ARTICLE` |
+| article | `createHierarchy` | Apply template (article) | `UPDATE_ARTICLE`, `CREATE_ARTICLE` checked in code |
 
 ### Article access
 
