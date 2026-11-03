@@ -11,7 +11,8 @@ import {
   type ChildTemplate,
   type Template,
 } from "../../../@types/template";
-import type { TemplateArticle } from "../../../@types/template-article";
+import type { ArticleProjectInfo, TemplateArticle } from "../../../@types/template-article";
+import { addArticleProjects } from "../../components/article-projects";
 import TemplateEdit from "../../components/template-edit";
 import TemplateHelp from "../../components/template-help";
 import TemplateList from "../../components/template-list";
@@ -59,12 +60,16 @@ const AppComponent: React.FunctionComponent = () => {
 
   useEffect(() => {
     host
-      .fetchApp<{ templates: Array<Template> }>("backend/templates", {
+      .fetchApp<{
+        templates: Array<Template>;
+        articleProjects?: Record<string, ArticleProjectInfo>;
+      }>("backend/templates", {
         scope: true,
         method: "GET",
       })
       .then((result) => {
         console.log("Result", result);
+        addArticleProjects(result.articleProjects);
         setTemplates(result.templates);
       });
     host
@@ -74,6 +79,14 @@ const AppComponent: React.FunctionComponent = () => {
       })
       .then((result) => {
         console.log("Template articles", result);
+        addArticleProjects(
+          Object.fromEntries(
+            result.map(({ articleId, projectKey, projectName, isOtherProject }) => [
+              articleId,
+              { projectKey, projectName, isOtherProject },
+            ]),
+          ),
+        );
         setTemplateArticles(result);
       });
   }, []);

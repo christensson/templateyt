@@ -62,6 +62,8 @@ import {
   type TicketFeatureAvailability,
 } from "../../@types/template";
 import type { TemplateArticle } from "../../@types/template-article";
+import { addArticleTreeProjects } from "./article-projects";
+import { CrossProjectWarning } from "./cross-project-warning";
 import ChildTemplateEdit, {
   InsertChildArticle,
   type ArticleTreeFetcher,
@@ -84,13 +86,39 @@ import TemplateTagsPanel from "./template-tags-panel";
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
 const host = await YTApp.register();
 
-// Reads an article's title and child article tree from the backend (project scope).
-const fetchArticleTree: ArticleTreeFetcher = (articleId) =>
-  host.fetchApp<ArticleTreeResponse>("backend/getChildArticles", {
+// Reads an article's title and child article tree from the backend (project scope), recording
+// the projects of the articles for the cross-project warning.
+const fetchArticleTree: ArticleTreeFetcher = async (articleId) => {
+  const result = await host.fetchApp<ArticleTreeResponse>("backend/getChildArticles", {
     scope: true,
     method: "POST",
     body: { articleId },
   });
+  if (result.success !== false) {
+    addArticleTreeProjects(result);
+  }
+  return result;
+};
+
+interface ArticleAccessErrorProps {
+  articleId: string;
+  templateArticleSelectItems: Array<TemplateArticleSelectItem>;
+}
+
+// Shown when the stored template article is not among the articles the user may read, so the
+// template cannot be saved until another article is selected.
+const ArticleAccessError: React.FunctionComponent<ArticleAccessErrorProps> = ({
+  articleId,
+  templateArticleSelectItems,
+}) =>
+  articleId &&
+  templateArticleSelectItems.length > 0 &&
+  !templateArticleSelectItems.some((item) => item.key === articleId) ? (
+    <Banner mode="error" withIcon title="Template article not accessible">
+      Template article {articleId} is not a template article you can read. Select another article
+      to save the template.
+    </Banner>
+  ) : null;
 
 const TAG_PAGE_SIZE = 50;
 
@@ -274,6 +302,7 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
             </div>
           )}
         </LabeledValue>
+        <CrossProjectWarning template={template}/>
       </TemplateSection>
       <TemplateSection title="When to use">
         <LabeledValue label={VALID_CONDITIONS_TITLE}>
@@ -579,6 +608,11 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
             </div>
           )}
         </div>
+        <ArticleAccessError
+          articleId={template.articleId}
+          templateArticleSelectItems={templateArticleSelectItems}
+        />
+        <CrossProjectWarning template={template}/>
       </TemplateSection>
       <TemplateSection title="When to use" hasError={hasSectionError(errors, "when")}>
         <LabeledValue label={VALID_CONDITIONS_TITLE}>

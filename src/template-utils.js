@@ -103,11 +103,95 @@ const getChildConditionFieldNames = (template) => {
   return names;
 };
 
-// Article tree below an article, in the shape the config UI imports.
-const getArticleTree = (article) => ({
+// True if the user may read the article: READ_ARTICLE in the article's project and, when the
+// article's visibility is restricted, the author or listed in permittedUsers/permittedGroups.
+const isArticleReadableBy = (article, user) => {
+  if (article == null || user == null) {
+    return false;
+  }
+  if (!user.hasPermission("READ_ARTICLE", article.project)) {
+    return false;
+  }
+  const users = article.permittedUsers ? toArray(article.permittedUsers) : [];
+  const groups = article.permittedGroups ? toArray(article.permittedGroups) : [];
+  if (users.length === 0 && groups.length === 0) {
+    return true;
+  }
+  if (article.author != null && article.author.login === user.login) {
+    return true;
+  }
+  return (
+    users.some((permitted) => permitted.login === user.login) ||
+    groups.some((group) => user.isInGroup(group.name))
+  );
+};
+
+// The article with the id if it exists and the user may read it, otherwise null. Both cases give
+// the same result so that callers cannot reveal whether an inaccessible article exists.
+const findReadableArticle = (articleId, user) => {
+  if (typeof articleId !== "string" || articleId === "") {
+    return null;
+  }
+  const article = entities.Article.findById(articleId);
+  return isArticleReadableBy(article, user) ? article : null;
+};
+
+// True if the article is below the article with ancestorId in the article tree.
+const isArticleBelow = (article, ancestorId) => {
+  let parent = article.parentArticle;
+  while (parent != null) {
+    if (parent.id === ancestorId) {
+      return true;
+    }
+    parent = parent.parentArticle;
+  }
+  return false;
+};
+
+// Validates that the user may read the template article and the articles of all child templates.
+// A child article must be a template article (inserted; marking an article as template requires
+// permission to update its project) or below the article of its parent (imported).
+// Returns an error message or null.
+const getTemplateArticleError = (template, user) => {
+  if (findReadableArticle(template.articleId, user) === null) {
+    return `Template article ${template.articleId} not found or not accessible.`;
+  }
+  const visit = (children, parentArticleId) => {
+    for (const child of Array.isArray(children) ? children : []) {
+      const article = findReadableArticle(child.articleId, user);
+      if (article === null) {
+        return `Child template "${child.name}": article ${child.articleId} not found or not accessible.`;
+      }
+      const isTemplateArticle = article.extensionProperties.isTemplate === true;
+      if (!isTemplateArticle && !isArticleBelow(article, parentArticleId)) {
+        return `Child template "${child.name}": article ${child.articleId} is neither a template article nor below ${parentArticleId}.`;
+      }
+      const error = visit(child.children, child.articleId);
+      if (error !== null) {
+        return error;
+      }
+    }
+    return null;
+  };
+  return visit(template.children, template.articleId);
+};
+
+// The project of an article, and whether it differs from the given project.
+const getArticleProjectInfo = (article, project) => ({
+  projectKey: article.project.key,
+  projectName: article.project.name,
+  isOtherProject: article.project.key !== project.key,
+});
+
+// Article tree below an article, in the shape the config UI imports. Child articles the user may
+// not read are left out together with their subtrees.
+const getArticleTree = (article, user, project) => ({
   articleId: article.id,
   summary: article.summary,
-  children: toArray(article.childArticles).map(getArticleTree),
+  ...getArticleProjectInfo(article, project),
+  children: toArray(article.childArticles)
+    .filter((child) => isArticleReadableBy(child, user))
+    .map((child) => getArticleTree(child, user, project)),
 });
 
 const getTemplates = (ctx) => {
@@ -785,6 +869,11 @@ module.exports = {
   clearTemplatePending,
   flattenChildTemplates,
   isChildTemplateAdded,
+  isArticleReadableBy,
+  findReadableArticle,
+  isArticleBelow,
+  getArticleProjectInfo,
+  getTemplateArticleError,
   getArticleTree,
   getCreatedHierarchyTemplateIds,
   markHierarchyCreated,

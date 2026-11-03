@@ -60,6 +60,10 @@ const getValidTemplates = (ctx, issue) => {
 };
 
 // Load the knowledge base articles referenced by the given templates, keyed by article id.
+// Not checked against the current user on purpose: templates are added automatically for anyone
+// who edits a matching entity. The project admin decides which articles are used: the backend
+// only stores templates whose articles the admin may read, and the configuration warns about
+// articles from other projects.
 const loadTemplateArticles = (templates) => {
   const articles = {};
   for (const t of templates) {

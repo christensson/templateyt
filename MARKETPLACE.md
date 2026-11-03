@@ -79,9 +79,26 @@ ticket or to the created subtasks.
 The configuration page shows a summary of every template and flags incomplete ones. Features
 that only work on tickets, such as fields and links, are clearly marked.
 
+## Who can do what
+The app only lets people do what their YouTrack permissions allow:
+
+- **Configure templates:** requires *Update project* in the project. You can only pick template
+  articles you can read yourself; a template using any other article can't be saved.
+- **Mark an article as a template:** requires *Update article* and *Update project* in the
+  article's project.
+- **Apply, remove or set fields of a template from the menu:** requires *Update issue* on the
+  ticket (or *Update article* on the article), and read access to the template's articles.
+- **Create subtasks or sub-articles:** additionally requires *Create issue* (or *Create
+  article*).
+- **Templates added automatically:** these are added for anyone who creates or edits a matching
+  ticket or article, whether or not that person can read the template article. The template
+  content is copied, so everyone who can see the ticket or article can read it.
+- **Articles from other projects:** a template may use articles from another project. The
+  configuration page clearly flags this with a warning, because the copied content becomes
+  visible to everyone who can see the tickets or articles in this project, also people without
+  access to the other project. Use such articles only for content that may be shared.
+
 ## Good to know
-- **Permissions:** configuring templates requires permission to update the project. Applying
-  them requires permission to update the ticket or article.
 - **Articles:** articles have no fields or links. For articles, templates add content, tags,
   placeholders and sub-articles.
 - **Article content refresh:** after a template is added to an article, reload the article page
@@ -90,4 +107,4 @@ that only work on tickets, such as fields and links, are clearly marked.
   that text hasn't been edited. Fields, tags and subtasks are kept.
 
 ## Requirements
-YouTrack 2024.4 or later, Cloud or Server.
+YouTrack 2026.1 or later, Cloud or Server.

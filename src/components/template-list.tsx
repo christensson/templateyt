@@ -3,6 +3,8 @@ import ChevronRightIcon from "@jetbrains/icons/chevron-right";
 import WarningIcon from "@jetbrains/icons/warning-empty";
 import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import React, { useMemo } from "react";
+import type { ArticleProjectInfo } from "../../@types/template-article";
+import { getOtherProjectArticles, useArticleProjects } from "./article-projects";
 import {
   ChildTemplate,
   Template,
@@ -121,8 +123,18 @@ const makeChildItem = (
   depth: number,
   disabled: boolean | undefined,
   compact: boolean | undefined,
+  articleProjects: Readonly<Record<string, ArticleProjectInfo>>,
 ): TemplateListItem => {
   const errors = compact ? validateChildTemplate(template, child) : [];
+  const otherProject = articleProjects[child.articleId]?.isOtherProject
+    ? articleProjects[child.articleId].projectName
+    : null;
+  let details = formatChildTemplate(child);
+  if (errors.length > 0) {
+    details = `Incomplete: ${errors[0].message}`;
+  } else if (otherProject !== null) {
+    details = `Article from project ${otherProject} · ${details}`;
+  }
   return {
     disabled,
     key: child.id,
@@ -130,8 +142,8 @@ const makeChildItem = (
     level: (depth + 1) * LEVELS_PER_DEPTH,
     glyph: BLANK_GLYPH,
     label: child.name.trim() || child.articleId,
-    details: errors.length > 0 ? `Incomplete: ${errors[0].message}` : formatChildTemplate(child),
-    rightGlyph: errors.length > 0 ? WarningIcon : undefined,
+    details: details,
+    rightGlyph: errors.length > 0 || otherProject !== null ? WarningIcon : undefined,
     templateItem: template,
     childTemplateItem: child,
   };
@@ -142,6 +154,8 @@ type ListOptions = {
   target?: TemplateTarget;
   rowStatus?: { [templateId: string]: TemplateRowStatus };
   draftTemplateId?: string;
+  // Projects of the template articles; rows using articles from other projects are flagged.
+  articleProjects?: Readonly<Record<string, ArticleProjectInfo>>;
 };
 
 const getRowDetails = (
@@ -171,10 +185,19 @@ const getListItems = (
   options: ListOptions = {},
 ): Array<TemplateListItem> => {
   const { detailsMode, draftTemplateId } = options;
+  const articleProjects = options.articleProjects ?? {};
   const compact = detailsMode === "compact";
   const makeListItems = (template: Template): Array<TemplateListItem> => {
     const isDraft = template.id === draftTemplateId;
-    const [details, hasWarning] = getRowDetails(template, isDraft, options);
+    const [rowDetails, hasRowWarning] = getRowDetails(template, isDraft, options);
+    // Incomplete templates keep their own message; otherwise articles from other projects are
+    // flagged, since their content is copied into this project.
+    const otherProjects = hasRowWarning ? [] : getOtherProjectArticles(template, articleProjects);
+    const hasWarning = hasRowWarning || otherProjects.length > 0;
+    const details =
+      otherProjects.length > 0
+        ? `Uses articles from other projects · ${rowDetails}`
+        : rowDetails;
     const isSelected = template.id === selectedTemplate?.id;
     const itemDisabled = isSelected ? false : disabled;
     const expandable = showChildren && template.hierarchical;
@@ -192,7 +215,7 @@ const getListItems = (
     ];
     if (expandable && isSelected) {
       for (const { child, depth } of flattenChildTemplates(getChildTemplates(template))) {
-        items.push(makeChildItem(template, child, depth, itemDisabled, compact));
+        items.push(makeChildItem(template, child, depth, itemDisabled, compact, articleProjects));
       }
     }
     return items;
@@ -282,6 +305,7 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
   rowStatus,
   draftTemplateId,
 }) => {
+  const articleProjects = useArticleProjects();
   const listItems = useMemo(
     () =>
       getListItems(
@@ -292,9 +316,10 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
         disabled,
         selectedTemplate,
         showChildren,
-        { detailsMode, target, rowStatus, draftTemplateId },
+        { detailsMode, target, rowStatus, draftTemplateId, articleProjects },
       ),
     [
+      articleProjects,
       detailsMode,
       target,
       rowStatus,

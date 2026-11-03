@@ -9,6 +9,9 @@ import vm from "node:vm";
 const ENTITIES = "@jetbrains/youtrack-scripting-api/entities";
 const STUB = fileURLToPath(new URL("./stubs/youtrack-entities.cjs", import.meta.url));
 
+// The stub module that loaded scripts get for the entities API; tests may replace its functions.
+export const entitiesStub = createRequire(import.meta.url)(STUB);
+
 export const loadBackendScript = (relativePath) => {
   const file = fileURLToPath(new URL(`../${relativePath}`, import.meta.url));
   const nodeRequire = createRequire(file);

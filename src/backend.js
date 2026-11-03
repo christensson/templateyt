@@ -366,6 +366,28 @@ const validateTemplateRelations = (template, user) => {
   return null;
 };
 
+// Project of each article referenced by the templates (root and child articles) that the user may
+// read, keyed by article id.
+const getTemplateArticleProjects = (templates, project, user) => {
+  const result = {};
+  const add = (articleId) => {
+    if (result[articleId] !== undefined) {
+      return;
+    }
+    const article = utils.findReadableArticle(articleId, user);
+    if (article !== null) {
+      result[articleId] = utils.getArticleProjectInfo(article, project);
+    }
+  };
+  for (const template of templates) {
+    add(template.articleId);
+    for (const { child } of utils.flattenChildTemplates(template.children)) {
+      add(child.articleId);
+    }
+  }
+  return result;
+};
+
 // Looks up a template referenced by templateId in a request body.
 // Returns { template, error } where exactly one of them is set.
 const lookupRequestTemplate = (templates, body, verb) => {
@@ -446,9 +468,11 @@ const planHierarchy = (rootIssue, template, childFieldValues, user, valueOverrid
   const errors = [];
   const byChildId = {};
   for (const child of getAddedChildTemplates(rootIssue, template.children, valueOverrides)) {
-    const article = entities.Article.findById(child.articleId);
-    if (article == null) {
-      errors.push(`Article ${child.articleId} for child template "${child.name}" not found.`);
+    const article = utils.findReadableArticle(child.articleId, user);
+    if (article === null) {
+      errors.push(
+        `Article ${child.articleId} for child template "${child.name}" not found or not accessible.`,
+      );
       continue;
     }
     const userValues = childFieldValues ? childFieldValues[child.id] : null;
@@ -517,13 +541,15 @@ const linkHierarchy = (rootIssue, template, createdById, plan) => {
 // anything. Articles have no fields, so add conditions, fields and inheritance do not apply and
 // every child template is created.
 // Returns { errors: [string], byChildId: { [childId]: { content, tagNames } } }.
-const planArticleHierarchy = (template) => {
+const planArticleHierarchy = (template, user) => {
   const errors = [];
   const byChildId = {};
   for (const { child } of utils.flattenChildTemplates(template.children)) {
-    const article = entities.Article.findById(child.articleId);
-    if (article == null) {
-      errors.push(`Article ${child.articleId} for child template "${child.name}" not found.`);
+    const article = utils.findReadableArticle(child.articleId, user);
+    if (article === null) {
+      errors.push(
+        `Article ${child.articleId} for child template "${child.name}" not found or not accessible.`,
+      );
       continue;
     }
     const tags = utils.resolveTemplateTags(child);
@@ -560,9 +586,12 @@ exports.httpHandler = {
       scope: "project",
       method: "GET",
       path: "templates",
+      permissions: ["UPDATE_PROJECT"],
       handle: function handle(ctx) {
+        const templates = utils.getTemplates(ctx);
         ctx.response.json({
-          templates: utils.getTemplates(ctx),
+          templates: templates,
+          articleProjects: getTemplateArticleProjects(templates, ctx.project, ctx.currentUser),
         });
       },
     },
@@ -570,19 +599,16 @@ exports.httpHandler = {
       scope: "project",
       method: "POST",
       path: "addTemplate",
+      permissions: ["UPDATE_PROJECT"],
       handle: function handle(ctx) {
         const body = JSON.parse(ctx.request.body);
         const newTemplate = body.template;
         const validationError =
-          validateTemplate(newTemplate) || validateTemplateRelations(newTemplate, ctx.currentUser);
+          validateTemplate(newTemplate) ||
+          utils.getTemplateArticleError(newTemplate, ctx.currentUser) ||
+          validateTemplateRelations(newTemplate, ctx.currentUser);
         if (validationError !== null) {
           badRequest(ctx, validationError);
-          return;
-        }
-
-        const article = entities.Article.findById(newTemplate.articleId);
-        if (article === null) {
-          badRequest(ctx, `No article found with articleId ${newTemplate.articleId}.`);
           return;
         }
 
@@ -604,6 +630,7 @@ exports.httpHandler = {
       scope: "project",
       method: "DELETE",
       path: "removeTemplate",
+      permissions: ["UPDATE_PROJECT"],
       handle: function handle(ctx) {
         const body = JSON.parse(ctx.request.body);
         if (body.hasOwnProperty("id") === false || body.id === "") {
@@ -622,6 +649,7 @@ exports.httpHandler = {
       scope: "project",
       method: "GET",
       path: "getProjectInfo",
+      permissions: ["UPDATE_PROJECT"],
       handle: function handle(ctx) {
         ctx.response.json({ fields: utils.getProjectFieldInfo(ctx.project) });
       },
@@ -630,14 +658,20 @@ exports.httpHandler = {
       scope: "project",
       method: "GET",
       path: "getTemplateArticles",
+      permissions: ["UPDATE_PROJECT"],
+      // Template articles of all projects that the user may read.
       handle: function handle(ctx) {
         const templateArticles = entities.Article.findByExtensionProperties({
           isTemplate: true,
         });
-        const articles = utils.toArray(templateArticles).map((x) => ({
-          articleId: x.id,
-          summary: x.summary,
-        }));
+        const articles = utils
+          .toArray(templateArticles)
+          .filter((x) => utils.isArticleReadableBy(x, ctx.currentUser))
+          .map((x) => ({
+            articleId: x.id,
+            summary: x.summary,
+            ...utils.getArticleProjectInfo(x, ctx.project),
+          }));
 
         ctx.response.json(articles);
       },
@@ -646,6 +680,7 @@ exports.httpHandler = {
       scope: "project",
       method: "POST",
       path: "getChildArticles",
+      permissions: ["UPDATE_PROJECT"],
       // Returns the article tree below the given article, for importing child templates.
       handle: function handle(ctx) {
         const body = JSON.parse(ctx.request.body);
@@ -654,12 +689,12 @@ exports.httpHandler = {
           badRequest(ctx, "No articleId in request.");
           return;
         }
-        const article = entities.Article.findById(articleId);
-        if (article == null) {
-          badRequest(ctx, `No article found with articleId ${articleId}.`);
+        const article = utils.findReadableArticle(articleId, ctx.currentUser);
+        if (article === null) {
+          badRequest(ctx, `Article ${articleId} not found or not accessible.`);
           return;
         }
-        ctx.response.json(utils.getArticleTree(article));
+        ctx.response.json(utils.getArticleTree(article, ctx.currentUser, ctx.project));
       },
     },
     {
@@ -682,6 +717,9 @@ exports.httpHandler = {
       scope: "article",
       method: "POST",
       path: "setArticleInfo",
+      // Marking an article as template makes it selectable in any project's template
+      // configuration, so it requires permission to update the article's project.
+      permissions: { allOf: ["UPDATE_ARTICLE", "UPDATE_PROJECT"] },
       handle: function handle(ctx) {
         const article = ctx.article;
         const props = article.extensionProperties;
@@ -760,6 +798,7 @@ exports.httpHandler = {
       scope: "issue",
       method: "POST",
       path: "addTemplate",
+      permissions: ["UPDATE_ISSUE"],
       handle: function handle(ctx) {
         const issue = ctx.issue;
         const issueProps = issue.extensionProperties;
@@ -785,12 +824,12 @@ exports.httpHandler = {
           return;
         }
 
-        const templateArticle = entities.Article.findById(template.articleId);
-        if (templateArticle == null) {
+        const templateArticle = utils.findReadableArticle(template.articleId, ctx.currentUser);
+        if (templateArticle === null) {
           ctx.response.status = 400;
           ctx.response.json({
             success: false,
-            message: `Failed to add template, template ${templateId} article ${template.articleId} not found.`,
+            message: `Failed to add template, template ${templateId} article ${template.articleId} not found or not accessible.`,
           });
           return;
         }
@@ -879,6 +918,7 @@ exports.httpHandler = {
       scope: "issue",
       method: "POST",
       path: "applyTemplateFields",
+      permissions: ["UPDATE_ISSUE"],
       // Sets (or re-sets) only the fields of a template, without touching the description or
       // the used templates. Lets users fill in user-input fields of automatically added templates.
       handle: function handle(ctx) {
@@ -956,6 +996,7 @@ exports.httpHandler = {
       scope: "issue",
       method: "POST",
       path: "createHierarchy",
+      permissions: { allOf: ["UPDATE_ISSUE", "CREATE_ISSUE"] },
       // Creates subtasks below the issue from the child templates of an applied hierarchical
       // template, nested like the child articles.
       handle: function handle(ctx) {
@@ -1100,6 +1141,7 @@ exports.httpHandler = {
       scope: "issue",
       method: "DELETE",
       path: "removeTemplate",
+      permissions: ["UPDATE_ISSUE"],
       handle: function handle(ctx) {
         const issue = ctx.issue;
         const issueProps = issue.extensionProperties;
@@ -1117,12 +1159,12 @@ exports.httpHandler = {
 
         // Don't check if template is valid for ticket, allow removal anyway.
 
-        const templateArticle = entities.Article.findById(template.articleId);
-        if (templateArticle == null) {
+        const templateArticle = utils.findReadableArticle(template.articleId, ctx.currentUser);
+        if (templateArticle === null) {
           ctx.response.status = 400;
           ctx.response.json({
             success: false,
-            message: `Failed to remove template, template ${templateId} article ${template.articleId} not found.`,
+            message: `Failed to remove template, template ${templateId} article ${template.articleId} not found or not accessible.`,
           });
           return;
         }
@@ -1181,6 +1223,7 @@ exports.httpHandler = {
       scope: "article",
       method: "POST",
       path: "addTemplate",
+      permissions: ["UPDATE_ARTICLE"],
       handle: function handle(ctx) {
         const article = ctx.article;
         const articleProps = article.extensionProperties;
@@ -1227,12 +1270,12 @@ exports.httpHandler = {
           return;
         }
 
-        const templateArticle = entities.Article.findById(template.articleId);
-        if (templateArticle == null) {
+        const templateArticle = utils.findReadableArticle(template.articleId, ctx.currentUser);
+        if (templateArticle === null) {
           ctx.response.status = 400;
           ctx.response.json({
             success: false,
-            message: `Failed to add template, template ${templateId} article ${template.articleId} not found.`,
+            message: `Failed to add template, template ${templateId} article ${template.articleId} not found or not accessible.`,
           });
           return;
         }
@@ -1285,6 +1328,7 @@ exports.httpHandler = {
       scope: "article",
       method: "POST",
       path: "createHierarchy",
+      permissions: { allOf: ["UPDATE_ARTICLE", "CREATE_ARTICLE"] },
       // Creates sub-articles below the article from the child templates of an applied
       // hierarchical template, nested like the child templates. Replacements and tags apply;
       // fields, inheritance and add conditions do not.
@@ -1305,7 +1349,7 @@ exports.httpHandler = {
           return;
         }
 
-        const plan = planArticleHierarchy(template);
+        const plan = planArticleHierarchy(template, ctx.currentUser);
         const rootTags = utils.resolveTemplateTags(template);
         const planErrors = rootTags.errors.concat(plan.errors);
         if (planErrors.length > 0) {
@@ -1355,6 +1399,7 @@ exports.httpHandler = {
       scope: "article",
       method: "DELETE",
       path: "removeTemplate",
+      permissions: ["UPDATE_ARTICLE"],
       handle: function handle(ctx) {
         const article = ctx.article;
         const articleProps = article.extensionProperties;
@@ -1393,12 +1438,12 @@ exports.httpHandler = {
 
         // Don't check if template is valid for article, allow removal anyway.
 
-        const templateArticle = entities.Article.findById(template.articleId);
-        if (templateArticle == null) {
+        const templateArticle = utils.findReadableArticle(template.articleId, ctx.currentUser);
+        if (templateArticle === null) {
           ctx.response.status = 400;
           ctx.response.json({
             success: false,
-            message: `Failed to remove template, template ${templateId} article ${template.articleId} not found.`,
+            message: `Failed to remove template, template ${templateId} article ${template.articleId} not found or not accessible.`,
           });
           return;
         }

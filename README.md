@@ -42,7 +42,7 @@ automatically to tickets or articles, and which ticket fields the template sets.
 #### Configure template
 
 > [!IMPORTANT]
-> Requires project admin role.
+> Requires project admin role (*Update project*), see [Permission model](#permission-model).
 
 - Navigate to project.
 - Open *"Ticket Templates Config"*.
@@ -185,6 +185,54 @@ hierarchical template.
 > The usability of templates applied to articles can be improved. When a template is added to
 > an article (either manually or automatically), the article content will not automatically updated
 > in the browser. Unfortunately, currently, a manual reload of the article is required in the browser.
+
+## Permission model
+
+YouTrack only checks that the caller can *read* the ticket, article or project of a scoped app
+endpoint. The app therefore declares the permissions needed for every endpoint that changes
+something, and checks article access itself. Requires YouTrack 2026.1 or later, for
+`User.hasPermission` (2025.3) and the article visibility restrictions `Article.permittedUsers` /
+`permittedGroups` (2026.1).
+
+### Endpoint permissions
+
+A list in `permissions` means *any* of the listed permissions; `allOf` means *all* of them.
+Project permissions are checked in the project of the endpoint's ticket, article or project.
+
+| Scope | Endpoint | Used by | Permissions |
+| --- | --- | --- | --- |
+| project | `templates` (GET), `getProjectInfo`, `getTemplateArticles`, `getChildArticles`, `addTemplate`, `removeTemplate` | Ticket Templates Config | `UPDATE_PROJECT` |
+| article | `getArticleInfo` (GET) | Configure as template | read access only |
+| article | `setArticleInfo` | Configure as template | `allOf: UPDATE_ARTICLE, UPDATE_PROJECT` |
+| issue | `templates` (GET) | Apply template (ticket) | read access only |
+| issue | `addTemplate`, `applyTemplateFields`, `removeTemplate` | Apply template (ticket) | `UPDATE_ISSUE` |
+| issue | `createHierarchy` | Apply template (ticket) | `allOf: UPDATE_ISSUE, CREATE_ISSUE` |
+| article | `templates` (GET) | Apply template (article) | read access only |
+| article | `addTemplate`, `removeTemplate` | Apply template (article) | `UPDATE_ARTICLE` |
+| article | `createHierarchy` | Apply template (article) | `allOf: UPDATE_ARTICLE, CREATE_ARTICLE` |
+
+### Article access
+
+Article ids from requests and from the stored configuration are never trusted. An article is used
+only if the current user has `READ_ARTICLE` in the article's project and, when the article's
+visibility is restricted, is its author, one of its permitted users or a member of one of its
+permitted groups (`isArticleReadableBy` in `src/template-utils.js`). A missing article and an
+article the user can't read give the same error, so the existence of articles is not revealed.
+
+- **Configuration** (project `addTemplate`): the template article and every child article must be
+  readable by the project admin. A child article must also either be a template article
+  (*inserted*; marking an article as template requires `UPDATE_PROJECT` in its own project) or be
+  below the article of its parent in the article tree (*imported*).
+- **Article lists** (`getTemplateArticles`, `getChildArticles`): only articles the user can read
+  are returned; child articles the user can't read are left out with their subtrees.
+- **Manual use** (issue and article `addTemplate`, `removeTemplate`, `createHierarchy`): the user
+  applying the template must be able to read the template article and the child articles.
+- **Automatic use** (the *Add template to ticket* and *Add template to article* workflows): the
+  user who edits the ticket or article is *not* checked. Templates are added automatically for
+  everyone, and the content is copied into the ticket or article. The project admin is
+  responsible for the configuration, which is why the configuration only accepts articles the
+  admin can read and flags articles from other projects: the editor shows a warning banner, and
+  the template list and child templates show a warning icon.
 
 ## Installation and Setup
 

@@ -10,6 +10,8 @@ export const getTemplateArticleSelectItems = (
   data.map((templateArticle: TemplateArticle) => ({
     key: templateArticle.articleId,
     rgItemType: 2,
-    label: `${templateArticle.articleId}: ${templateArticle.summary}`,
+    label: templateArticle.isOtherProject
+      ? `${templateArticle.articleId}: ${templateArticle.summary} · ${templateArticle.projectName}`
+      : `${templateArticle.articleId}: ${templateArticle.summary}`,
     templateArticleItem: templateArticle,
   }));

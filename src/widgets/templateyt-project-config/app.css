@@ -189,3 +189,9 @@
 .template-edit-header-child {
   color: var(--ring-secondary-color);
 }
+
+.template-other-project-note {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ring-unit) / 2);
+}
