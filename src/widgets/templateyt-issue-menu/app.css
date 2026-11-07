@@ -105,3 +105,9 @@
 .template-hierarchy-child-title-skipped {
   text-decoration: line-through;
 }
+
+/* Text input for simple field values, shown inline in sentences and value rows. */
+.template-field-value-input {
+  display: inline-block;
+  vertical-align: middle;
+}

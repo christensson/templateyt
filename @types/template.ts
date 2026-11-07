@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import type { FieldValueKind } from "./project-info";
 
 export type EntityTypeCondition = {
   when: "entity_is";
@@ -28,6 +29,9 @@ export type AddCondition = FieldActionCondition | TagActionCondition;
 // A ticket field set by the template, either to a fixed value or to a value chosen by the user
 // when the template is applied manually.
 // For multi-value fields `additive` adds the value to the existing ones instead of replacing them.
+// Fixed values of list fields are value names (logins for users). For simple fields they are the
+// typed value; for date and date and time fields an offset from when the template is applied,
+// e.g. "+14d" or "+2d 4h" (see validateSimpleFieldValue).
 export type TemplateFixedField = {
   fieldName: string;
   mode: "fixed";
@@ -428,12 +432,115 @@ export const formatAddCondition = (
   return capitalize ? capitalizeFirst(str) : str;
 };
 
+type Duration = { w: number; d: number; h: number; m: number };
+
+const DURATION_PATTERN = /^\s*(?:(\d+)\s*w)?\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*$/;
+
+// Parses a duration like "1w 2d 4h 30m" (each part optional, at least one, in this order).
+// allowTime: whether hours and minutes are allowed. Keep in sync with template-utils.js.
+export const parseDuration = (text: string, allowTime: boolean): Duration | null => {
+  const match = DURATION_PATTERN.exec(text);
+  if (!match || match.slice(1).every((part) => part === undefined)) {
+    return null;
+  }
+  if (!allowTime && (match[3] !== undefined || match[4] !== undefined)) {
+    return null;
+  }
+  return { w: Number(match[1] ?? 0), d: Number(match[2] ?? 0), h: Number(match[3] ?? 0), m: Number(match[4] ?? 0) };
+};
+
+const DURATION_UNITS: Array<[keyof Duration, string]> = [
+  ["w", "week"],
+  ["d", "day"],
+  ["h", "hour"],
+  ["m", "minute"],
+];
+
+// "1 week 2 days" from the parts that are not zero.
+const formatDurationWords = (duration: Duration): string =>
+  DURATION_UNITS.filter(([unit]) => duration[unit] > 0)
+    .map(([unit, word]) => `${duration[unit]} ${word}${duration[unit] === 1 ? "" : "s"}`)
+    .join(" ") || "0 minutes";
+
+// The offset of a fixed date or date and time value ("+14d"), or null when it is not one.
+export const parseRelativeDate = (text: string, allowTime: boolean): Duration | null => {
+  const trimmed = text.trim();
+  return trimmed.startsWith("+") ? parseDuration(trimmed.slice(1), allowTime) : null;
+};
+
+const INTEGER_PATTERN = /^\s*-?\d+\s*$/;
+const FLOAT_PATTERN = /^\s*-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?\s*$/;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// Hint for what a simple field value looks like, for placeholders and error messages.
+export const getSimpleValueHint = (kind: FieldValueKind, isFixed: boolean): string => {
+  switch (kind) {
+    case "date":
+      return isFixed ? "+14d or +1w 2d" : "a date";
+    case "datetime":
+      return isFixed ? "+2d 4h or +30m" : "a date and time";
+    case "period":
+      return "1w 2d 4h 30m";
+    case "integer":
+      return "a whole number";
+    case "float":
+      return "a number";
+    default:
+      return "text";
+  }
+};
+
+// Whether the text is a valid value of a simple field: for fixed values of date and date and time
+// fields an offset from when the template is applied ("+14d", "+2d 4h"), for values chosen by the
+// user a date ("2026-12-01") or a timestamp in ms. Keep in sync with parseSimpleFieldValue in
+// template-utils.js.
+export const isValidSimpleFieldValue = (kind: FieldValueKind, text: string, isFixed: boolean): boolean => {
+  if (text.trim() === "") {
+    return false;
+  }
+  switch (kind) {
+    case "date":
+    case "datetime":
+      if (isFixed) {
+        return parseRelativeDate(text, kind === "datetime") !== null;
+      }
+      return kind === "date" ? ISO_DATE_PATTERN.test(text) : /^\d+$/.test(text);
+    case "period":
+      return parseDuration(text, true) !== null;
+    case "integer":
+      return INTEGER_PATTERN.test(text);
+    case "float":
+      return FLOAT_PATTERN.test(text);
+    default:
+      return true;
+  }
+};
+
+// Display text of a field value set by a template: relative dates as "14 days after applying",
+// dates and times chosen by the user in the local time zone, other values as stored.
+export const formatFieldValue = (kind: FieldValueKind, value: string, isFixed: boolean): string => {
+  if ((kind === "date" || kind === "datetime") && isFixed) {
+    const offset = parseRelativeDate(value, kind === "datetime");
+    return offset ? `${formatDurationWords(offset)} after applying` : value;
+  }
+  if (kind === "datetime" && /^\d+$/.test(value)) {
+    const date = new Date(Number(value));
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+  return value;
+};
+
+// Fixed values without project field info: relative dates are recognized by their "+" prefix.
+const describeFixedValue = (value: string): string =>
+  parseRelativeDate(value, true) !== null ? formatFieldValue("datetime", value, true) : value;
+
 export const formatTemplateField = (field: TemplateField, capitalize: boolean = false): string => {
   let str: string;
   if (field.mode === "fixed") {
     str = field.additive
       ? `adds ${field.fieldValue} to ticket field ${field.fieldName}.`
-      : `sets ticket field ${field.fieldName} to ${field.fieldValue}.`;
+      : `sets ticket field ${field.fieldName} to ${describeFixedValue(field.fieldValue)}.`;
   } else {
     str = field.additive
       ? `asks for an additional value of ticket field ${field.fieldName} when applied manually.`

@@ -625,6 +625,7 @@ exports.httpHandler = {
         const newTemplate = body.template;
         const validationError =
           validateTemplate(newTemplate) ||
+          utils.getFixedValueErrors(ctx.project, newTemplate)[0] ||
           utils.getTemplateArticleError(newTemplate, ctx.currentUser, ctx.project) ||
           validateTemplateRelations(newTemplate, ctx.currentUser);
         if (validationError !== null) {

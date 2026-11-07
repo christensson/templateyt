@@ -3,11 +3,9 @@ import Button from "@jetbrains/ring-ui-built/components/button/button";
 import { H3 } from "@jetbrains/ring-ui-built/components/heading/heading";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
-import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
-import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { useCallback, useMemo } from "react";
-import type { ProjectFieldInfo } from "../../@types/project-info";
+import React, { useCallback } from "react";
+import { getFieldValueKind, type ProjectFieldInfo } from "../../@types/project-info";
 import {
   evaluateChildInclusion,
   flattenChildTemplates,
@@ -19,6 +17,7 @@ import {
   getTemplateTags,
   getTemplateRelations,
   formatRelationTarget,
+  formatFieldValue,
   hasUserInputFields,
   hierarchyHasUserInputFields,
   type ChildInclusion,
@@ -44,6 +43,7 @@ import {
   type PendingApply,
   type ReplacementTexts,
 } from "../template-client";
+import FieldValueInput from "./field-value-input";
 
 const EMPTY_FIELDS_HINT = "Fields left empty are not changed.";
 const MISSING_INPUT_HINT = "Fill in all required values to continue.";
@@ -85,33 +85,31 @@ interface UserInputFieldSelectProps {
   label?: string;
 }
 
+// Input for a value chosen by the user: a select for list fields, a date picker or text input
+// for simple fields.
 const UserInputFieldSelect: React.FunctionComponent<UserInputFieldSelectProps> = ({
   field,
   fieldInfos,
   value,
   onChange,
   label,
-}) => {
-  const items = useMemo(() => {
-    const info = fieldInfos.find((f) => f.name === field.fieldName);
-    return info ? info.values.map((v) => ({ key: v.name, label: v.presentation })) : [];
-  }, [fieldInfos, field.fieldName]);
-  const selected = items.find((item) => item.key === value) || null;
-  return (
-    <Select
-      clear
-      filter
-      label={label ?? (field.additive ? "Add a value…" : "Choose…")}
-      type={Select.Type.INLINE}
-      size={Select.Size.AUTO}
-      data={items}
-      selected={selected}
-      onSelect={(item: SelectItem | null) =>
-        onChange(field.fieldName, item ? String(item.key) : null)
-      }
-    />
+}) => (
+  <FieldValueInput
+    fieldInfo={fieldInfos.find((f) => f.name === field.fieldName)}
+    value={value}
+    isFixed={false}
+    onChange={(newValue) => onChange(field.fieldName, newValue)}
+    label={label ?? (field.additive ? "Add a value…" : "Choose…")}
+  />
+);
+
+// Display text of a fixed template field value, e.g. "14 days after applying" for a date field.
+const formatFixedValue = (fieldInfos: Array<ProjectFieldInfo>, field: TemplateField & { mode: "fixed" }): string =>
+  formatFieldValue(
+    getFieldValueKind(fieldInfos.find((info) => info.name === field.fieldName)),
+    field.fieldValue,
+    true,
   );
-};
 
 // Values chosen for empty ticket fields that field replacements use, keyed by field name.
 export type ReplacementFieldInput = {
@@ -139,12 +137,13 @@ const describeFieldReplacement = (
   fieldName: string,
   precondition: ReplacementPrecondition | undefined,
   currentFieldPresentations: Record<string, string | null> | undefined,
+  fieldInfos: Array<ProjectFieldInfo>,
 ): React.ReactNode => {
   if (precondition?.kind === "set_by_template") {
     const setter = getTemplateFields(template).find((field) => field.fieldName === fieldName);
     return (
       <Text size={Text.Size.M}>
-        {setter?.mode === "fixed" ? setter.fieldValue : "The value chosen above"}{" "}
+        {setter?.mode === "fixed" ? formatFixedValue(fieldInfos, setter) : "The value chosen above"}{" "}
         <Text size={Text.Size.S} info>
           from {fieldName}, set by this template
         </Text>
@@ -218,7 +217,13 @@ const ReplacementRow: React.FunctionComponent<ReplacementRowProps> = ({
       </EffectRow>
     );
   }
-  const value = describeFieldReplacement(template, fieldName, precondition, currentFieldPresentations);
+  const value = describeFieldReplacement(
+    template,
+    fieldName,
+    precondition,
+    currentFieldPresentations,
+    fieldInfos,
+  );
   return (
     <EffectRow label={replacement.search} code>
       {value}
@@ -296,7 +301,7 @@ const EffectRows: React.FunctionComponent<EffectRowsProps> = ({
         <EffectRow key={`field-${field.fieldName}`} label={field.fieldName}>
           {field.mode === "fixed" ? (
             <Text size={Text.Size.M}>
-              {field.additive ? `+ ${field.fieldValue}` : field.fieldValue}
+              {field.additive ? `+ ${field.fieldValue}` : formatFixedValue(fieldInfos, field)}
             </Text>
           ) : (
             <UserInputFieldSelect

@@ -1,3 +1,4 @@
+/* eslint-disable no-magic-numbers -- timestamps and field values are test data */
 import { beforeAll, describe, expect, it } from "vitest";
 import { loadBackendScript } from "../test/load-backend-script.mjs";
 
@@ -316,5 +317,159 @@ describe("conditional child templates", () => {
     });
     expect(result.errors).toEqual(['Value "Urgent" not found for field "Priority".']);
     expect(result.valueOverrides).toEqual({ State: "Fixed" });
+  });
+});
+
+describe("simple field types", () => {
+  type Assignment = { fieldName: string; typeName: string; value: unknown; multi: boolean };
+  type SimpleUtils = {
+    getValueKind: (typeName: string) => string;
+    parseSimpleFieldValue: (kind: string, text: unknown, isFixed: boolean) => { value?: unknown; error?: string };
+    resolveTemplateFieldValues: (
+      project: unknown,
+      template: unknown,
+      userValues: unknown,
+      includeUserInput: boolean,
+    ) => { assignments: Array<Assignment>; errors: Array<string> };
+    getFixedValueErrors: (project: unknown, template: unknown) => Array<string>;
+    getIssueFieldValues: (issue: unknown, infos: Array<{ name: string; typeName: string }>) => Record<string, string | null>;
+    getIssueFieldPresentations: (
+      issue: unknown,
+      infos: Array<{ name: string; typeName: string }>,
+    ) => Record<string, string | null>;
+    getAssignmentOverrides: (issue: unknown, assignments: Array<Assignment>) => Record<string, string>;
+    copyFieldValue: (from: unknown, to: unknown, fieldName: string) => void;
+    getProjectFieldInfo: (project: unknown) => Array<{ name: string; typeName: string; values: Array<unknown> }>;
+  };
+  let simple: SimpleUtils;
+  beforeAll(() => {
+    simple = utils as unknown as SimpleUtils;
+  });
+
+  const types: Record<string, string> = {
+    Due: "date",
+    Deadline: "date and time",
+    Estimation: "period",
+    Points: "integer",
+    Ratio: "float",
+    Code: "string",
+  };
+  const project = {
+    findFieldByName: (name: string) => (name in types ? { typeName: types[name] } : null),
+    fields: Object.entries(types).map(([name, typeName]) => ({ name, typeName })),
+  };
+  const DAY = 24 * 60 * 60 * 1000;
+  const noonToday = () => {
+    const now = new Date();
+    return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12);
+  };
+
+  it("knows the value kinds", () => {
+    expect(simple.getValueKind("date and time")).toBe("datetime");
+    expect(simple.getValueKind("enum[1]")).toBe("list");
+  });
+
+  it("offers simple fields without a value list", () => {
+    const infos = simple.getProjectFieldInfo(project);
+    expect(infos.map((info) => info.name)).toEqual(Object.keys(types));
+    expect(infos.every((info) => info.values.length === 0)).toBe(true);
+  });
+
+  it("parses fixed relative dates as offsets from today and now", () => {
+    expect(simple.parseSimpleFieldValue("date", "+1w 2d", true).value).toBe(noonToday() + 9 * DAY);
+    expect(simple.parseSimpleFieldValue("date", "+2d 4h", true).error).toBeDefined();
+    expect(simple.parseSimpleFieldValue("date", "14d", true).error).toBeDefined();
+    const before = Date.now();
+    const value = simple.parseSimpleFieldValue("datetime", "+1d 2h 30m", true).value as number;
+    const offset = DAY + 150 * 60 * 1000;
+    expect(value).toBeGreaterThanOrEqual(before + offset);
+    expect(value).toBeLessThanOrEqual(Date.now() + offset);
+  });
+
+  it("parses values chosen by the user", () => {
+    expect(simple.parseSimpleFieldValue("date", "2026-12-01", false).value).toBe(Date.UTC(2026, 11, 1, 12));
+    expect(simple.parseSimpleFieldValue("date", "2026-02-31", false).error).toBeDefined();
+    expect(simple.parseSimpleFieldValue("date", "+2d", false).error).toBeDefined();
+    expect(simple.parseSimpleFieldValue("datetime", "1700000000000", false).value).toBe(1700000000000);
+    expect(simple.parseSimpleFieldValue("integer", "-12", false).value).toBe(-12);
+    expect(simple.parseSimpleFieldValue("integer", "1.5", false).error).toBeDefined();
+    expect(simple.parseSimpleFieldValue("float", "1.5", false).value).toBe(1.5);
+    expect(simple.parseSimpleFieldValue("float", "abc", false).error).toBeDefined();
+    expect(simple.parseSimpleFieldValue("string", "ABC-1", true).value).toBe("ABC-1");
+    expect(simple.parseSimpleFieldValue("string", " ", true).error).toBeDefined();
+    const period = simple.parseSimpleFieldValue("period", "1w 4h", true).value as { text: string };
+    expect(period.text).toBe("1w4h");
+    expect(simple.parseSimpleFieldValue("period", "4h 1w", true).error).toBeDefined();
+  });
+
+  it("resolves fixed and user-input template fields", () => {
+    const result = simple.resolveTemplateFieldValues(
+      project,
+      {
+        fields: [
+          { fieldName: "Due", mode: "fixed", fieldValue: "+3d" },
+          { fieldName: "Points", mode: "user_input" },
+          { fieldName: "Ratio", mode: "fixed", fieldValue: "x" },
+          { fieldName: "Code", mode: "user_input" },
+        ],
+      },
+      { Points: "5" },
+      true,
+    );
+    expect(result.errors).toEqual(['Invalid float value "x" for field "Ratio".']);
+    expect(result.assignments.map(({ fieldName, value, multi }) => ({ fieldName, value, multi }))).toEqual([
+      { fieldName: "Due", value: noonToday() + 3 * DAY, multi: false },
+      { fieldName: "Points", value: 5, multi: false },
+    ]);
+  });
+
+  it("reports bad fixed values of the template and its children", () => {
+    const errors = simple.getFixedValueErrors(project, {
+      fields: [{ fieldName: "Points", mode: "fixed", fieldValue: "many" }],
+      children: [
+        { name: "Sub", fields: [{ fieldName: "Due", mode: "fixed", fieldValue: "tomorrow" }], children: [] },
+      ],
+    });
+    expect(errors).toEqual([
+      'Invalid integer value "many" for field "Points".',
+      'Child template "Sub": Invalid date value "tomorrow" for field "Due".',
+    ]);
+  });
+
+  it("presents current values for replacements, including zero", () => {
+    const period = { getWeeks: () => 0, getDays: () => 1, getHours: () => 4, getMinutes: () => 0 };
+    const issue = {
+      fields: {
+        Due: Date.UTC(2026, 11, 1, 12),
+        Deadline: Date.UTC(2026, 11, 1, 9, 30),
+        Estimation: period,
+        Points: 0,
+        Ratio: null,
+        Code: "X",
+      },
+    };
+    const infos = project.fields;
+    expect(simple.getIssueFieldPresentations(issue, infos)).toEqual({
+      Due: "2026-12-01",
+      Deadline: "2026-12-01 09:30",
+      Estimation: "1d 4h",
+      Points: "0",
+      Ratio: null,
+      Code: "X",
+    });
+    expect(simple.getIssueFieldValues(issue, infos).Deadline).toBe(String(Date.UTC(2026, 11, 1, 9, 30)));
+    expect(
+      simple.getAssignmentOverrides(issue, [{ fieldName: "Points", typeName: "integer", value: 7, multi: false }]),
+    ).toEqual({ Points: "7" });
+  });
+
+  it("copies simple values to subtasks", () => {
+    const period = { getWeeks: () => 1 };
+    const from = { fields: { Code: "X", Points: 3, Estimation: period, Due: null } };
+    const to = { fields: {} as Record<string, unknown> };
+    for (const name of ["Code", "Points", "Estimation", "Due"]) {
+      simple.copyFieldValue(from, to, name);
+    }
+    expect(to.fields).toEqual({ Code: "X", Points: 3, Estimation: period, Due: null });
   });
 });

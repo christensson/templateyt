@@ -4,6 +4,9 @@ import legacyFixture from "../test/fixtures/templates-legacy.json";
 import {
   addConditionForKey,
   createEmptyTemplate,
+  formatFieldValue,
+  formatTemplateField,
+  isValidSimpleFieldValue,
   duplicateTemplate,
   flattenChildTemplates,
   getAddConditionKey,
@@ -599,5 +602,35 @@ describe("formatTemplateTargetNoun", () => {
     expect(formatTemplateTargetNoun(template)).toBe(noun);
     expect(formatTemplateTargetNoun(template, true)).toBe(childNoun);
     expect(formatTemplateTag("x", formatTemplateTargetNoun(template))).toBe(`Adds tag x to ${noun}.`);
+  });
+});
+
+describe("simple field values", () => {
+  it("validates fixed values and values chosen by the user", () => {
+    expect(isValidSimpleFieldValue("date", "+14d", true)).toBe(true);
+    expect(isValidSimpleFieldValue("date", "+1w 2d", true)).toBe(true);
+    expect(isValidSimpleFieldValue("date", "+2d 4h", true)).toBe(false);
+    expect(isValidSimpleFieldValue("date", "14d", true)).toBe(false);
+    expect(isValidSimpleFieldValue("date", "2026-12-01", true)).toBe(false);
+    expect(isValidSimpleFieldValue("date", "2026-12-01", false)).toBe(true);
+    expect(isValidSimpleFieldValue("datetime", "+2d 4h 30m", true)).toBe(true);
+    expect(isValidSimpleFieldValue("datetime", "+", true)).toBe(false);
+    expect(isValidSimpleFieldValue("period", "1w 4h", true)).toBe(true);
+    expect(isValidSimpleFieldValue("period", "4h 1w", true)).toBe(false);
+    expect(isValidSimpleFieldValue("integer", "-3", true)).toBe(true);
+    expect(isValidSimpleFieldValue("integer", "3.5", true)).toBe(false);
+    expect(isValidSimpleFieldValue("float", "3.5", true)).toBe(true);
+    expect(isValidSimpleFieldValue("float", "x", true)).toBe(false);
+    expect(isValidSimpleFieldValue("string", "ABC", true)).toBe(true);
+    expect(isValidSimpleFieldValue("string", " ", true)).toBe(false);
+  });
+
+  it("describes relative dates", () => {
+    expect(formatFieldValue("date", "+1w 1d", true)).toBe("1 week 1 day after applying");
+    expect(formatFieldValue("datetime", "+2h 30m", true)).toBe("2 hours 30 minutes after applying");
+    expect(formatFieldValue("integer", "5", true)).toBe("5");
+    expect(formatTemplateField({ fieldName: "Due date", mode: "fixed", fieldValue: "+14d" })).toBe(
+      "sets ticket field Due date to 14 days after applying.",
+    );
   });
 });

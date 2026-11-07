@@ -42,6 +42,11 @@ const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({ createNewTem
           by the user and tags are only set when the template is applied manually.
         </li>
         <li>
+          Date and date and time fields are set relative to when the template is applied, e.g.
+          +14d or +1w 2d (date and time also take hours and minutes, e.g. +2d 4h 30m). Users
+          choosing the value pick an actual date. Period fields take values like 1w 2d 4h 30m.
+        </li>
+        <li>
           Articles have no fields or links: ticket fields, relations, field conditions and root
           ticket field replacements only work on tickets. They cannot be configured for templates
           only available for articles, and are marked &quot;tickets only&quot; for templates

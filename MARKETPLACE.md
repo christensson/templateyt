@@ -38,6 +38,8 @@ confirmation when it's done.
 - Set ticket fields to a fixed value, or ask the user to choose a value when the template is
   applied.
 - Replace or add to the values of multi-value fields, such as *Fix versions*.
+- Set date, date and time, period, number and text fields. Dates are set relative to when the
+  template is applied, e.g. a due date 14 days later.
 - Add tags to tickets and articles.
 - If a template was added automatically and still needs values from the user, it is listed as
   *Needs input*. **Set fields** fills them in.

@@ -6,4 +6,5 @@ module.exports = {
   Project: { findByKey: () => null },
   Issue: { findById: () => null },
   Tag: { findTagByName: () => null },
+  User: { current: { login: "tester", timeZoneId: "UTC" } },
 };

@@ -4,14 +4,20 @@ import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/sele
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useCallback, useMemo } from "react";
-import { isMultiValueField, type ProjectFieldInfo } from "../../@types/project-info";
+import { getFieldValueKind, isMultiValueField, type ProjectFieldInfo } from "../../@types/project-info";
 import type { TemplateField } from "../../@types/template";
+import FieldValueInput from "./field-value-input";
 
 const ADDITIVE_SUFFIX = "_additive";
 
 // Single-value fields are set; multi-value fields can also get an additional value.
 const SINGLE_MODE_ITEMS = [
   { key: "fixed", label: "to fixed value" },
+  { key: "user_input", label: "to value chosen by user" },
+];
+// Fixed values of date fields are relative to when the template is applied.
+const RELATIVE_MODE_ITEMS = [
+  { key: "fixed", label: "relative to when applied" },
   { key: "user_input", label: "to value chosen by user" },
 ];
 const MULTI_MODE_ITEMS = [
@@ -36,7 +42,8 @@ interface TemplateFieldInputProps {
   disabled?: boolean;
 }
 
-// One row of a "fields set by template" list: field, mode and (for fixed mode) the value.
+// One row of a "fields set by template" list: field, mode and (for fixed mode) the value: one
+// of the field's values, or typed in for simple fields (dates relative to when applied).
 const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
   fields,
   field,
@@ -73,18 +80,14 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
     [field.fieldName, onChange],
   );
 
-  const onSelectValue = useCallback(
-    (selected: SelectItem | null) => {
-      if (!selected) {
-        return;
-      }
+  const onValueChange = useCallback(
+    (value: string | null) =>
       onChange({
         fieldName: field.fieldName,
         mode: "fixed",
-        fieldValue: String(selected.key),
+        fieldValue: value ?? "",
         additive: field.additive === true,
-      });
-    },
+      }),
     [field.fieldName, field.additive, onChange],
   );
 
@@ -93,18 +96,15 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
     [fields],
   );
 
-  const selectValueItems = useMemo(() => {
-    const info = fields.find((candidate) => candidate.name === field.fieldName);
-    return info ? info.values.map((value) => ({ key: value.name, label: value.presentation })) : [];
-  }, [fields, field.fieldName]);
-
   const selectedFieldItem = selectFieldItems.find((item) => item.key === field.fieldName) || null;
-  const modeItems = isMulti ? MULTI_MODE_ITEMS : SINGLE_MODE_ITEMS;
+  const kind = getFieldValueKind(fieldInfo);
+  let modeItems = SINGLE_MODE_ITEMS;
+  if (isMulti) {
+    modeItems = MULTI_MODE_ITEMS;
+  } else if (kind === "date" || kind === "datetime") {
+    modeItems = RELATIVE_MODE_ITEMS;
+  }
   const selectedModeItem = modeItems.find((item) => item.key === getModeKey(field)) || null;
-  const selectedValueItem =
-    field.mode === "fixed"
-      ? selectValueItems.find((item) => item.key === field.fieldValue) || null
-      : null;
 
   return (
     <div>
@@ -133,16 +133,14 @@ const TemplateFieldInput: React.FunctionComponent<TemplateFieldInputProps> = ({
       {field.mode === "fixed" && (
         <>
           {" "}
-          <Select
-            clear
-            filter
+          <FieldValueInput
+            key={field.fieldName}
+            fieldInfo={fieldInfo}
+            value={field.fieldValue || null}
+            isFixed
+            onChange={onValueChange}
             label="..."
             disabled={disabled || selectedFieldItem === null}
-            type={Select.Type.INLINE}
-            size={Select.Size.AUTO}
-            data={selectValueItems}
-            onSelect={onSelectValue}
-            selected={selectedValueItem}
           />
         </>
       )}

@@ -195,3 +195,9 @@
   align-items: center;
   gap: calc(var(--ring-unit) / 2);
 }
+
+/* Text input for simple field values, shown inline in sentences and value rows. */
+.template-field-value-input {
+  display: inline-block;
+  vertical-align: middle;
+}

@@ -8,7 +8,7 @@
     "name": "Marcus Christensson",
     "url": "https://github.com/christensson/templateyt"
   },
-  "changeNotes": "Version 0.3.0:<br/>- Configure as template: choose which projects can use a template article; by default only its own project. Articles marked as template before this version stay usable in all projects until saved again.",
+  "changeNotes": "Version 0.3.0:<br/>- Configure as template: choose which projects can use a template article; by default only its own project. Articles marked as template before this version stay usable in all projects until saved again.<br/>- Templates can set date, date and time, period, integer, float and string fields, to a fixed value or a value chosen by the user. Fixed dates are relative to when the template is applied, e.g. +14d, or +2d 4h for date and time. These fields can also be used in text replacements and inherited by subtasks.",
   "minYouTrackVersion": "2026.1.0",
   "icon": "icon-small.svg",
   "widgets": [

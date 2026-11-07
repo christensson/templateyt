@@ -86,7 +86,11 @@ automatically to tickets or articles, and which ticket fields the template sets.
 
 [^1]: *Note! Currently only state and enum fields are supported in conditions.*
 [^2]: *State, enum, user, version, build and owned fields are supported, single-value and
-multi-value. Users are picked from the users configured for the field.*
+multi-value. Users are picked from the users configured for the field. Date, date and time,
+period, integer, float and string fields are supported too. Fixed values of date and date and
+time fields are relative to when the template is applied: `+14d` or `+1w 2d` for dates, and
+`+2d 4h 30m` for date and time (calendar time). Users choosing the value pick an actual date.
+Periods are entered as `1w 2d 4h 30m` and follow the project's working time settings.*
 
 ### Text replacements
 

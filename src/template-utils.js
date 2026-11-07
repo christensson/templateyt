@@ -1,7 +1,26 @@
 var entities = require("@jetbrains/youtrack-scripting-api/entities");
+var dateTime = require("@jetbrains/youtrack-scripting-api/date-time");
+
+// Field types without a list of values, by value kind (must match @types/project-info.ts).
+// YouTrack names them without a cardinality suffix ("date", unlike "enum[1]"); the suffixed
+// forms are accepted as well.
+const SIMPLE_FIELD_KINDS = {
+  "date": "date",
+  "date[1]": "date",
+  "date and time": "datetime",
+  "date and time[1]": "datetime",
+  "period": "period",
+  "period[1]": "period",
+  "integer": "integer",
+  "integer[1]": "integer",
+  "float": "float",
+  "float[1]": "float",
+  "string": "string",
+  "string[1]": "string",
+};
 
 // Field types whose values a template can set: fields with a list of values, single-value ([1])
-// or multi-value ([*]).
+// or multi-value ([*]), and the simple field types above.
 const SUPPORTED_FIELD_TYPES = [
   "state[1]",
   "enum[1]",
@@ -14,12 +33,141 @@ const SUPPORTED_FIELD_TYPES = [
   "version[*]",
   "build[*]",
   "ownedField[*]",
+  ...Object.keys(SIMPLE_FIELD_KINDS),
 ];
 
 // Field types that can be used in template conditions (must match @types/project-info.ts).
 const CONDITION_FIELD_TYPES = ["state[1]", "enum[1]"];
 
 const isUserType = (typeName) => typeof typeName === "string" && typeName.indexOf("user[") === 0;
+
+// Value kind of a field type: "date", "datetime", "period", "integer", "float", "string", or
+// "list" for fields with a list of values.
+const getValueKind = (typeName) => SIMPLE_FIELD_KINDS[typeName] || "list";
+
+const isSimpleType = (typeName) => getValueKind(typeName) !== "list";
+
+const MINUTE_MS = 60000;
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_DAY = 24;
+const DAYS_PER_WEEK = 7;
+const MINUTES_PER_DAY = HOURS_PER_DAY * MINUTES_PER_HOUR;
+const UNIT_MINUTES = { w: DAYS_PER_WEEK * MINUTES_PER_DAY, d: MINUTES_PER_DAY, h: MINUTES_PER_HOUR, m: 1 };
+
+// Parses a duration like "1w 2d 4h 30m" (each part optional, at least one, in this order).
+// allowTime: whether hours and minutes are allowed. Returns { w, d, h, m } or null.
+// Keep in sync with parseDuration in @types/template.ts.
+const parseDuration = (text, allowTime) => {
+  const match = /^\s*(?:(\d+)\s*w)?\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*$/.exec(
+    typeof text === "string" ? text : "",
+  );
+  if (!match || (match[1] === undefined && match[2] === undefined && match[3] === undefined && match[4] === undefined)) {
+    return null;
+  }
+  if (!allowTime && (match[3] !== undefined || match[4] !== undefined)) {
+    return null;
+  }
+  return {
+    w: Number(match[1] || 0),
+    d: Number(match[2] || 0),
+    h: Number(match[3] || 0),
+    m: Number(match[4] || 0),
+  };
+};
+
+const durationMinutes = (duration) =>
+  Object.keys(UNIT_MINUTES).reduce((sum, unit) => sum + duration[unit] * UNIT_MINUTES[unit], 0);
+
+// "1w 2d 4h 30m" from the parts that are not zero; "0m" when all are zero.
+const formatDuration = (duration) => {
+  const parts = Object.keys(UNIT_MINUTES)
+    .filter((unit) => duration[unit])
+    .map((unit) => `${duration[unit]}${unit}`);
+  return parts.length > 0 ? parts.join(" ") : "0m";
+};
+
+const getUserTimeZone = () => {
+  try {
+    const user = entities.User.current;
+    return (user && user.timeZoneId) || "UTC";
+  } catch {
+    return "UTC";
+  }
+};
+
+// YouTrack stores date-only values as the timestamp of 12:00 UTC on that day.
+const NOON_HOUR = 12;
+const dateOnlyTimestamp = (year, month, day) => Date.UTC(year, month - 1, day, NOON_HOUR);
+
+// "2026-12-01" for a timestamp, in UTC.
+const ISO_DATE_LENGTH = 10;
+const toIsoDate = (timestamp) => new Date(timestamp).toISOString().slice(0, ISO_DATE_LENGTH);
+
+const parseIsoDate = (text) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(typeof text === "string" ? text : "");
+  if (!match) {
+    return null;
+  }
+  const timestamp = dateOnlyTimestamp(Number(match[1]), Number(match[2]), Number(match[3]));
+  // Rejects dates like 2026-02-31 that Date.UTC rolls over.
+  return toIsoDate(timestamp) === text ? timestamp : null;
+};
+
+const INTEGER_PATTERN = /^\s*-?\d+\s*$/;
+const FLOAT_PATTERN = /^\s*-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?\s*$/;
+
+// Parses a date or date-time value: an offset from now when fixed ("+14d", "+2d 4h"), otherwise
+// a date ("2026-12-01") or a timestamp in ms. Returns the timestamp or null.
+const parseDateValue = (kind, text, isFixed) => {
+  if (!isFixed) {
+    if (kind === "date") {
+      return parseIsoDate(text);
+    }
+    return /^\d+$/.test(text) ? Number(text) : null;
+  }
+  const trimmed = text.trim();
+  const offset = trimmed.charAt(0) === "+" ? parseDuration(trimmed.slice(1), kind === "datetime") : null;
+  if (offset === null) {
+    return null;
+  }
+  if (kind === "datetime") {
+    return Date.now() + durationMinutes(offset) * MINUTE_MS;
+  }
+  const today = dateTime.format(Date.now(), "yyyy-MM-dd", getUserTimeZone()).split("-").map(Number);
+  return dateOnlyTimestamp(today[0], today[1], today[2] + offset.w * DAYS_PER_WEEK + offset.d);
+};
+
+// Parsers of simple field values other than dates: the value to assign, or null when invalid.
+const SIMPLE_VALUE_PARSERS = {
+  period: (text) => {
+    const duration = parseDuration(text, true);
+    return duration === null ? null : dateTime.toPeriod(formatDuration(duration).replace(/ /g, ""));
+  },
+  integer: (text) => (INTEGER_PATTERN.test(text) ? Number(text) : null),
+  float: (text) => (FLOAT_PATTERN.test(text) ? Number(text) : null),
+  string: (text) => text,
+};
+
+// Parses the stored text of a simple field value into what is assigned to the issue field.
+// Fixed date and date-time values are offsets from now ("+14d", "+2d 4h"); values chosen by the
+// user are a date ("2026-12-01") or a timestamp in ms. Returns { value } or { error }.
+// Keep in sync with isValidSimpleFieldValue in @types/template.ts.
+const parseSimpleFieldValue = (kind, text, isFixed) => {
+  if (typeof text !== "string" || text.trim() === "") {
+    return { error: `Invalid ${kind} value "${text}".` };
+  }
+  const value =
+    kind === "date" || kind === "datetime" ? parseDateValue(kind, text, isFixed) : SIMPLE_VALUE_PARSERS[kind](text);
+  return value === null ? { error: `Invalid ${kind} value "${text}".` } : { value: value };
+};
+
+// The parts of a period field value (a Joda-Time Period).
+const getPeriodDuration = (period) => ({
+  w: period.getWeeks(),
+  d: period.getDays(),
+  h: period.getHours(),
+  m: period.getMinutes(),
+});
 
 // Multi-value fields hold a Set of values.
 const isMultiValueType = (typeName) => typeof typeName === "string" && typeName.endsWith("[*]");
@@ -308,17 +456,47 @@ const isTemplateValidForArticle = (ytArticle, template) => {
   return false;
 };
 
-// Identifier stored for a field value: the login for users, otherwise the value name.
-const getFieldValueName = (typeName, value) => (isUserType(typeName) ? value.login : value.name);
+// Identifier of a simple field value, as a value chosen by the user is sent.
+const getSimpleValueName = (kind, value) => {
+  if (kind === "date") {
+    return toIsoDate(value);
+  }
+  if (kind === "period") {
+    return formatDuration(getPeriodDuration(value));
+  }
+  return String(value);
+};
 
-const getFieldValuePresentation = (typeName, value) =>
-  isUserType(typeName) ? value.fullName : value.presentation;
+// Display text of a simple field value.
+const getSimpleValuePresentation = (kind, value) => {
+  if (kind === "datetime") {
+    return dateTime.format(value, "yyyy-MM-dd HH:mm", getUserTimeZone());
+  }
+  return getSimpleValueName(kind, value);
+};
+
+// Identifier stored for a field value: the login for users, the value name for list fields,
+// otherwise the value as a value chosen by the user is sent.
+const getFieldValueName = (typeName, value) => {
+  if (isSimpleType(typeName)) {
+    return getSimpleValueName(getValueKind(typeName), value);
+  }
+  return isUserType(typeName) ? value.login : value.name;
+};
+
+const getFieldValuePresentation = (typeName, value) => {
+  if (isSimpleType(typeName)) {
+    return getSimpleValuePresentation(getValueKind(typeName), value);
+  }
+  return isUserType(typeName) ? value.fullName : value.presentation;
+};
 
 // The values of an issue field as an array: the elements of a multi-value field, or the single
 // value; empty when the field is empty.
 const getIssueFieldValueList = (issue, typeName, fieldName) => {
   const value = issue.fields[fieldName];
-  if (!value) {
+  // Simple fields may hold falsy values such as 0.
+  if (value === null || value === undefined || (!isSimpleType(typeName) && !value)) {
     return [];
   }
   return isMultiValueType(typeName) ? toArray(value) : [value];
@@ -341,7 +519,7 @@ const getProjectFieldInfo = (project) =>
     .map((field) => ({
       name: field.name,
       typeName: field.typeName,
-      values: toArray(field.values).map((value) => ({
+      values: isSimpleType(field.typeName) ? [] : toArray(field.values).map((value) => ({
         name: getFieldValueName(field.typeName, value),
         presentation: getFieldValuePresentation(field.typeName, value),
       })),
@@ -386,6 +564,19 @@ const findFieldValue = (projectField, valueName) => {
   }
 };
 
+// The value to assign for a value name: a value of the field's list, or the parsed value of a
+// simple field. isFixed: the name is a fixed template value (dates are offsets from now).
+// Returns { value } or { error }.
+const resolveFieldValue = (projectField, fieldName, valueName, isFixed) => {
+  if (isSimpleType(projectField.typeName)) {
+    const parsed = parseSimpleFieldValue(getValueKind(projectField.typeName), valueName, isFixed);
+    return parsed.error ? { error: `${parsed.error.slice(0, -1)} for field "${fieldName}".` } : parsed;
+  }
+  const value = findFieldValue(projectField, valueName);
+  return value === null ? { error: `Value "${valueName}" not found for field "${fieldName}".` } : { value };
+};
+
+
 // Picks the value name a template field should be set to, or null when the field is skipped.
 const getTemplateFieldValueName = (field, userValues, includeUserInput) => {
   if (field.mode === "fixed") {
@@ -418,20 +609,46 @@ const resolveTemplateFieldValues = (project, template, userValues, includeUserIn
       errors.push(`Field "${field.fieldName}" has unsupported type ${projectField.typeName}.`);
       continue;
     }
-    const value = findFieldValue(projectField, valueName);
-    if (value === null) {
-      errors.push(`Value "${valueName}" not found for field "${field.fieldName}".`);
+    const resolved = resolveFieldValue(projectField, field.fieldName, valueName, field.mode === "fixed");
+    if (resolved.error) {
+      errors.push(resolved.error);
       continue;
     }
     assignments.push({
       fieldName: field.fieldName,
       typeName: projectField.typeName,
-      value: value,
+      value: resolved.value,
       multi: isMultiValueType(projectField.typeName),
       additive: field.additive === true,
     });
   }
   return { assignments: assignments, errors: errors };
+};
+
+// Errors for fixed values of simple fields that do not parse, for the template and all its child
+// templates. Fields missing in the project are not reported: templates may be shared.
+const getFixedValueErrors = (project, template) => {
+  const errors = [];
+  const check = (owner, prefix) => {
+    for (const field of Array.isArray(owner.fields) ? owner.fields : []) {
+      if (field.mode !== "fixed") {
+        continue;
+      }
+      const projectField = findProjectField(project, field.fieldName);
+      if (projectField === null || !isSimpleType(projectField.typeName)) {
+        continue;
+      }
+      const parsed = parseSimpleFieldValue(getValueKind(projectField.typeName), field.fieldValue, true);
+      if (parsed.error) {
+        errors.push(`${prefix}${parsed.error.slice(0, -1)} for field "${field.fieldName}".`);
+      }
+    }
+  };
+  check(template, "");
+  for (const { child } of flattenChildTemplates(template.children)) {
+    check(child, `Child template "${child.name}": `);
+  }
+  return errors;
 };
 
 // Single-value fields are assigned; multi-value fields get the value added, after clearing the
@@ -655,19 +872,19 @@ const resolveReplacementFieldInputs = (issue, template, valuesByField) => {
     if (getIssueFieldValueList(issue, projectField.typeName, fieldName).length > 0) {
       continue;
     }
-    const value = findFieldValue(projectField, valueName);
-    if (value === null) {
-      errors.push(`Value "${valueName}" not found for field "${fieldName}".`);
+    const resolved = resolveFieldValue(projectField, fieldName, valueName, false);
+    if (resolved.error) {
+      errors.push(resolved.error);
       continue;
     }
     assignments.push({
       fieldName: fieldName,
       typeName: projectField.typeName,
-      value: value,
+      value: resolved.value,
       multi: isMultiValueType(projectField.typeName),
       additive: false,
     });
-    overrides[fieldName] = getFieldValuePresentation(projectField.typeName, value);
+    overrides[fieldName] = getFieldValuePresentation(projectField.typeName, resolved.value);
   }
   return { assignments: assignments, overrides: overrides, errors: errors };
 };
@@ -868,6 +1085,9 @@ const markHierarchyCreated = (entity, templateId) => {
 module.exports = {
   SUPPORTED_FIELD_TYPES,
   CONDITION_FIELD_TYPES,
+  getValueKind,
+  parseSimpleFieldValue,
+  getFixedValueErrors,
   toArray,
   getTemplates,
   isTemplateValidForIssue,
