@@ -16,14 +16,15 @@ type FakeArticle = {
   permittedGroups: Array<{ name: string }>;
   parentArticle: FakeArticle | null;
   childArticles: Array<FakeArticle>;
-  extensionProperties: { isTemplate?: boolean };
+  extensionProperties: { isTemplate?: boolean; templateProjectKeys?: string };
 };
 
 type Utils = {
   isArticleReadableBy: (article: FakeArticle | null, user: FakeUser) => boolean;
   findReadableArticle: (articleId: unknown, user: FakeUser) => FakeArticle | null;
   getArticleTree: (article: FakeArticle, user: FakeUser, project: FakeProject) => unknown;
-  getTemplateArticleError: (template: unknown, user: FakeUser) => string | null;
+  getTemplateArticleError: (template: unknown, user: FakeUser, project: FakeProject) => string | null;
+  isArticleSharedWithProject: (article: FakeArticle, project: FakeProject) => boolean;
 };
 
 // The entities stub is shared with the loaded script, so tests can decide what
@@ -128,6 +129,7 @@ describe("getArticleTree", () => {
       projectKey: "DOCS",
       projectName: "Docs",
       isOtherProject: true,
+      isExplicitlyShared: false,
       children: [
         {
           articleId: "DOCS-A-2",
@@ -135,6 +137,7 @@ describe("getArticleTree", () => {
           projectKey: "DOCS",
           projectName: "Docs",
           isOtherProject: true,
+          isExplicitlyShared: false,
           children: [
             {
               articleId: "DOCS-A-4",
@@ -142,6 +145,7 @@ describe("getArticleTree", () => {
               projectKey: "DOCS",
               projectName: "Docs",
               isOtherProject: true,
+              isExplicitlyShared: false,
               children: [],
             },
           ],
@@ -177,13 +181,13 @@ describe("getTemplateArticleError", () => {
       articleId: "DEMO-A-1",
       children: [child("DEMO-A-2", [child("DEMO-A-3")]), child("DOCS-A-1")],
     };
-    expect(utils.getTemplateArticleError(template, admin)).toBeNull();
+    expect(utils.getTemplateArticleError(template, admin, DEMO)).toBeNull();
   });
 
   it("rejects child articles that are neither template articles nor below the parent", () => {
     setup();
     const template = { articleId: "DEMO-A-1", children: [child("DOCS-A-2")] };
-    expect(utils.getTemplateArticleError(template, admin)).toBe(
+    expect(utils.getTemplateArticleError(template, admin, DEMO)).toBe(
       'Child template "Child DOCS-A-2": article DOCS-A-2 is neither a template article nor below DEMO-A-1.',
     );
   });
@@ -191,11 +195,74 @@ describe("getTemplateArticleError", () => {
   it("rejects root and child articles the user cannot read", () => {
     setup();
     const demoOnly = makeUser("admin", [DEMO]);
-    expect(utils.getTemplateArticleError({ articleId: "DOCS-A-1", children: [] }, demoOnly)).toBe(
+    expect(utils.getTemplateArticleError({ articleId: "DOCS-A-1", children: [] }, demoOnly, DEMO)).toBe(
       "Template article DOCS-A-1 not found or not accessible.",
     );
     expect(
-      utils.getTemplateArticleError({ articleId: "DEMO-A-1", children: [child("DOCS-A-1")] }, demoOnly),
+      utils.getTemplateArticleError({ articleId: "DEMO-A-1", children: [child("DOCS-A-1")] }, demoOnly, DEMO),
     ).toBe('Child template "Child DOCS-A-1": article DOCS-A-1 not found or not accessible.');
+  });
+
+  it("requires the template article and inserted children to be shared with the project", () => {
+    const shared = JSON.stringify(["DEMO"]);
+    const docsOnly = JSON.stringify(["DOCS"]);
+    const imported = makeArticle("DOCS-A-2", DOCS);
+    const root = withChildren(
+      makeArticle("DOCS-A-1", DOCS, { extensionProperties: { isTemplate: true, templateProjectKeys: shared } }),
+      [imported],
+    );
+    const inserted = makeArticle("DOCS-A-3", DOCS, {
+      extensionProperties: { isTemplate: true, templateProjectKeys: docsOnly },
+    });
+    const restrictedRoot = makeArticle("DOCS-A-4", DOCS, {
+      extensionProperties: { isTemplate: true, templateProjectKeys: docsOnly },
+    });
+    stubArticles([root, imported, inserted, restrictedRoot]);
+    // Imported children are covered by the shared article they come from.
+    expect(
+      utils.getTemplateArticleError({ articleId: "DOCS-A-1", children: [child("DOCS-A-2")] }, admin, DEMO),
+    ).toBeNull();
+    expect(
+      utils.getTemplateArticleError({ articleId: "DOCS-A-1", children: [child("DOCS-A-3")] }, admin, DEMO),
+    ).toBe('Child template "Child DOCS-A-3": template article DOCS-A-3 is not shared with project Demo.');
+    expect(utils.getTemplateArticleError({ articleId: "DOCS-A-4", children: [] }, admin, DEMO)).toBe(
+      "Template article DOCS-A-4 is not shared with project Demo.",
+    );
+  });
+});
+
+describe("isArticleSharedWithProject", () => {
+  it("allows all projects without a setting, otherwise only the listed ones", () => {
+    const legacy = makeArticle("DOCS-A-1", DOCS, { extensionProperties: { isTemplate: true } });
+    const restricted = makeArticle("DOCS-A-2", DOCS, {
+      extensionProperties: { isTemplate: true, templateProjectKeys: JSON.stringify(["DOCS"]) },
+    });
+    expect(utils.isArticleSharedWithProject(legacy, DEMO)).toBe(true);
+    expect(utils.isArticleSharedWithProject(restricted, DOCS)).toBe(true);
+    expect(utils.isArticleSharedWithProject(restricted, DEMO)).toBe(false);
+  });
+});
+
+describe("getArticleProjectInfo", () => {
+  it("flags articles whose settings list the project as explicitly shared", () => {
+    const utilsWithInfo = utils as unknown as {
+      getArticleProjectInfo: (article: FakeArticle, project: FakeProject) => unknown;
+    };
+    const legacy = makeArticle("DOCS-A-1", DOCS, { extensionProperties: { isTemplate: true } });
+    const listed = makeArticle("DOCS-A-2", DOCS, {
+      extensionProperties: { isTemplate: true, templateProjectKeys: JSON.stringify(["DOCS", "DEMO"]) },
+    });
+    expect(utilsWithInfo.getArticleProjectInfo(legacy, DEMO)).toEqual({
+      projectKey: "DOCS",
+      projectName: "Docs",
+      isOtherProject: true,
+      isExplicitlyShared: false,
+    });
+    expect(utilsWithInfo.getArticleProjectInfo(listed, DEMO)).toEqual({
+      projectKey: "DOCS",
+      projectName: "Docs",
+      isOtherProject: true,
+      isExplicitlyShared: true,
+    });
   });
 });

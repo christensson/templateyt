@@ -4,7 +4,12 @@ import WarningIcon from "@jetbrains/icons/warning-empty";
 import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import React, { useMemo } from "react";
 import type { ArticleProjectInfo } from "../../@types/template-article";
-import { getOtherProjectArticles, useArticleProjects } from "./article-projects";
+import {
+  getNotSharedArticleIds,
+  getOtherProjectArticles,
+  isExplicitlySharedArticle,
+  useArticleProjects,
+} from "./article-projects";
 import {
   ChildTemplate,
   Template,
@@ -117,6 +122,26 @@ const getCompactDetails = (template: Template, isDraft: boolean): [string, boole
 };
 
 // Indented row of a child template below its template; flags problems in compact mode.
+// Note on a child template row about its article, like getArticleNote. Null when there is
+// nothing to note.
+const getChildArticleNote = (
+  template: Template,
+  child: ChildTemplate,
+  articleProjects: Readonly<Record<string, ArticleProjectInfo>>,
+): { text: string; warning: boolean } | null => {
+  const info = articleProjects[child.articleId];
+  if (child.manual && info?.isShared === false) {
+    return { text: "Not shared with this project", warning: true };
+  }
+  if (!info?.isOtherProject) {
+    return null;
+  }
+  // Articles shared explicitly by their project are noted without a warning.
+  return isExplicitlySharedArticle(template, child.id, articleProjects)
+    ? { text: `Shared from project ${info.projectName}`, warning: false }
+    : { text: `Article from project ${info.projectName}`, warning: true };
+};
+
 const makeChildItem = (
   template: Template,
   child: ChildTemplate,
@@ -126,14 +151,12 @@ const makeChildItem = (
   articleProjects: Readonly<Record<string, ArticleProjectInfo>>,
 ): TemplateListItem => {
   const errors = compact ? validateChildTemplate(template, child) : [];
-  const otherProject = articleProjects[child.articleId]?.isOtherProject
-    ? articleProjects[child.articleId].projectName
-    : null;
+  const note = errors.length > 0 ? null : getChildArticleNote(template, child, articleProjects);
   let details = formatChildTemplate(child);
   if (errors.length > 0) {
     details = `Incomplete: ${errors[0].message}`;
-  } else if (otherProject !== null) {
-    details = `Article from project ${otherProject} · ${details}`;
+  } else if (note !== null) {
+    details = `${note.text} · ${details}`;
   }
   return {
     disabled,
@@ -143,7 +166,7 @@ const makeChildItem = (
     glyph: BLANK_GLYPH,
     label: child.name.trim() || child.articleId,
     details: details,
-    rightGlyph: errors.length > 0 || otherProject !== null ? WarningIcon : undefined,
+    rightGlyph: errors.length > 0 || note?.warning ? WarningIcon : undefined,
     templateItem: template,
     childTemplateItem: child,
   };
@@ -174,6 +197,25 @@ const getRowDetails = (
   return [[...(status ? [status.text] : []), ...tokens].join(" · "), status?.warning ?? false];
 };
 
+// Note on a template row about its articles: not shared with the project, or from other
+// projects (their content is copied into this project). `warning` is false when all articles
+// from other projects are shared explicitly with this project. Null when there is nothing to note.
+const getArticleNote = (
+  template: Template,
+  articleProjects: Readonly<Record<string, ArticleProjectInfo>>,
+): { text: string; warning: boolean } | null => {
+  if (getNotSharedArticleIds(template, articleProjects).length > 0) {
+    return { text: "Not shared with this project", warning: true };
+  }
+  const others = getOtherProjectArticles(template, articleProjects);
+  if (others.length === 0) {
+    return null;
+  }
+  return others.every((a) => a.isExplicitlyShared)
+    ? { text: "Uses articles shared from other projects", warning: false }
+    : { text: "Uses articles from other projects", warning: true };
+};
+
 const getListItems = (
   data: Array<Template>,
   templateIdGroupMap?: { [key: string]: string },
@@ -190,14 +232,10 @@ const getListItems = (
   const makeListItems = (template: Template): Array<TemplateListItem> => {
     const isDraft = template.id === draftTemplateId;
     const [rowDetails, hasRowWarning] = getRowDetails(template, isDraft, options);
-    // Incomplete templates keep their own message; otherwise articles from other projects are
-    // flagged, since their content is copied into this project.
-    const otherProjects = hasRowWarning ? [] : getOtherProjectArticles(template, articleProjects);
-    const hasWarning = hasRowWarning || otherProjects.length > 0;
-    const details =
-      otherProjects.length > 0
-        ? `Uses articles from other projects · ${rowDetails}`
-        : rowDetails;
+    // Incomplete templates keep their own message.
+    const articleNote = hasRowWarning ? null : getArticleNote(template, articleProjects);
+    const hasWarning = hasRowWarning || articleNote?.warning === true;
+    const details = articleNote !== null ? `${articleNote.text} · ${rowDetails}` : rowDetails;
     const isSelected = template.id === selectedTemplate?.id;
     const itemDisabled = isSelected ? false : disabled;
     const expandable = showChildren && template.hierarchical;

@@ -3,6 +3,7 @@
 // Unit tests of the backend helpers use fake issues and projects instead of the entities.
 module.exports = {
   Article: { findById: () => null },
+  Project: { findByKey: () => null },
   Issue: { findById: () => null },
   Tag: { findTagByName: () => null },
 };

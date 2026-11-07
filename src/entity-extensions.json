@@ -16,6 +16,10 @@
           "type": "boolean",
           "multi": false
         },
+        "templateProjectKeys": {
+          "type": "string",
+          "multi": false
+        },
         "usedTemplateIds": {
           "type": "string",
           "multi": false

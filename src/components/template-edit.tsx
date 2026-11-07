@@ -114,9 +114,9 @@ const ArticleAccessError: React.FunctionComponent<ArticleAccessErrorProps> = ({
   articleId &&
   templateArticleSelectItems.length > 0 &&
   !templateArticleSelectItems.some((item) => item.key === articleId) ? (
-    <Banner mode="error" withIcon title="Template article not accessible">
-      Template article {articleId} is not a template article you can read. Select another article
-      to save the template.
+    <Banner mode="error" withIcon title="Template article not available">
+      Template article {articleId} is not available in this project: you can&apos;t read it, or
+      it isn&apos;t shared with this project. Select another article to save the template.
     </Banner>
   ) : null;
 
@@ -302,6 +302,10 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
             </div>
           )}
         </LabeledValue>
+        <ArticleAccessError
+          articleId={template.articleId}
+          templateArticleSelectItems={templateArticleSelectItems}
+        />
         <CrossProjectWarning template={template}/>
       </TemplateSection>
       <TemplateSection title="When to use">

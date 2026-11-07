@@ -67,7 +67,8 @@ ticket or to the created subtasks.
 
 ## Getting started
 1. **Write the template.** Create a knowledge base article with the template content, publish
-   it, then choose **Configure as template** in the article's "…" menu.
+   it, then choose **Configure as template** in the article's "…" menu and select the projects
+   that can use it.
 2. **Configure it for a project.** Open *Project settings → Ticket Templates Config*, add a
    template, pick the article and decide:
    - where it is available (tickets, articles, or tickets with a certain field value or tag);
@@ -85,7 +86,8 @@ The app only lets people do what their YouTrack permissions allow:
 - **Configure templates:** requires *Update project* in the project. You can only pick template
   articles you can read yourself; a template using any other article can't be saved.
 - **Mark an article as a template:** requires *Update article* and *Update project* in the
-  article's project.
+  article's project. You also choose which projects can use the article as a template; by
+  default only its own project. Other projects don't see it until you share it with them.
 - **Apply, remove or set fields of a template from the menu:** requires *Update issue* on the
   ticket (or *Update article* on the article), and read access to the template's articles.
 - **Create subtasks or sub-articles:** additionally requires *Create issue* (or *Create
@@ -96,7 +98,9 @@ The app only lets people do what their YouTrack permissions allow:
 - **Articles from other projects:** a template may use articles from another project. The
   configuration page clearly flags this with a warning, because the copied content becomes
   visible to everyone who can see the tickets or articles in this project, also people without
-  access to the other project. Use such articles only for content that may be shared.
+  access to the other project. Use such articles only for content that may be shared. When the
+  other project has shared the article with this project in its *Configure as template* settings,
+  the configuration shows an informational note instead of a warning.
 
 ## Good to know
 - **Articles:** articles have no fields or links. For articles, templates add content, tags,

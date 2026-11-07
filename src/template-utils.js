@@ -148,13 +148,30 @@ const isArticleBelow = (article, ancestorId) => {
   return false;
 };
 
+// Keys of the projects that may use a template article, or null when it has no restriction
+// (articles marked as template before project restrictions existed).
+const getTemplateProjectKeys = (article) => {
+  const json = article.extensionProperties.templateProjectKeys;
+  return json ? parseIdList(json) : null;
+};
+
+// True if the template article may be used by templates of the project.
+const isArticleSharedWithProject = (article, project) => {
+  const keys = getTemplateProjectKeys(article);
+  return keys === null || keys.includes(project.key);
+};
+
 // Validates that the user may read the template article and the articles of all child templates.
 // A child article must be a template article (inserted; marking an article as template requires
 // permission to update its project) or below the article of its parent (imported).
 // Returns an error message or null.
-const getTemplateArticleError = (template, user) => {
-  if (findReadableArticle(template.articleId, user) === null) {
+const getTemplateArticleError = (template, user, project) => {
+  const root = findReadableArticle(template.articleId, user);
+  if (root === null) {
     return `Template article ${template.articleId} not found or not accessible.`;
+  }
+  if (!isArticleSharedWithProject(root, project)) {
+    return `Template article ${template.articleId} is not shared with project ${project.name}.`;
   }
   const visit = (children, parentArticleId) => {
     for (const child of Array.isArray(children) ? children : []) {
@@ -162,9 +179,15 @@ const getTemplateArticleError = (template, user) => {
       if (article === null) {
         return `Child template "${child.name}": article ${child.articleId} not found or not accessible.`;
       }
-      const isTemplateArticle = article.extensionProperties.isTemplate === true;
-      if (!isTemplateArticle && !isArticleBelow(article, parentArticleId)) {
-        return `Child template "${child.name}": article ${child.articleId} is neither a template article nor below ${parentArticleId}.`;
+      // Imported children are covered by the article they are imported from; inserted ones
+      // are template articles of their own and must be shared with the project.
+      if (!isArticleBelow(article, parentArticleId)) {
+        if (article.extensionProperties.isTemplate !== true) {
+          return `Child template "${child.name}": article ${child.articleId} is neither a template article nor below ${parentArticleId}.`;
+        }
+        if (!isArticleSharedWithProject(article, project)) {
+          return `Child template "${child.name}": template article ${child.articleId} is not shared with project ${project.name}.`;
+        }
       }
       const error = visit(child.children, child.articleId);
       if (error !== null) {
@@ -176,12 +199,17 @@ const getTemplateArticleError = (template, user) => {
   return visit(template.children, template.articleId);
 };
 
-// The project of an article, and whether it differs from the given project.
-const getArticleProjectInfo = (article, project) => ({
-  projectKey: article.project.key,
-  projectName: article.project.name,
-  isOtherProject: article.project.key !== project.key,
-});
+// The project of an article, whether it differs from the given project, and whether the article's
+// template settings explicitly share it with the given project.
+const getArticleProjectInfo = (article, project) => {
+  const keys = getTemplateProjectKeys(article);
+  return {
+    projectKey: article.project.key,
+    projectName: article.project.name,
+    isOtherProject: article.project.key !== project.key,
+    isExplicitlyShared: keys !== null && keys.includes(project.key),
+  };
+};
 
 // Article tree below an article, in the shape the config UI imports. Child articles the user may
 // not read are left out together with their subtrees.
@@ -874,6 +902,8 @@ module.exports = {
   isArticleBelow,
   getArticleProjectInfo,
   getTemplateArticleError,
+  getTemplateProjectKeys,
+  isArticleSharedWithProject,
   getArticleTree,
   getCreatedHierarchyTemplateIds,
   markHierarchyCreated,

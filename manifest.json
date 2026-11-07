@@ -8,7 +8,7 @@
     "name": "Marcus Christensson",
     "url": "https://github.com/christensson/templateyt"
   },
-  "changeNotes": "Version 0.3.0:<br/>",
+  "changeNotes": "Version 0.3.0:<br/>- Configure as template: choose which projects can use a template article; by default only its own project. Articles marked as template before this version stay usable in all projects until saved again.",
   "minYouTrackVersion": "2026.1.0",
   "icon": "icon-small.svg",
   "widgets": [
@@ -32,7 +32,7 @@
       "iconPath": "icon-small.svg",
       "description": "Configure article as ticket template.",
       "expectedDimensions": {
-        "height": 300,
+        "height": 420,
         "width": 480
       },
       "permissions": [

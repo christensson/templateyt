@@ -37,7 +37,8 @@ automatically to tickets or articles, and which ticket fields the template sets.
 - Create a knowledge base article defining the template content.
 - Publish article (Important! Article must be published before next step).
 - Select *"Configure as template"* available under the "..."-menu for the article.
-- Check *"Use article as ticket template."* checkbox and press *"Save info"*.
+- Check *"Use article as ticket template."* checkbox, select the projects that can use the
+  template (by default only the article's own project) and press *"Save info"*.
 
 #### Configure template
 
@@ -235,7 +236,29 @@ article the user can't read give the same error, so the existence of articles is
   everyone, and the content is copied into the ticket or article. The project admin is
   responsible for the configuration, which is why the configuration only accepts articles the
   admin can read and flags articles from other projects: the editor shows a warning banner, and
-  the template list and child templates show a warning icon.
+  the template list and child templates show a warning icon. Articles whose settings explicitly
+  share them with this project (see below) get an informational note instead, since the other
+  project's admin chose to share them. Imported child articles follow the template article they
+  are imported from.
+
+### Sharing template articles
+
+*Configure as template* stores the projects that can use a template article in the article
+extension property `templateProjectKeys` (JSON list of project IDs, `Project.key`). The selection
+lists the projects the admin can see; by default only the article's own project is selected.
+
+- The *Template article* and *Insert article as child template* lists of *Ticket Templates
+  Config* only offer template articles shared with the project (`getTemplateArticles`).
+- Saving a template (project `addTemplate`) is refused when its template article, or an inserted
+  child template article, is not shared with the project. Imported child articles are covered by
+  the article they are imported from.
+- Templates already configured in a project that is no longer shared keep working, both
+  automatically and from the menu. The configuration flags them, and they can't be saved until
+  the article is shared again or replaced.
+- Articles marked as template before this setting existed have no `templateProjectKeys` and stay
+  usable in all projects, until the setting is saved for them.
+- Projects are stored by ID. If a project's ID is changed, it loses access to the article until
+  the setting is saved again with the new ID.
 
 ## Installation and Setup
 

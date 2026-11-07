@@ -49,7 +49,7 @@ import {
   type TemplateSection as TemplateSectionKey,
   type TicketFeatureAvailability,
 } from "../../@types/template";
-import { OtherProjectNote } from "./cross-project-warning";
+import { NotSharedNote, OtherProjectNote } from "./cross-project-warning";
 import FieldValueConditionInput from "./field-value-condition-input";
 import type { TemplateArticleSelectItem } from "./template-article-select-items";
 import TemplateFieldsPanel from "./template-fields-panel";
@@ -704,7 +704,8 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
               Open {child.articleId}
             </Button>
           </div>
-          <OtherProjectNote articleId={child.articleId}/>
+          <OtherProjectNote template={template} child={child}/>
+          {child.manual && <NotSharedNote articleId={child.articleId}/>}
         </ChildLabeledValue>
       </TemplateSection>
       <TemplateSection title="When created" hasError={hasError("when")}>

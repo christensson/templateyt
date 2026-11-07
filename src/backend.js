@@ -393,7 +393,10 @@ const getTemplateArticleProjects = (templates, project, user) => {
     }
     const article = utils.findReadableArticle(articleId, user);
     if (article !== null) {
-      result[articleId] = utils.getArticleProjectInfo(article, project);
+      result[articleId] = {
+        ...utils.getArticleProjectInfo(article, project),
+        isShared: utils.isArticleSharedWithProject(article, project),
+      };
     }
   };
   for (const template of templates) {
@@ -622,7 +625,7 @@ exports.httpHandler = {
         const newTemplate = body.template;
         const validationError =
           validateTemplate(newTemplate) ||
-          utils.getTemplateArticleError(newTemplate, ctx.currentUser) ||
+          utils.getTemplateArticleError(newTemplate, ctx.currentUser, ctx.project) ||
           validateTemplateRelations(newTemplate, ctx.currentUser);
         if (validationError !== null) {
           badRequest(ctx, validationError);
@@ -676,14 +679,19 @@ exports.httpHandler = {
       method: "GET",
       path: "getTemplateArticles",
       permissions: ["UPDATE_PROJECT"],
-      // Template articles of all projects that the user may read.
+      // Template articles of all projects that the user may read and that are shared with
+      // this project.
       handle: function handle(ctx) {
         const templateArticles = entities.Article.findByExtensionProperties({
           isTemplate: true,
         });
         const articles = utils
           .toArray(templateArticles)
-          .filter((x) => utils.isArticleReadableBy(x, ctx.currentUser))
+          .filter(
+            (x) =>
+              utils.isArticleReadableBy(x, ctx.currentUser) &&
+              utils.isArticleSharedWithProject(x, ctx.project),
+          )
           .map((x) => ({
             articleId: x.id,
             summary: x.summary,
@@ -727,6 +735,8 @@ exports.httpHandler = {
           articleId: article.id,
           isTemplate: isTemplate,
           hasTemplates: usedTemplateIds.length > 0,
+          projectKey: article.project.key,
+          templateProjectKeys: utils.getTemplateProjectKeys(article),
         });
       },
     },
@@ -734,8 +744,8 @@ exports.httpHandler = {
       scope: "article",
       method: "POST",
       path: "setArticleInfo",
-      // Marking an article as template makes it selectable in any project's template
-      // configuration, so it also requires UPDATE_PROJECT in the article's project. That is
+      // Marking an article as template makes it selectable in the template configuration of the
+      // projects it is shared with, so it also requires UPDATE_PROJECT in the article's project. That is
       // checked in the handler, not with `{ allOf: [...] }`: see requirePermission.
       permissions: ["UPDATE_ARTICLE"],
       handle: function handle(ctx) {
@@ -779,6 +789,26 @@ exports.httpHandler = {
             message: "Request article ID doesn't match context article ID.",
           });
           return;
+        }
+
+        // Projects that may use the template article. Kept when the article is unmarked, so
+        // marking it again restores them; left unchanged when not sent.
+        const projectKeys = articleInfo.templateProjectKeys;
+        if (articleInfo.isTemplate === true && projectKeys !== undefined) {
+          if (!Array.isArray(projectKeys) || projectKeys.length === 0) {
+            badRequest(ctx, "Select at least one project that can use the template.");
+            return;
+          }
+          const unknownKey = projectKeys.find(
+            (key) => typeof key !== "string" || entities.Project.findByKey(key) == null,
+          );
+          if (unknownKey !== undefined) {
+            badRequest(ctx, `Project ${unknownKey} not found.`);
+            return;
+          }
+          article.extensionProperties.templateProjectKeys = JSON.stringify(
+            projectKeys.filter((key, index) => projectKeys.indexOf(key) === index),
+          );
         }
 
         article.extensionProperties.isTemplate = articleInfo.isTemplate || false;
