@@ -1,6 +1,11 @@
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { hasUserInput, type Template } from "../../../@types/template";
+import {
+  getInitialOptionValues,
+  hasUserInput,
+  type OptionValues,
+  type Template,
+} from "../../../@types/template";
 import {
   closeDialog,
   countChildren,
@@ -34,6 +39,7 @@ import {
   getInitialFieldValues,
   getInitialReplacementTexts,
   hasStoredReplacementTexts,
+  pickAnsweredOptions,
   pickChosenChildValues,
   pickChosenValues,
   removeTemplate,
@@ -99,6 +105,8 @@ const AppComponent: React.FunctionComponent = () => {
   const [replacementFieldValues, setReplacementFieldValues] = useState<FieldValues>({});
   // Values chosen for multi-value root ticket fields that decide which subtasks are created.
   const [conditionMultiValues, setConditionMultiValues] = useState<MultiFieldValues>({});
+  // Answers to the options of the template whose subtasks are being created.
+  const [optionValues, setOptionValues] = useState<OptionValues>({});
   const [hierarchy, setHierarchy] = useState<HierarchyStep | null>(null);
   const [childValues, setChildValues] = useState<ChildFieldValues>({});
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -152,6 +160,8 @@ const AppComponent: React.FunctionComponent = () => {
       });
       setReplacementFieldValues({});
       setConditionMultiValues({});
+      // Options start from their defaults every time; answers are not remembered.
+      setOptionValues(getInitialOptionValues(template));
       setHierarchy({ template, afterApply });
     },
     [],
@@ -270,6 +280,7 @@ const AppComponent: React.FunctionComponent = () => {
             conditionMultiValues,
             issueTemplateInfo.fields,
           ),
+        pickAnsweredOptions(optionValues),
       );
       console.log(`Create hierarchy ${hierarchy.template.id} result`, result);
       if (!result.success) {
@@ -291,6 +302,7 @@ const AppComponent: React.FunctionComponent = () => {
     replacementTexts,
     replacementFieldValues,
     conditionMultiValues,
+    optionValues,
     issueTemplateInfo,
     checkTemplate,
   ]);
@@ -392,6 +404,7 @@ const AppComponent: React.FunctionComponent = () => {
           )}
           fieldInput={{ values: replacementFieldValues, setValues: setReplacementFieldValues }}
           multiConditionInput={{ values: conditionMultiValues, setValues: setConditionMultiValues }}
+          optionInput={{ values: optionValues, setValues: setOptionValues }}
           textsRemembered={hasStoredReplacementTexts(
             hierarchy.template,
             issueTemplateInfo.replacementTexts,

@@ -23,7 +23,13 @@ import {
   hasUserInputFields,
   hierarchyHasUserInputFields,
   isMultiValueFieldName,
+  getChildAddConditions,
+  getTemplateOptions,
+  getUnansweredOptions,
+  isOptionCondition,
+  getUsedOptions,
   type ChildInclusion,
+  type OptionValues,
   type ConditionValues,
   type ChildTemplate,
   type Template,
@@ -50,6 +56,7 @@ import {
   type ReplacementTexts,
 } from "../template-client";
 import FieldValueInput from "./field-value-input";
+import OptionAnswerInput from "./option-input";
 
 const EMPTY_FIELDS_HINT = "Fields left empty are not changed.";
 const MISSING_INPUT_HINT = "Fill in all required values to continue.";
@@ -326,16 +333,18 @@ const EffectRows: React.FunctionComponent<EffectRowsProps> = ({
         </EffectRow>
       )}
       {relations.map((relation, idx) => {
-        const skipped =
-          relation.target === "child" &&
-          inclusion !== undefined &&
-          !inclusion[relation.childId]?.created;
+        const target = relation.target === "child" ? inclusion?.[relation.childId] : undefined;
+        const skipped = target !== undefined && !target.created;
+        let suffix = "";
+        if (skipped) {
+          suffix = target.undecided ? " (depends on your answers)" : " (skipped, not created)";
+        }
         return (
           // eslint-disable-next-line react/no-array-index-key
           <EffectRow key={`relation-${idx}`} label={relation.linkName}>
             <Text size={Text.Size.M} info={skipped}>
               {formatRelationTarget(relation, template)}
-              {skipped ? " (skipped, not created)" : ""}
+              {suffix}
             </Text>
           </EffectRow>
         );
@@ -363,6 +372,8 @@ interface FormActionsProps {
   label: string;
   submitting: boolean;
   missingTexts: boolean;
+  // Why the confirm button is disabled, instead of the generic hint.
+  missingHint?: string;
   onConfirm: () => void;
   onBack: () => void;
   backLabel: string;
@@ -373,6 +384,7 @@ const FormActions: React.FunctionComponent<FormActionsProps> = ({
   label,
   submitting,
   missingTexts,
+  missingHint,
   onConfirm,
   onBack,
   backLabel,
@@ -386,7 +398,7 @@ const FormActions: React.FunctionComponent<FormActionsProps> = ({
     </Button>
     {missingTexts && (
       <Text size={Text.Size.S} info>
-        {MISSING_INPUT_HINT}
+        {missingHint ?? MISSING_INPUT_HINT}
       </Text>
     )}
   </Panel>
@@ -563,6 +575,7 @@ const formatInheritance = (child: ChildTemplate): string | null => {
 
 interface ChildTitleProps {
   child: ChildTemplate;
+  // Not created: struck through.
   skipped?: boolean;
   note?: string | null;
 }
@@ -609,6 +622,13 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
     (fieldName: string, value: string | null) => onChange(child.id, fieldName, value),
     [child.id, onChange],
   );
+  if (inclusion.undecided) {
+    return (
+      <div className="template-hierarchy-child template-hierarchy-child-undecided" style={indentStyle(depth)}>
+        <ChildTitle child={child} note={inclusion.reason}/>
+      </div>
+    );
+  }
   if (!inclusion.created) {
     return (
       <div className="template-hierarchy-child template-hierarchy-child-skipped" style={indentStyle(depth)}>
@@ -623,7 +643,7 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
     <div className="template-hierarchy-child" style={indentStyle(depth)}>
       <ChildTitle
         child={child}
-        note={[formatChildConditionNote(child, fieldInfos), formatInheritance(child)]
+        note={[formatChildConditionNote(child, fieldInfos, getTemplateOptions(template)), formatInheritance(child)]
           .filter(Boolean)
           .join(" · ")}
       />
@@ -646,17 +666,78 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
   );
 };
 
-const formatCreatedCount = (created: number, total: number): string => {
+// "3 of 5 subtasks are created below this ticket, 2 depend on your answers".
+const formatCreatedCount = (
+  created: number,
+  total: number,
+  undecided: number,
+  noun: "subtask" | "sub-article",
+  parent: "ticket" | "article",
+): string => {
+  let text: string;
   if (created === total) {
-    return total === 1 ? "1 subtask is created below this ticket" : `${total} subtasks are created below this ticket`;
+    text = total === 1 ? `1 ${noun} is created` : `${total} ${noun}s are created`;
+  } else {
+    text = `${created} of ${total} ${noun}s are created`;
   }
-  return `${created} of ${total} subtasks are created below this ticket`;
+  text += ` below this ${parent}`;
+  if (undecided > 0) {
+    text += `, ${undecided} depend${undecided === 1 ? "s" : ""} on your answers`;
+  }
+  return text;
 };
 
-const formatArticleCount = (total: number): string =>
-  total === 1
-    ? "1 sub-article is created below this article"
-    : `${total} sub-articles are created below this article`;
+const countInclusion = (flat: ReadonlyArray<{ child: ChildTemplate }>, inclusion: Record<string, ChildInclusion>) => ({
+  created: flat.filter(({ child }) => inclusion[child.id]?.created).length,
+  undecided: flat.filter(({ child }) => inclusion[child.id]?.undecided).length,
+});
+
+const UNANSWERED_HINT = "Answer all options to continue.";
+
+// Answers given to the template's options, keyed by option id.
+export type OptionInput = {
+  values: OptionValues;
+  setValues: React.Dispatch<React.SetStateAction<OptionValues>>;
+};
+
+interface OptionsSectionProps {
+  template: Template;
+  optionInput: OptionInput;
+  noun: "subtask" | "sub-article";
+}
+
+// The template's options that decide which subtasks are created, each answered Yes or No. Options
+// without a default start unanswered and must be answered.
+const OptionsSection: React.FunctionComponent<OptionsSectionProps> = ({ template, optionInput, noun }) => {
+  const used = getUsedOptions(template);
+  if (used.length === 0) {
+    return null;
+  }
+  return (
+    <FormSection title="Options">
+      <EffectList>
+        {used.map(({ option, childIds }) => {
+          const value = optionInput.values[option.id];
+          const answered = typeof value === "boolean";
+          return (
+            <EffectRow key={option.id} label={option.label}>
+              <OptionAnswerInput
+                label={option.label}
+                value={answered ? value : null}
+                onChange={(answer) => optionInput.setValues((prev) => ({ ...prev, [option.id]: answer }))}
+              />{" "}
+              <Text size={Text.Size.S} info>
+                {answered
+                  ? `decides ${childIds.length === 1 ? `1 ${noun}` : `${childIds.length} ${noun}s`}`
+                  : "Choose Yes or No"}
+              </Text>
+            </EffectRow>
+          );
+        })}
+      </EffectList>
+    </FormSection>
+  );
+};
 
 const AlreadyCreatedBanner: React.FunctionComponent<{ noun: string; parent: string }> = ({
   noun,
@@ -670,6 +751,8 @@ const AlreadyCreatedBanner: React.FunctionComponent<{ noun: string; parent: stri
 
 interface ArticleHierarchyFormProps {
   template: Template;
+  // Answers to the template's options, which decide which sub-articles are created.
+  optionInput: OptionInput;
   texts: ReplacementTexts;
   setTexts: React.Dispatch<React.SetStateAction<ReplacementTexts>>;
   // A hierarchy for this template was created for the article before.
@@ -689,6 +772,7 @@ export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormP
   texts,
   setTexts,
   alreadyCreated,
+  optionInput,
   textsRemembered = false,
   submitting,
   onConfirm,
@@ -698,12 +782,18 @@ export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormP
   const flat = flattenChildTemplates(getChildTemplates(template));
   const hasReplacements = getTemplateReplacements(template).length > 0;
   const preconditions = getReplacementPreconditions(template, "article", [], undefined, false);
+  // Articles have no fields: only option conditions decide.
+  const inclusion = evaluateChildInclusion(template, {}, [], optionInput.values, true);
+  const counts = countInclusion(flat, inclusion);
+  const unanswered = getUnansweredOptions(template, optionInput.values);
+  const options = getTemplateOptions(template);
 
   return (
     <>
       <div className="template-fields-form">
         <H3>Create sub-articles from {template.name}</H3>
         {alreadyCreated && <AlreadyCreatedBanner noun="sub-articles" parent="article"/>}
+        <OptionsSection template={template} optionInput={optionInput} noun="sub-article"/>
         {hasReplacements && (
           <FormSection title="Text replacements, used in every sub-article">
             <RememberedTextsHint show={textsRemembered}/>
@@ -716,23 +806,61 @@ export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormP
             />
           </FormSection>
         )}
-        <FormSection title={formatArticleCount(flat.length)}>
+        <FormSection
+          title={formatCreatedCount(counts.created, flat.length, counts.undecided, "sub-article", "article")}
+        >
           <div className="template-hierarchy-list">
-            {flat.map(({ child, depth }) => (
-              <div key={child.id} className="template-hierarchy-child" style={indentStyle(depth)}>
-                <ChildTitle
-                  child={child}
-                  note={getTemplateTags(child).length > 0 ? `Tags ${getTemplateTags(child).join(", ")}` : null}
-                />
-              </div>
-            ))}
+            {flat.map(({ child, depth }) => {
+              const state = inclusion[child.id] ?? { created: true, reason: null };
+              if (state.undecided) {
+                return (
+                  <div
+                    key={child.id}
+                    className="template-hierarchy-child template-hierarchy-child-undecided"
+                    style={indentStyle(depth)}
+                  >
+                    <ChildTitle child={child} note={state.reason}/>
+                  </div>
+                );
+              }
+              if (!state.created) {
+                return (
+                  <div
+                    key={child.id}
+                    className="template-hierarchy-child template-hierarchy-child-skipped"
+                    style={indentStyle(depth)}
+                  >
+                    <ChildTitle child={child} skipped note={`Not created: ${state.reason}`}/>
+                  </div>
+                );
+              }
+              const tags = getTemplateTags(child);
+              const note = [
+                formatChildConditionNote(
+                  { ...child, addConditions: getChildAddConditions(child).filter(isOptionCondition) },
+                  [],
+                  options,
+                ),
+                tags.length > 0 ? `Tags ${tags.join(", ")}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <div key={child.id} className="template-hierarchy-child" style={indentStyle(depth)}>
+                  <ChildTitle child={child} note={note || null}/>
+                </div>
+              );
+            })}
           </div>
         </FormSection>
       </div>
       <FormActions
         label={formatHierarchyLabel("article", alreadyCreated)}
         submitting={submitting}
-        missingTexts={hasMissingRequiredInput(template, texts, preconditions, {}, {})}
+        missingTexts={
+          unanswered.length > 0 || hasMissingRequiredInput(template, texts, preconditions, {}, {})
+        }
+        missingHint={unanswered.length > 0 ? UNANSWERED_HINT : undefined}
         onConfirm={onConfirm}
         onBack={onBack}
         backLabel={backLabel}
@@ -935,6 +1063,8 @@ interface HierarchyFormProps {
   fieldInput: ReplacementFieldInput;
   // Values chosen for multi-value root ticket fields that decide which subtasks are created.
   multiConditionInput: MultiConditionInput;
+  // Answers to the template's options, which decide which subtasks are created.
+  optionInput: OptionInput;
   // The texts were filled in from the texts stored when the template was applied.
   textsRemembered?: boolean;
   submitting: boolean;
@@ -958,6 +1088,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   alreadyCreated,
   fieldInput,
   multiConditionInput,
+  optionInput,
   textsRemembered = false,
   submitting,
   onConfirm,
@@ -981,8 +1112,9 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
     effective.presentations,
     false,
   );
-  const inclusion = evaluateChildInclusion(template, effective.values, fieldInfos);
-  const createdCount = flat.filter(({ child }) => inclusion[child.id]?.created).length;
+  const inclusion = evaluateChildInclusion(template, effective.values, fieldInfos, optionInput.values);
+  const counts = countInclusion(flat, inclusion);
+  const unanswered = getUnansweredOptions(template, optionInput.values);
   const hasReplacements = getTemplateReplacements(template).length > 0;
   const rootRelations = getTemplateRelations(template);
   const onChange = useCallback(
@@ -1000,6 +1132,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
       <div className="template-fields-form">
         <H3>Create subtasks from {template.name}</H3>
         {alreadyCreated && <AlreadyCreatedBanner noun="subtasks" parent="ticket"/>}
+        <OptionsSection template={template} optionInput={optionInput} noun="subtask"/>
         <ConditionFieldsSection
           template={template}
           fieldInfos={fieldInfos}
@@ -1038,7 +1171,9 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
             </EffectList>
           </FormSection>
         )}
-        <FormSection title={formatCreatedCount(createdCount, flat.length)}>
+        <FormSection
+          title={formatCreatedCount(counts.created, flat.length, counts.undecided, "subtask", "ticket")}
+        >
           <div className="template-hierarchy-list">
             {flat.map(({ child, depth }) => (
               <ChildTemplatePreview
@@ -1064,13 +1199,11 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
       <FormActions
         label={formatHierarchyLabel("ticket", alreadyCreated)}
         submitting={submitting}
-        missingTexts={hasMissingRequiredInput(
-          template,
-          texts,
-          preconditions,
-          {},
-          fieldInput.values,
-        )}
+        missingTexts={
+          unanswered.length > 0 ||
+          hasMissingRequiredInput(template, texts, preconditions, {}, fieldInput.values)
+        }
+        missingHint={unanswered.length > 0 ? UNANSWERED_HINT : undefined}
         onConfirm={onConfirm}
         onBack={onBack}
         backLabel={backLabel}

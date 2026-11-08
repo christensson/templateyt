@@ -8,6 +8,7 @@ import {
   hasUserInputFields,
   toConditionValues,
   type ConditionValues,
+  type OptionValues,
   type HasFields,
   type Template,
 } from "../@types/template";
@@ -202,6 +203,8 @@ export const createHierarchy = (
   // New values for root ticket fields that child add conditions depend on; set on the ticket.
   // Multi-value fields get the complete list of value names.
   conditionFieldValues: Record<string, string | Array<string>> = {},
+  // Answers to the template's options, keyed by option id; unanswered options are left out.
+  optionValues: Record<string, boolean> = {},
 ): Promise<CreateHierarchyResult> =>
   host.fetchApp<CreateHierarchyResult>("backend/createHierarchy", {
     scope: true,
@@ -212,8 +215,15 @@ export const createHierarchy = (
       replacementTexts,
       replacementFieldValues,
       conditionFieldValues,
+      optionValues,
     },
   });
+
+// The answered options only, as sent to the backend.
+export const pickAnsweredOptions = (values: OptionValues): Record<string, boolean> =>
+  Object.fromEntries(
+    Object.entries(values).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"),
+  );
 
 // Applies a template to the current article (article-scoped addTemplate).
 export const addTemplateToArticle = (

@@ -63,7 +63,7 @@ automatically to tickets or articles, and which ticket fields the template sets.
 
     Articles have no fields or links, so ticket fields, relations, applying automatically when a
     ticket field changes, root ticket field replacements and the child template settings for
-    subtasks (conditions, inherited fields, fields, relations) only work on tickets. They cannot
+    subtasks (conditions on ticket fields, inherited fields, fields, relations) only work on tickets. They cannot
     be configured for templates only available for articles, and are marked *tickets only* (or
     *subtasks only*) for templates available for both.
   - *Ticket fields* (under *What it does*): Optionally add ticket *fields*[^2] that the template sets when
@@ -142,11 +142,18 @@ content as description.
   templates keep their place when child articles are re-imported, an inserted article is never
   imported a second time, and they can be moved (up, down or under another node), removed, and
   can import their own child articles. Imported child templates always follow the article tree.
-- A child template can have *conditions when it is added*: one or more "ticket field is value"
-  checks against the ticket the hierarchy is created from (for multi-value fields "ticket field
-  includes value"). It is created when any condition
+- A template can define *options* under *Hierarchy*: yes/no questions, such as *Security
+  review*, answered when the hierarchy is created. Each option is *Yes by default*, *No by
+  default*, or *User must choose*, in which case subtasks cannot be created until it is answered.
+  An option used by a child template's condition cannot be removed until that condition is
+  removed. Options work for both subtasks and sub-articles.
+- A child template can have *conditions when it is added*: one or more "option is Yes/No" checks,
+  or "ticket field is value" checks against the ticket the hierarchy is created from (for
+  multi-value fields "ticket field includes value"). Field conditions only apply to subtasks;
+  sub-articles ignore them. It is created when any condition
   matches, or always when it has none. A skipped child template takes its own children with it.
-  The *"Create subtasks"* form lists the fields that decide which subtasks are created, and marks
+  The *"Create subtasks"* form asks for the options first, then lists the fields that decide which
+  subtasks are created, and marks
   conditional subtasks with their condition. Changing a field there updates the preview; the new
   value is set on the ticket when the subtasks are created (which may trigger other workflows,
   such as templates added automatically). Multi-value fields are changed with a multi-select
@@ -155,7 +162,8 @@ content as description.
   articles) in the *"Apply template"* menu. It is offered right after the template is applied,
   with the texts just entered for text replacements filled in, and later for the applied
   template. The form shows the subtasks that will be created, marks the ones that will not be
-  created and why, and asks for the values of user-chosen fields. Creating the hierarchy again is
+  created and why, and asks for the answers to options and the values of user-chosen fields.
+  Subtasks that depend on an unanswered option are marked as such. Creating the hierarchy again is
   possible after a warning and adds another set of subtasks.
 - Subtasks created this way do not get templates added automatically on creation, even if their
   fields match an automatic add condition.

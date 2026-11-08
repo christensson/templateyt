@@ -157,9 +157,10 @@ const validateTemplateFields = (template) => {
   return null;
 };
 
-// Validates the add conditions of a child template. Returns an error message or null.
+// Validates the add conditions of a child template. optionIds: ids of the template's options.
+// Returns an error message or null.
 // Keep in sync with validateChildTemplates in @types/template.ts.
-const validateChildAddConditions = (child) => {
+const validateChildAddConditions = (child, optionIds) => {
   const conditions = child.addConditions;
   if (conditions === undefined) {
     return null;
@@ -168,6 +169,15 @@ const validateChildAddConditions = (child) => {
     return `Child template "${child.name}" addConditions is not an array.`;
   }
   for (const cond of conditions) {
+    if (cond && cond.when === "option_is") {
+      if (typeof cond.optionId !== "string" || !optionIds.includes(cond.optionId)) {
+        return `Child template "${child.name}" has a condition on a removed option.`;
+      }
+      if (typeof cond.value !== "boolean") {
+        return `Child template "${child.name}" option condition is missing Yes or No.`;
+      }
+      continue;
+    }
     if (!cond || cond.when !== "field_is") {
       return `Child template "${child.name}" condition has an unknown type.`;
     }
@@ -194,7 +204,7 @@ const validateChildFlags = (child) => {
 };
 
 // Validates the own properties of one child template (not its children).
-const validateChildOwnProperties = (child) => {
+const validateChildOwnProperties = (child, optionIds) => {
   if (!child || typeof child.id !== "string" || child.id === "") {
     return "Child template is missing an id.";
   }
@@ -215,7 +225,7 @@ const validateChildOwnProperties = (child) => {
   if (tagsError !== null) {
     return tagsError;
   }
-  const conditionsError = validateChildAddConditions(child);
+  const conditionsError = validateChildAddConditions(child, optionIds);
   if (conditionsError !== null) {
     return conditionsError;
   }
@@ -223,7 +233,7 @@ const validateChildOwnProperties = (child) => {
 };
 
 // Validates a list of child templates recursively. Returns an error message or null.
-const validateChildList = (children, ownerName) => {
+const validateChildList = (children, ownerName, optionIds) => {
   if (children === undefined) {
     return null;
   }
@@ -231,11 +241,11 @@ const validateChildList = (children, ownerName) => {
     return `Children of "${ownerName}" is not an array.`;
   }
   for (const child of children) {
-    const ownError = validateChildOwnProperties(child);
+    const ownError = validateChildOwnProperties(child, optionIds);
     if (ownError !== null) {
       return ownError;
     }
-    const nestedError = validateChildList(child.children, child.name);
+    const nestedError = validateChildList(child.children, child.name, optionIds);
     if (nestedError !== null) {
       return nestedError;
     }
@@ -313,12 +323,47 @@ const validateChildTemplates = (template) => {
   if (template.hierarchical !== undefined && typeof template.hierarchical !== "boolean") {
     return "Template hierarchical must be a boolean.";
   }
-  const listError = validateChildList(template.children, template.name || template.id);
+  const optionIds = (Array.isArray(template.options) ? template.options : [])
+    .filter((option) => option && typeof option.id === "string")
+    .map((option) => option.id);
+  const listError = validateChildList(template.children, template.name || template.id, optionIds);
   if (listError !== null) {
     return listError;
   }
   if (template.hierarchical === true && utils.flattenChildTemplates(template.children).length === 0) {
     return "Hierarchical template has no child templates, import child articles first.";
+  }
+  return null;
+};
+
+// Validates the options of a template. Returns an error message or null.
+// Keep in sync with validateTemplateOptions in @types/template.ts.
+const validateTemplateOptions = (template) => {
+  const options = template.options;
+  if (options === undefined) {
+    return null;
+  }
+  if (!Array.isArray(options)) {
+    return "Template options is not an array.";
+  }
+  const ids = [];
+  const labels = [];
+  for (const option of options) {
+    const label = option && typeof option.label === "string" ? option.label.trim() : "";
+    if (label === "") {
+      return "Every option needs a name.";
+    }
+    if (labels.includes(label.toLowerCase())) {
+      return `Option "${label}" is defined twice.`;
+    }
+    if (typeof option.id !== "string" || option.id === "" || ids.includes(option.id)) {
+      return `Option "${label}" has a missing or duplicate id.`;
+    }
+    if (option.default !== null && typeof option.default !== "boolean") {
+      return `Option "${label}" has an invalid default.`;
+    }
+    labels.push(label.toLowerCase());
+    ids.push(option.id);
   }
   return null;
 };
@@ -456,6 +501,7 @@ const validateTemplate = (template) => {
     validateTemplateFields,
     validateTemplateTags,
     validateChildTemplates,
+    validateTemplateOptions,
     validateReplacements,
   ];
   for (const validate of validators) {
@@ -471,13 +517,14 @@ const validateTemplate = (template) => {
   return null;
 };
 
-// Child templates that will be created for the root issue, in tree order, skipping those whose
-// add conditions do not match together with their subtrees. valueOverrides: root field values
-// being set in the same request (see utils.isChildTemplateAdded).
-const getAddedChildTemplates = (rootIssue, children, valueOverrides) =>
+// Child templates that will be created, in tree order, skipping those whose add conditions do
+// not match together with their subtrees. rootIssue is null for articles. valueOverrides: root
+// field values being set in the same request; optionValues: answers to the template's options
+// (see utils.isChildTemplateAdded).
+const getAddedChildTemplates = (rootIssue, children, valueOverrides, optionValues) =>
   (Array.isArray(children) ? children : []).flatMap((child) =>
-    utils.isChildTemplateAdded(rootIssue, child, valueOverrides)
-      ? [child, ...getAddedChildTemplates(rootIssue, child.children, valueOverrides)]
+    utils.isChildTemplateAdded(rootIssue, child, valueOverrides, optionValues)
+      ? [child, ...getAddedChildTemplates(rootIssue, child.children, valueOverrides, optionValues)]
       : [],
   );
 
@@ -485,11 +532,16 @@ const getAddedChildTemplates = (rootIssue, children, valueOverrides) =>
 // creating anything, so that a bad value leaves the ticket untouched.
 // Returns { errors: [string], byChildId: { [childId]: { content, assignments, tagNames,
 // fixedLinks } } }.
-const planHierarchy = (rootIssue, template, childFieldValues, user, valueOverrides) => {
+const planHierarchy = (rootIssue, template, childFieldValues, user, valueOverrides, optionValues) => {
   const project = rootIssue.project;
   const errors = [];
   const byChildId = {};
-  for (const child of getAddedChildTemplates(rootIssue, template.children, valueOverrides)) {
+  for (const child of getAddedChildTemplates(
+    rootIssue,
+    template.children,
+    valueOverrides,
+    optionValues,
+  )) {
     const article = utils.findReadableArticle(child.articleId, user);
     if (article === null) {
       errors.push(
@@ -560,13 +612,13 @@ const linkHierarchy = (rootIssue, template, createdById, plan) => {
 };
 
 // Resolves everything an article hierarchy creation needs (articles and tags) without creating
-// anything. Articles have no fields, so add conditions, fields and inheritance do not apply and
-// every child template is created.
+// anything. Articles have no fields, so field conditions, fields and inheritance do not apply;
+// option conditions do (optionValues, see utils.resolveOptionValues).
 // Returns { errors: [string], byChildId: { [childId]: { content, tagNames } } }.
-const planArticleHierarchy = (template, user) => {
+const planArticleHierarchy = (template, user, optionValues) => {
   const errors = [];
   const byChildId = {};
-  for (const { child } of utils.flattenChildTemplates(template.children)) {
+  for (const child of getAddedChildTemplates(null, template.children, {}, optionValues)) {
     const article = utils.findReadableArticle(child.articleId, user);
     if (article === null) {
       errors.push(
@@ -1090,12 +1142,15 @@ exports.httpHandler = {
           template,
           body.conditionFieldValues,
         );
+        // Answers to the template's options; options without a default must be answered.
+        const options = utils.resolveOptionValues(template, body.optionValues);
         const plan = planHierarchy(
           issue,
           template,
           body.childFieldValues,
           ctx.currentUser,
           conditionInputs.valueOverrides,
+          options.values,
         );
         // The root ticket gets the root template's tags and fixed relations it does not have
         // yet, e.g. when the template was added automatically.
@@ -1108,6 +1163,7 @@ exports.httpHandler = {
           body.replacementFieldValues,
         );
         const planErrors = rootTags.errors.concat(
+          options.errors,
           conditionInputs.errors,
           fieldInputs.errors,
           rootRelations.errors,
@@ -1147,7 +1203,9 @@ exports.httpHandler = {
         const createChildren = (parentIssue, parentManagedFields, children) => {
           for (const child of children) {
             // Skipped child templates take their whole subtree with them.
-            if (!utils.isChildTemplateAdded(issue, child, conditionInputs.valueOverrides)) {
+            if (
+              !utils.isChildTemplateAdded(issue, child, conditionInputs.valueOverrides, options.values)
+            ) {
               skippedChildIds.push(child.id);
               continue;
             }
@@ -1392,8 +1450,8 @@ exports.httpHandler = {
       // requirePermission.
       permissions: ["UPDATE_ARTICLE"],
       // Creates sub-articles below the article from the child templates of an applied
-      // hierarchical template, nested like the child templates. Replacements and tags apply;
-      // fields, inheritance and add conditions do not.
+      // hierarchical template, nested like the child templates. Replacements, tags and option
+      // conditions apply; fields, inheritance and field conditions do not.
       handle: function handle(ctx) {
         const article = ctx.article;
         if (!requirePermission(ctx, "CREATE_ARTICLE", article.project, "create sub-articles")) {
@@ -1414,9 +1472,11 @@ exports.httpHandler = {
           return;
         }
 
-        const plan = planArticleHierarchy(template, ctx.currentUser);
+        // Answers to the template's options; options without a default must be answered.
+        const options = utils.resolveOptionValues(template, body.optionValues);
+        const plan = planArticleHierarchy(template, ctx.currentUser, options.values);
         const rootTags = utils.resolveTemplateTags(template);
-        const planErrors = rootTags.errors.concat(plan.errors);
+        const planErrors = rootTags.errors.concat(options.errors, plan.errors);
         if (planErrors.length > 0) {
           badRequest(ctx, `Failed to create hierarchy: ${planErrors.join(" ")}`);
           return;
@@ -1432,6 +1492,10 @@ exports.httpHandler = {
         const createdArticleIds = [];
         const createChildren = (parentArticle, children) => {
           for (const child of children) {
+            // Skipped child templates take their whole subtree with them.
+            if (!utils.isChildTemplateAdded(null, child, {}, options.values)) {
+              continue;
+            }
             const prepared = plan.byChildId[child.id];
             const created = new entities.Article(
               ctx.currentUser,

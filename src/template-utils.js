@@ -232,6 +232,43 @@ const getChildConditionFieldNames = (template) => {
   return names;
 };
 
+// Ids of the template's options that conditions in the child tree depend on.
+const getUsedOptionIds = (template) => {
+  const ids = [];
+  for (const { child } of flattenChildTemplates(template.children)) {
+    for (const cond of Array.isArray(child.addConditions) ? child.addConditions : []) {
+      if (cond && cond.when === "option_is" && !ids.includes(cond.optionId)) {
+        ids.push(cond.optionId);
+      }
+    }
+  }
+  return ids;
+};
+
+// Answers to the options that child conditions depend on: the chosen boolean (option id to
+// boolean in chosen), else the option's default. Options without a default must be answered.
+// Returns { values: { optionId: boolean }, errors: [string] }.
+const resolveOptionValues = (template, chosen) => {
+  const values = {};
+  const errors = [];
+  const options = Array.isArray(template.options) ? template.options : [];
+  for (const optionId of getUsedOptionIds(template)) {
+    const option = options.find((candidate) => candidate && candidate.id === optionId);
+    if (!option) {
+      continue;
+    }
+    const answer = chosen ? chosen[optionId] : undefined;
+    if (typeof answer === "boolean") {
+      values[optionId] = answer;
+    } else if (typeof option.default === "boolean") {
+      values[optionId] = option.default;
+    } else {
+      errors.push(`Choose Yes or No for option "${option.label}".`);
+    }
+  }
+  return { values: values, errors: errors };
+};
+
 // True if the user may read the article: READ_ARTICLE in the article's project and, when the
 // article's visibility is restricted, the author or listed in permittedUsers/permittedGroups.
 const isArticleReadableBy = (article, user) => {
@@ -596,19 +633,26 @@ const newIssueFieldHasValue = (issue, fieldName, valueName) => {
   return issueFieldHasValue(issue, fieldName, valueName);
 };
 
-// A child template is added when it has no add conditions or any of them matches the root
-// ticket (the ticket the hierarchy is created from).
+// A child template is added when it has no add conditions or any of them matches: a field
+// condition the root ticket (the ticket the hierarchy is created from), an option condition the
+// answer in optionValues (option id to boolean, see resolveOptionValues). rootIssue is null for
+// article hierarchies: articles have no fields, so field conditions are ignored there, as they
+// always were, and only option conditions count.
 // valueOverrides (value name, or list of value names for multi-value fields, by field name) holds
 // root ticket field values that are being set in the same request; they are used instead of the
 // root ticket's current values. Conditions on multi-value fields match when the field includes the
 // value.
-const isChildTemplateAdded = (rootIssue, child, valueOverrides) => {
-  const conditions = Array.isArray(child.addConditions) ? child.addConditions : [];
+const isChildTemplateAdded = (rootIssue, child, valueOverrides, optionValues) => {
+  const all = Array.isArray(child.addConditions) ? child.addConditions : [];
+  const conditions = rootIssue == null ? all.filter((cond) => cond && cond.when === "option_is") : all;
   if (conditions.length === 0) {
     return true;
   }
   return conditions.some((cond) => {
-    if (cond.when !== "field_is") {
+    if (cond && cond.when === "option_is") {
+      return Boolean(optionValues) && optionValues[cond.optionId] === cond.value;
+    }
+    if (!cond || cond.when !== "field_is" || rootIssue == null) {
       return false;
     }
     const override = valueOverrides ? valueOverrides[cond.fieldName] : undefined;
@@ -1251,6 +1295,7 @@ module.exports = {
   clearTemplatePending,
   flattenChildTemplates,
   isChildTemplateAdded,
+  resolveOptionValues,
   isArticleReadableBy,
   findReadableArticle,
   isArticleBelow,

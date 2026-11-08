@@ -29,7 +29,12 @@ type Utils = {
     issue: unknown,
     child: unknown,
     overrides?: Record<string, string | Array<string>>,
+    optionValues?: Record<string, boolean>,
   ) => boolean;
+  resolveOptionValues: (
+    template: unknown,
+    chosen: unknown,
+  ) => { values: Record<string, boolean>; errors: Array<string> };
   issueFieldHasValue: (issue: unknown, fieldName: string, valueName: string) => boolean;
   issueFieldBecomes: (issue: unknown, fieldName: string, valueName: string) => boolean;
   issueFieldWas: (issue: unknown, fieldName: string, valueName: string) => boolean;
@@ -654,5 +659,71 @@ describe("simple field types", () => {
       simple.copyFieldValue(from, to, name);
     }
     expect(to.fields).toEqual({ Code: "X", Points: 3, Estimation: period, Due: null });
+  });
+});
+
+describe("options", () => {
+  const optionTemplate = {
+    id: "t",
+    hierarchical: true,
+    options: [
+      { id: "sec", label: "Security review", default: true },
+      { id: "sign", label: "Customer sign-off", default: null },
+      { id: "unused", label: "Unused", default: null },
+    ],
+    children: [
+      { id: "a", addConditions: [{ when: "option_is", optionId: "sec", value: true }], children: [] },
+      {
+        id: "b",
+        addConditions: [],
+        children: [
+          {
+            id: "c",
+            addConditions: [
+              { when: "option_is", optionId: "sign", value: false },
+              { when: "field_is", fieldName: "Priority", fieldValue: "Minor" },
+            ],
+            children: [],
+          },
+        ],
+      },
+    ],
+  };
+  const [childA, childB] = optionTemplate.children;
+  const childC = childB.children[0];
+
+  it("resolves answers from choices and defaults, asking only for used options", () => {
+    expect(utils.resolveOptionValues(optionTemplate, { sign: false })).toEqual({
+      values: { sec: true, sign: false },
+      errors: [],
+    });
+    expect(utils.resolveOptionValues(optionTemplate, { sec: false, sign: true, unused: true })).toEqual({
+      values: { sec: false, sign: true },
+      errors: [],
+    });
+    expect(utils.resolveOptionValues(optionTemplate, undefined)).toEqual({
+      values: { sec: true },
+      errors: ['Choose Yes or No for option "Customer sign-off".'],
+    });
+    // Answers that are not booleans count as not answered.
+    expect(utils.resolveOptionValues(optionTemplate, { sign: "yes" }).errors).toHaveLength(1);
+    expect(utils.resolveOptionValues({ id: "x", children: [] }, {})).toEqual({ values: {}, errors: [] });
+  });
+
+  it("adds children by their option conditions", () => {
+    const root = { is: (fieldName: string, valueName: string) => fieldName === "Priority" && valueName === "Minor" };
+    expect(utils.isChildTemplateAdded(root, childA, {}, { sec: true })).toBe(true);
+    expect(utils.isChildTemplateAdded(root, childA, {}, { sec: false })).toBe(false);
+    expect(utils.isChildTemplateAdded(root, childA, {}, undefined)).toBe(false);
+    // Either condition creates the child.
+    expect(utils.isChildTemplateAdded(root, childC, {}, { sign: true })).toBe(true);
+    expect(utils.isChildTemplateAdded(root, childB, {}, {})).toBe(true);
+  });
+
+  it("ignores field conditions for articles, as before", () => {
+    expect(utils.isChildTemplateAdded(null, childC, {}, { sign: true })).toBe(false);
+    expect(utils.isChildTemplateAdded(null, childC, {}, { sign: false })).toBe(true);
+    const fieldOnly = { id: "f", addConditions: [{ when: "field_is", fieldName: "Priority", fieldValue: "Minor" }] };
+    expect(utils.isChildTemplateAdded(null, fieldOnly, {}, {})).toBe(true);
   });
 });

@@ -23,6 +23,15 @@ export type TagActionCondition = {
   when: "tag_added";
   tagName: string;
 };
+// A child template condition on an option of the hierarchical template: the answer given when
+// the hierarchy is created.
+export type OptionCondition = {
+  when: "option_is";
+  optionId: string;
+  value: boolean;
+};
+// Conditions of a child template: on root ticket fields or on options of the template.
+export type ChildAddCondition = FieldStateCondition | OptionCondition;
 export type ValidCondition = EntityTypeCondition | FieldStateCondition | TagStateCondition;
 export type AddCondition = FieldActionCondition | TagActionCondition;
 
@@ -80,8 +89,20 @@ export type UserInputReplacement = { search: string; mode: "user_input" };
 export type FieldReplacement = { search: string; mode: "field"; fieldName: string };
 export type TextReplacement = UserInputReplacement | FieldReplacement;
 
+// A yes/no question of a hierarchical template, answered when its hierarchy is created. Child
+// templates can be created depending on the answer.
+export type TemplateOption = {
+  id: string; // Stable when the label changes; conditions refer to it.
+  label: string;
+  // The preselected answer, or null when the user must choose every time.
+  default: boolean | null;
+};
+
+// Answers to the options, keyed by option id; null while not answered.
+export type OptionValues = Record<string, boolean | null>;
+
 // A child article of the template article, turned into a subtask when the ticket hierarchy of a
-// hierarchical template is created. Child templates have no conditions.
+// hierarchical template is created.
 export type ChildTemplate = {
   id: string; // Stable across re-imports of the child articles.
   articleId: string;
@@ -94,8 +115,9 @@ export type ChildTemplate = {
   tags?: Array<string>;
   // Links added to the subtask when the hierarchy is created.
   relations?: Array<TemplateRelation>;
-  // The subtask is created only when any of these match the root ticket; none means always.
-  addConditions: Array<FieldStateCondition>;
+  // The subtask is created only when any of these match: root ticket fields or answers to the
+  // template's options. None means always.
+  addConditions: Array<ChildAddCondition>;
   // Copy the values of the fields the parent template configures from the parent ticket.
   inheritParentFields: boolean;
   // Copy the values of the fields the root template configures from the root ticket.
@@ -125,6 +147,8 @@ export type Template = {
   replacements: Array<TextReplacement>;
   hierarchical: boolean;
   children: Array<ChildTemplate>;
+  // Questions answered when the hierarchy is created; missing in templates without options.
+  options?: Array<TemplateOption>;
 };
 
 const capitalizeFirst = (str: string): string =>
@@ -177,8 +201,40 @@ export const hasUserInput = (template: Template): boolean =>
 export const getChildTemplates = (parent: { children?: Array<ChildTemplate> }): Array<ChildTemplate> =>
   Array.isArray(parent?.children) ? parent.children : [];
 
-export const getChildAddConditions = (child: ChildTemplate): Array<FieldStateCondition> =>
+export const getChildAddConditions = (child: ChildTemplate): Array<ChildAddCondition> =>
   Array.isArray(child?.addConditions) ? child.addConditions : [];
+
+export const isFieldCondition = (cond: ChildAddCondition): cond is FieldStateCondition =>
+  cond.when === "field_is";
+
+export const isOptionCondition = (cond: ChildAddCondition): cond is OptionCondition =>
+  cond.when === "option_is";
+
+// Conditions of a child template on root ticket fields only.
+export const getChildFieldConditions = (child: ChildTemplate): Array<FieldStateCondition> =>
+  getChildAddConditions(child).filter(isFieldCondition);
+
+export const getTemplateOptions = (template: { options?: Array<TemplateOption> }): Array<TemplateOption> =>
+  Array.isArray(template?.options) ? template.options : [];
+
+export const createOption = (): TemplateOption => ({ id: uuidv4(), label: "", default: false });
+
+// Display text of an answer.
+export const formatOptionAnswer = (value: boolean): string => (value ? "Yes" : "No");
+
+// "Yes by default", "No by default" or "user must choose".
+export const formatOptionDefault = (option: TemplateOption): string =>
+  option.default === null ? "user must choose" : `${formatOptionAnswer(option.default)} by default`;
+
+// The label of the option a condition refers to; a placeholder for removed options.
+export const getOptionLabel = (
+  options: ReadonlyArray<TemplateOption> | undefined,
+  optionId: string,
+): string => {
+  const label = options?.find((option) => option.id === optionId)?.label.trim();
+  return label ? label : "a removed option";
+};
+
 
 export type FlatChildTemplate = {
   child: ChildTemplate;
@@ -198,6 +254,43 @@ export const flattenChildTemplates = (
 export const findChildTemplate = (template: Template, childId: string): ChildTemplate | null =>
   flattenChildTemplates(getChildTemplates(template)).find((flat) => flat.child.id === childId)
     ?.child ?? null;
+
+// An option that child templates depend on, with the children whose conditions use it
+// (directly, not counting their subtrees).
+export type UsedOption = { option: TemplateOption; childIds: Array<string>; childNames: Array<string> };
+
+// The template's options in their order, each with the child templates that use it; options no
+// condition uses have no children.
+export const getOptionUsage = (template: Template): Array<UsedOption> => {
+  const flat = flattenChildTemplates(getChildTemplates(template));
+  return getTemplateOptions(template).map((option) => {
+    const users = flat
+      .map(({ child }) => child)
+      .filter((child) =>
+        getChildAddConditions(child).some((cond) => isOptionCondition(cond) && cond.optionId === option.id),
+      );
+    return {
+      option,
+      childIds: users.map((child) => child.id),
+      childNames: users.map((child) => child.name.trim() || child.articleId),
+    };
+  });
+};
+
+// The options asked when creating the hierarchy: those some child condition uses.
+export const getUsedOptions = (template: Template): Array<UsedOption> =>
+  template.hierarchical ? getOptionUsage(template).filter((usage) => usage.childIds.length > 0) : [];
+
+// Answers to start the hierarchy form with: each used option's default, null when the user must
+// choose.
+export const getInitialOptionValues = (template: Template): OptionValues =>
+  Object.fromEntries(getUsedOptions(template).map(({ option }) => [option.id, option.default]));
+
+// Labels of the used options the user has not answered yet.
+export const getUnansweredOptions = (template: Template, values: OptionValues): Array<string> =>
+  getUsedOptions(template)
+    .filter(({ option }) => typeof values[option.id] !== "boolean")
+    .map(({ option }) => option.label);
 
 const updateChildInList = (
   children: Array<ChildTemplate>,
@@ -730,47 +823,61 @@ export const formatTemplateHierarchy = (template: Template): string => {
     return "";
   }
   const count = flattenChildTemplates(getChildTemplates(template)).length;
-  return `Hierarchical with ${count} child template${count === 1 ? "" : "s"}.`;
+  const optionCount = getTemplateOptions(template).length;
+  const options = optionCount > 0 ? ` and ${optionCount} option${optionCount === 1 ? "" : "s"}` : "";
+  return `Hierarchical with ${count} child template${count === 1 ? "" : "s"}${options}.`;
 };
 
 // Child add conditions are evaluated on the root ticket (the ticket the hierarchy is created
-// from), so their wording names it explicitly, unlike template conditions.
+// from), so their wording names it explicitly, unlike template conditions. Option conditions
+// name the option, e.g. "option Security review is Yes".
 export const formatChildAddCondition = (
-  cond: FieldStateCondition,
+  cond: ChildAddCondition,
   fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+  options?: ReadonlyArray<TemplateOption>,
 ): string =>
-  `root ticket field ${cond.fieldName} ${getConditionVerb("is", fieldInfos, cond.fieldName)} ${cond.fieldValue}`;
+  isOptionCondition(cond)
+    ? `option ${getOptionLabel(options, cond.optionId)} is ${formatOptionAnswer(cond.value)}`
+    : `root ticket field ${cond.fieldName} ${getConditionVerb("is", fieldInfos, cond.fieldName)} ${cond.fieldValue}`;
 
 // "Always added." or "Added when root ticket field Type is Bug, or root ticket field Type is Task."
 export const formatChildAddConditions = (
   child: ChildTemplate,
   fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+  options?: ReadonlyArray<TemplateOption>,
 ): string => {
   const conditions = getChildAddConditions(child);
   if (conditions.length === 0) {
     return "Always added.";
   }
-  return `Added when ${conditions.map((cond) => formatChildAddCondition(cond, fieldInfos)).join(", or ")}.`;
+  return `Added when ${conditions.map((cond) => formatChildAddCondition(cond, fieldInfos, options)).join(", or ")}.`;
 };
 
-// Short form of a child's add conditions for previews, e.g. "when Type is Bug or Task" or
-// "when Components includes UI or Backend", or null when the child is always added.
+// Short form of a child's add conditions for previews, e.g. "when Type is Bug or Task",
+// "when Components includes UI or Backend" or "when Security review is Yes", or null when the
+// child is always added.
 export const formatChildConditionNote = (
   child: ChildTemplate,
   fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+  options?: ReadonlyArray<TemplateOption>,
 ): string | null => {
   const requiredByField = new Map<string, Array<string>>();
+  const optionParts: Array<string> = [];
   for (const cond of getChildAddConditions(child)) {
-    requiredByField.set(cond.fieldName, [...(requiredByField.get(cond.fieldName) ?? []), cond.fieldValue]);
+    if (isOptionCondition(cond)) {
+      optionParts.push(`${getOptionLabel(options, cond.optionId)} is ${formatOptionAnswer(cond.value)}`);
+    } else {
+      requiredByField.set(cond.fieldName, [...(requiredByField.get(cond.fieldName) ?? []), cond.fieldValue]);
+    }
   }
-  if (requiredByField.size === 0) {
-    return null;
-  }
-  const parts = Array.from(requiredByField.entries()).map(
-    ([fieldName, values]) =>
-      `${fieldName} ${getConditionVerb("is", fieldInfos, fieldName)} ${values.join(" or ")}`,
-  );
-  return `when ${parts.join(", or ")}`;
+  const parts = [
+    ...Array.from(requiredByField.entries()).map(
+      ([fieldName, values]) =>
+        `${fieldName} ${getConditionVerb("is", fieldInfos, fieldName)} ${values.join(" or ")}`,
+    ),
+    ...optionParts,
+  ];
+  return parts.length === 0 ? null : `when ${parts.join(", or ")}`;
 };
 
 // A root ticket field that child add conditions depend on: the child templates it decides
@@ -784,7 +891,7 @@ export type ChildConditionField = {
 export const getChildConditionFields = (template: Template): Array<ChildConditionField> => {
   const byField = new Map<string, ChildConditionField>();
   for (const { child } of flattenChildTemplates(getChildTemplates(template))) {
-    for (const cond of getChildAddConditions(child)) {
+    for (const cond of getChildFieldConditions(child)) {
       const entry = byField.get(cond.fieldName) ?? {
         fieldName: cond.fieldName,
         childIds: [],
@@ -813,16 +920,29 @@ export const toConditionValues = (values: Record<string, string | null>): Condit
     Object.entries(values).map(([fieldName, value]) => [fieldName, value ? [value] : []]),
   );
 
-// Why unmet conditions skip a child, stating the root ticket's actual values, e.g.
-// "root ticket field Type is Feature, requires Bug or Task." or
-// "root ticket field Components has Backend, requires UI."
+// Why unmet conditions skip a child, stating the root ticket's actual values and the answers
+// given, e.g. "root ticket field Type is Feature, requires Bug or Task." or
+// "root ticket field Components has Backend, requires UI; option Security review is No."
 const formatUnmetConditions = (
-  conditions: Array<FieldStateCondition>,
+  conditions: Array<ChildAddCondition>,
   currentValues: ConditionValues,
-  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+  fieldInfos: ReadonlyArray<ProjectFieldInfo> | undefined,
+  options: ReadonlyArray<TemplateOption>,
+  optionValues: OptionValues,
 ): string => {
   const requiredByField = new Map<string, Array<string>>();
+  const optionParts: Array<string> = [];
   for (const cond of conditions) {
+    if (isOptionCondition(cond)) {
+      const answer = optionValues[cond.optionId];
+      const part = `option ${getOptionLabel(options, cond.optionId)} is ${
+        typeof answer === "boolean" ? formatOptionAnswer(answer) : "not answered"
+      }`;
+      if (!optionParts.includes(part)) {
+        optionParts.push(part);
+      }
+      continue;
+    }
     const required = requiredByField.get(cond.fieldName) ?? [];
     required.push(cond.fieldValue);
     requiredByField.set(cond.fieldName, required);
@@ -837,53 +957,80 @@ const formatUnmetConditions = (
     }
     return `root ticket field ${fieldName} ${state}, requires ${required.join(" or ")}`;
   });
-  return `${parts.join("; ")}.`;
+  return `${[...parts, ...optionParts].join("; ")}.`;
 };
 
-// Whether each child template would be created for a root ticket with the given field values,
-// keyed by child template id, with the reason when not. A condition matches when the field's
-// values include the condition value, which for single-value fields means equals it.
-export type ChildInclusion = { created: boolean; reason: string | null };
+// Whether each child template would be created, keyed by child template id, with the reason
+// when not. A field condition matches when the field's values include the condition value,
+// which for single-value fields means equals it; an option condition when the answer equals it.
+// A child is undecided while it depends on options not answered yet: it is neither created nor
+// skipped for sure, and neither is its subtree. For articles (forArticle) field conditions are
+// ignored, as articles have no fields; only option conditions count.
+export type ChildInclusion = { created: boolean; reason: string | null; undecided?: boolean };
 
 export const evaluateChildInclusion = (
   template: Template,
   currentValues: ConditionValues,
   fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+  optionValues: OptionValues = {},
+  forArticle: boolean = false,
 ): Record<string, ChildInclusion> => {
+  const options = getTemplateOptions(template);
   const result: Record<string, ChildInclusion> = {};
-  const visit = (children: Array<ChildTemplate>, parentCreated: boolean) => {
+  const matches = (cond: ChildAddCondition): boolean =>
+    isOptionCondition(cond)
+      ? optionValues[cond.optionId] === cond.value
+      : (currentValues[cond.fieldName] ?? []).includes(cond.fieldValue);
+  const unanswered = (cond: ChildAddCondition): boolean =>
+    isOptionCondition(cond) && typeof optionValues[cond.optionId] !== "boolean";
+  const evaluateOwn = (child: ChildTemplate): ChildInclusion => {
+    const conditions = getChildAddConditions(child).filter((cond) => !forArticle || isOptionCondition(cond));
+    if (conditions.length === 0 || conditions.some(matches)) {
+      return { created: true, reason: null };
+    }
+    const waiting = conditions.filter(unanswered).map((cond) =>
+      getOptionLabel(options, (cond as OptionCondition).optionId),
+    );
+    if (waiting.length > 0) {
+      const labels = waiting.filter((label, idx) => waiting.indexOf(label) === idx);
+      return { created: false, undecided: true, reason: `Depends on your answer to ${labels.join(" or ")}.` };
+    }
+    return {
+      created: false,
+      reason: formatUnmetConditions(conditions, currentValues, fieldInfos, options, optionValues),
+    };
+  };
+  const visit = (children: Array<ChildTemplate>, parent: ChildInclusion) => {
     for (const child of children) {
-      let inclusion: ChildInclusion = { created: true, reason: null };
-      const conditions = getChildAddConditions(child);
-      if (!parentCreated) {
+      let inclusion: ChildInclusion;
+      if (!parent.created && !parent.undecided) {
         inclusion = { created: false, reason: "Parent subtask is not created." };
-      } else if (
-        conditions.length > 0 &&
-        !conditions.some((cond) => (currentValues[cond.fieldName] ?? []).includes(cond.fieldValue))
-      ) {
-        inclusion = {
-          created: false,
-          reason: formatUnmetConditions(conditions, currentValues, fieldInfos),
-        };
+      } else {
+        inclusion = evaluateOwn(child);
+        if (parent.undecided && (inclusion.created || inclusion.undecided)) {
+          inclusion = { created: false, undecided: true, reason: "Depends on whether its parent is created." };
+        }
       }
       result[child.id] = inclusion;
-      visit(getChildTemplates(child), inclusion.created);
+      visit(getChildTemplates(child), inclusion);
     }
   };
-  visit(getChildTemplates(template), true);
+  const root: ChildInclusion = { created: true, reason: null };
+  visit(getChildTemplates(template), root);
   return result;
 };
 
 export const formatChildTemplate = (
   child: ChildTemplate,
   fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+  options?: ReadonlyArray<TemplateOption>,
 ): string => {
   const parts: Array<string> = [];
   if (child.manual) {
     parts.push("Inserted manually.");
   }
   if (getChildAddConditions(child).length > 0) {
-    parts.push(formatChildAddConditions(child, fieldInfos));
+    parts.push(formatChildAddConditions(child, fieldInfos, options));
   }
   if (child.inheritParentFields) {
     parts.push("Inherits fields from parent.");
@@ -1038,7 +1185,7 @@ const validateArticleOnlyTemplate = (template: Template): Array<TemplateValidati
 const getArticleOnlyChildIssues = (child: ChildTemplate): Array<TemplateValidationError> => {
   const label = child.name && child.name.trim() !== "" ? child.name : child.articleId;
   const issues: Array<TemplateValidationError> = [];
-  if (getChildAddConditions(child).length > 0) {
+  if (getChildFieldConditions(child).length > 0) {
     issues.push({
       section: "when",
       message: `Child template "${label}" has conditions on ticket fields, but ${ARTICLE_ONLY_HINT.replace("Remove them", "Remove the conditions")}`,
@@ -1058,13 +1205,32 @@ const getArticleOnlyChildIssues = (child: ChildTemplate): Array<TemplateValidati
   return issues;
 };
 
-const validateChildSettings = (child: ChildTemplate): Array<TemplateValidationError> => {
+// optionIds: ids of the template's options; conditions on other options are reported.
+const validateChildSettings = (
+  child: ChildTemplate,
+  optionIds?: ReadonlyArray<string>,
+): Array<TemplateValidationError> => {
   const errors: Array<TemplateValidationError> = [];
   if (!child.name || child.name.trim() === "") {
     errors.push({ section: "general", message: `Child template for article ${child.articleId} needs a name.` });
   }
   const label = child.name && child.name.trim() !== "" ? child.name : child.articleId;
   for (const cond of getChildAddConditions(child)) {
+    if (isOptionCondition(cond)) {
+      if (!cond.optionId) {
+        errors.push({ section: "when", message: `Child template "${label}" condition is missing an option.` });
+        break;
+      }
+      if (optionIds !== undefined && !optionIds.includes(cond.optionId)) {
+        errors.push({ section: "when", message: `Child template "${label}" has a condition on a removed option.` });
+        break;
+      }
+      if (typeof cond.value !== "boolean") {
+        errors.push({ section: "when", message: `Child template "${label}" option condition is missing Yes or No.` });
+        break;
+      }
+      continue;
+    }
     if (!cond.fieldName) {
       errors.push({ section: "when", message: `Child template "${label}" condition is missing a field name.` });
       break;
@@ -1091,11 +1257,37 @@ export const validateChildTemplates = (template: Template): string | null => {
   if (flat.length === 0) {
     return "Hierarchical template has no child templates, import child articles first.";
   }
+  const optionIds = getTemplateOptions(template).map((option) => option.id);
   for (const { child } of flat) {
-    const errors = validateChildSettings(child);
+    const errors = validateChildSettings(child, optionIds);
     if (errors.length > 0) {
       return errors[0].message;
     }
+  }
+  return null;
+};
+
+// Validates the options of a template. Returns an error message, or null.
+// Keep in sync with validateTemplateOptions in backend.js.
+export const validateTemplateOptions = (template: Template): string | null => {
+  const ids = new Set<string>();
+  const labels = new Set<string>();
+  for (const option of getTemplateOptions(template)) {
+    const label = (option.label ?? "").trim();
+    if (label === "") {
+      return "Every option needs a name.";
+    }
+    if (labels.has(label.toLowerCase())) {
+      return `Option "${label}" is defined twice.`;
+    }
+    if (!option.id || ids.has(option.id)) {
+      return `Option "${label}" has a missing or duplicate id.`;
+    }
+    if (option.default !== null && typeof option.default !== "boolean") {
+      return `Option "${label}" has an invalid default.`;
+    }
+    labels.add(label.toLowerCase());
+    ids.add(option.id);
   }
   return null;
 };
@@ -1109,7 +1301,10 @@ export const validateChildTemplate = (
   if (!template.hierarchical) {
     return [];
   }
-  const errors = validateChildSettings(child);
+  const errors = validateChildSettings(
+    child,
+    getTemplateOptions(template).map((option) => option.id),
+  );
   const relationsError = validateOwnerRelations(child, `Child template "${child.name}"`);
   if (relationsError !== null) {
     errors.push({ section: "effects", message: relationsError });
@@ -1148,6 +1343,7 @@ export const validateTemplate = (template: Template): Array<TemplateValidationEr
   );
   add("effects", validateTemplateFields(template));
   add("hierarchy", validateChildTemplates(template));
+  add("hierarchy", validateTemplateOptions(template));
   add("effects", validateReplacements(template));
   add("effects", validateRelations(template));
   // Checked last, so that the first error of templates stored before these checks is unchanged.
@@ -1347,12 +1543,10 @@ export const formatTemplateEffectTokens = (
     ? flattenChildTemplates(getChildTemplates(template)).length
     : 0;
   if (children > 0) {
-    // Add conditions only apply to subtasks; sub-articles are always created.
-    const conditional = forTicket
-      ? flattenChildTemplates(getChildTemplates(template)).filter(
-        ({ child }) => getChildAddConditions(child).length > 0,
-      ).length
-      : 0;
+    // Field conditions only apply to subtasks; option conditions to sub-articles too.
+    const conditional = flattenChildTemplates(getChildTemplates(template)).filter(({ child }) =>
+      getChildAddConditions(child).some((cond) => forTicket || isOptionCondition(cond)),
+    ).length;
     tokens.push(
       `Creates ${forTicket ? countLabel(children, "subtask") : countLabel(children, "sub-article")}${
         conditional > 0 ? ` (${conditional} conditional)` : ""

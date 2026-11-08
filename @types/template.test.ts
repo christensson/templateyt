@@ -17,6 +17,13 @@ import {
   formatValidCondition,
   getConditionVerb,
   toConditionValues,
+  getUsedOptions,
+  getInitialOptionValues,
+  getUnansweredOptions,
+  getTemplateOptions,
+  formatOptionDefault,
+  formatTemplateHierarchy,
+  validateTemplateOptions,
   formatChildTemplate,
   getChildAddConditions,
   getChildConditionFields,
@@ -704,5 +711,122 @@ describe("simple field values", () => {
     expect(formatTemplateField({ fieldName: "Due date", mode: "fixed", fieldValue: "+14d" })).toBe(
       "sets ticket field Due date to 14 days after applying.",
     );
+  });
+});
+
+describe("options", () => {
+  const base = clone(current.find((t) => t.name === "Release template") as Template);
+  const security = { id: "opt-sec", label: "Security review", default: true };
+  const signOff = { id: "opt-sign", label: "Customer sign-off", default: null };
+  const unused = { id: "opt-unused", label: "Unused", default: false };
+  const make = (): { template: Template; first: ChildTemplate; second: ChildTemplate } => {
+    const template = clone(base);
+    template.options = [security, signOff, unused];
+    const [first, second] = getChildTemplates(template);
+    first.addConditions = [{ when: "option_is", optionId: security.id, value: true }];
+    second.addConditions = [
+      { when: "option_is", optionId: signOff.id, value: true },
+      { when: "field_is", fieldName: "Priority", fieldValue: "Minor" },
+    ];
+    return { template, first, second };
+  };
+
+  it("lists used options with their children and starts from the defaults", () => {
+    const { template, first, second } = make();
+    expect(getUsedOptions(template).map(({ option, childIds }) => [option.id, childIds])).toEqual([
+      [security.id, [first.id]],
+      [signOff.id, [second.id]],
+    ]);
+    expect(getInitialOptionValues(template)).toEqual({ [security.id]: true, [signOff.id]: null });
+    expect(getUnansweredOptions(template, getInitialOptionValues(template))).toEqual(["Customer sign-off"]);
+    expect(getUnansweredOptions(template, { [security.id]: false, [signOff.id]: false })).toEqual([]);
+    expect(getUsedOptions({ ...template, hierarchical: false })).toEqual([]);
+  });
+
+  it("creates, skips or leaves children undecided by the answers", () => {
+    const { template, first, second } = make();
+    const grandChild = getChildTemplates(second)[0];
+    const waiting = evaluateChildInclusion(template, { Priority: ["Normal"] }, [], getInitialOptionValues(template));
+    expect(waiting[first.id].created).toBe(true);
+    expect(waiting[second.id]).toEqual({
+      created: false,
+      undecided: true,
+      reason: "Depends on your answer to Customer sign-off.",
+    });
+    if (grandChild !== undefined) {
+      expect(waiting[grandChild.id].undecided).toBe(true);
+    }
+    const no = evaluateChildInclusion(template, { Priority: ["Normal"] }, [], {
+      [security.id]: false,
+      [signOff.id]: false,
+    });
+    expect(no[first.id]).toEqual({ created: false, reason: "option Security review is No." });
+    expect(no[second.id]).toEqual({
+      created: false,
+      reason: "root ticket field Priority is Normal, requires Minor; option Customer sign-off is No.",
+    });
+    // A matching field condition creates the child whatever the option answer.
+    expect(
+      evaluateChildInclusion(template, { Priority: ["Minor"] }, [], { [signOff.id]: null })[second.id].created,
+    ).toBe(true);
+  });
+
+  it("ignores field conditions for articles", () => {
+    const { template, second } = make();
+    const answered = { [security.id]: true, [signOff.id]: false };
+    expect(evaluateChildInclusion(template, {}, [], answered, true)[second.id].created).toBe(false);
+    second.addConditions = [{ when: "field_is", fieldName: "Priority", fieldValue: "Minor" }];
+    expect(evaluateChildInclusion(template, {}, [], answered, true)[second.id].created).toBe(true);
+  });
+
+  it("words option conditions with the option's label", () => {
+    const { template, first, second } = make();
+    const options = getTemplateOptions(template);
+    expect(formatChildConditionNote(first, [], options)).toBe("when Security review is Yes");
+    expect(formatChildAddConditions(second, [], options)).toBe(
+      "Added when option Customer sign-off is Yes, or root ticket field Priority is Minor.",
+    );
+    expect(formatChildConditionNote(first)).toBe("when a removed option is Yes");
+    expect(formatOptionDefault(signOff)).toBe("user must choose");
+    expect(formatOptionDefault(unused)).toBe("No by default");
+    expect(formatTemplateHierarchy(template)).toMatch(/and 3 options\.$/);
+  });
+
+  it("validates options and conditions on them", () => {
+    const { template, first } = make();
+    expect(validateTemplate(template)).toEqual([]);
+    expect(validateTemplateOptions({ ...template, options: [security, { ...unused, label: " " }] })).toBe(
+      "Every option needs a name.",
+    );
+    expect(validateTemplateOptions({ ...template, options: [security, { ...unused, label: "security REVIEW" }] })).toBe(
+      'Option "security REVIEW" is defined twice.',
+    );
+    expect(validateTemplateOptions({ ...template, options: [security, { ...unused, id: security.id }] })).toBe(
+      'Option "Unused" has a missing or duplicate id.',
+    );
+    template.options = [signOff, unused];
+    expect(validateChildTemplate(template, first).map((error) => error.message)).toEqual([
+      `Child template "${first.name}" has a condition on a removed option.`,
+    ]);
+  });
+
+  it("allows option conditions in article-only templates", () => {
+    const { template, first, second } = make();
+    template.validCondition = [{ when: "entity_is", entityType: "article" }];
+    second.addConditions = [{ when: "option_is", optionId: signOff.id, value: false }];
+    const conditionErrors = [first, second]
+      .flatMap((child) => validateChildTemplate(template, child))
+      .filter((error) => error.message.includes("condition"));
+    expect(conditionErrors).toEqual([]);
+    second.addConditions = [{ when: "field_is", fieldName: "Priority", fieldValue: "Minor" }];
+    expect(validateChildTemplate(template, second).map((error) => error.message).join(" ")).toContain(
+      "conditions on ticket fields",
+    );
+  });
+
+  it("keeps templates without options unchanged", () => {
+    expect(getTemplateOptions(legacy[0])).toEqual([]);
+    expect(getUsedOptions(base)).toEqual([]);
+    expect(getInitialOptionValues(base)).toEqual({});
   });
 });

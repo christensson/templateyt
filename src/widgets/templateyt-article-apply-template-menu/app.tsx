@@ -1,6 +1,11 @@
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { hasUserInputReplacements, type Template } from "../../../@types/template";
+import {
+  getInitialOptionValues,
+  hasUserInputReplacements,
+  type OptionValues,
+  type Template,
+} from "../../../@types/template";
 import {
   closeDialog,
   countChildren,
@@ -26,6 +31,7 @@ import {
   createHierarchy,
   getInitialReplacementTexts,
   hasStoredReplacementTexts,
+  pickAnsweredOptions,
   removeTemplate,
   type FieldValues,
   type ReplacementTexts,
@@ -83,6 +89,8 @@ const AppComponent: React.FunctionComponent = () => {
   // Articles have no fields to set; the shared form still needs the value state.
   const [noValues, setNoValues] = useState<FieldValues>({});
   const [submitting, setSubmitting] = useState<boolean>(false);
+  // Answers to the options of the template whose sub-articles are being created.
+  const [optionValues, setOptionValues] = useState<OptionValues>({});
 
   const fetchTemplateInfo = useCallback(async () => {
     try {
@@ -139,6 +147,8 @@ const AppComponent: React.FunctionComponent = () => {
       setFailMessage("");
       // Texts stored when the template was applied, unless texts were just entered.
       setReplacementTexts({ ...getInitialReplacementTexts(template, storedTexts), ...texts });
+      // Options start from their defaults every time; answers are not remembered.
+      setOptionValues(getInitialOptionValues(template));
       setHierarchy({ template, afterApply });
     },
     [storedTexts],
@@ -214,7 +224,15 @@ const AppComponent: React.FunctionComponent = () => {
     }
     setSubmitting(true);
     try {
-      const result = await createHierarchy(host, hierarchy.template.id, {}, replacementTexts);
+      const result = await createHierarchy(
+        host,
+        hierarchy.template.id,
+        {},
+        replacementTexts,
+        {},
+        {},
+        pickAnsweredOptions(optionValues),
+      );
       console.log(`Create hierarchy ${hierarchy.template.id} result`, result);
       if (!result.success) {
         setFailMessage(result.message || "Failed to create sub-articles.");
@@ -236,7 +254,7 @@ const AppComponent: React.FunctionComponent = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [hierarchy, replacementTexts, checkTemplate, applyStoredTexts]);
+  }, [hierarchy, replacementTexts, optionValues, checkTemplate, applyStoredTexts]);
 
   const removeTemplateFromArticle = useCallback(
     async (template: Template | null) => {
@@ -326,6 +344,7 @@ const AppComponent: React.FunctionComponent = () => {
           alreadyCreated={articleTemplateInfo.createdHierarchyTemplateIds.includes(
             hierarchy.template.id,
           )}
+          optionInput={{ values: optionValues, setValues: setOptionValues }}
           submitting={submitting}
           onConfirm={confirmCreateHierarchy}
           onBack={() => setHierarchy(null)}

@@ -26,13 +26,16 @@ import {
   formatTemplateTargetNoun,
   formatTemplateRelation,
   getChildAddConditions,
+  getChildFieldConditions,
   getChildTemplates,
   getMoveTargets,
   getSiblingPosition,
   getTemplateFields,
+  getTemplateOptions,
   getTemplateTags,
   getTemplateRelations,
   getTicketFeatureAvailability,
+  isOptionCondition,
   insertManualChild,
   mergeImportedChildren,
   moveChild,
@@ -41,8 +44,9 @@ import {
   SUBTASKS_ONLY_HINT,
   updateChildTemplate,
   validateChildTemplate,
+  type ChildAddCondition,
   type ChildTemplate,
-  type FieldStateCondition,
+  type TemplateOption,
   type ImportedArticle,
   type InsertedArticle,
   type Template,
@@ -50,7 +54,7 @@ import {
   type TicketFeatureAvailability,
 } from "../../@types/template";
 import { NotSharedNote, OtherProjectNote } from "./cross-project-warning";
-import FieldValueConditionInput from "./field-value-condition-input";
+import ChildConditionInput from "./child-condition-input";
 import type { TemplateArticleSelectItem } from "./template-article-select-items";
 import TemplateFieldsPanel from "./template-fields-panel";
 import TemplateRelationsPanel, { type IssueChecker } from "./template-relations-panel";
@@ -119,34 +123,47 @@ interface ChildAddConditionsPanelProps {
   child: ChildTemplate;
   editing: boolean;
   conditionFields: Array<ProjectFieldInfo>;
-  onChange: (conditions: Array<FieldStateCondition>) => void;
+  options: ReadonlyArray<TemplateOption>;
+  // Whether conditions on root ticket fields can be added (not for article-only templates).
+  showFields: boolean;
+  onChange: (conditions: Array<ChildAddCondition>) => void;
 }
 
-// Conditions on the root ticket that decide whether the child template is created.
+// Conditions that decide whether the child template is created: answers to the template's
+// options, or root ticket fields.
 const ChildAddConditionsPanel: React.FunctionComponent<ChildAddConditionsPanelProps> = ({
   child,
   editing,
   conditionFields,
+  options,
+  showFields,
   onChange,
 }) => {
   const conditions = getChildAddConditions(child);
-  const updateCondition = (idx: number, fieldName: string, fieldValue: string) =>
-    onChange(
-      conditions.map((cond, index) =>
-        index === idx ? { when: "field_is", fieldName, fieldValue } : cond,
-      ),
-    );
+  const updateCondition = (idx: number, condition: ChildAddCondition) =>
+    onChange(conditions.map((cond, index) => (index === idx ? condition : cond)));
   const removeCondition = (idx: number) =>
     onChange(conditions.filter((_, index) => index !== idx));
+  // A new condition starts on the first option when the template has options, the usual reason
+  // to add one; otherwise on a field still to be picked.
   const addCondition = () =>
-    onChange([...conditions, { when: "field_is", fieldName: "", fieldValue: "" }]);
+    onChange([
+      ...conditions,
+      options.length > 0
+        ? { when: "option_is", optionId: options[0].id, value: true }
+        : { when: "field_is", fieldName: "", fieldValue: "" },
+    ]);
 
   return (
     <div className="template-edit-field-panel">
       <Text size={Text.Size.S} info>
-        Created when any of these match the root ticket (the ticket the hierarchy is created from)
+        {showFields
+          ? "Created when any of these match: an answer to the template's options, or a field of the root ticket (the ticket the hierarchy is created from)"
+          : "Created when any of these match an answer to the template's options"}
       </Text>
-      {!editing && <Text size={Text.Size.M}>{formatChildAddConditions(child, conditionFields)}</Text>}
+      {!editing && (
+        <Text size={Text.Size.M}>{formatChildAddConditions(child, conditionFields, options)}</Text>
+      )}
       {editing && conditions.length === 0 && (
         <Text size={Text.Size.M}>No conditions, always added.</Text>
       )}
@@ -156,13 +173,12 @@ const ChildAddConditionsPanel: React.FunctionComponent<ChildAddConditionsPanelPr
           // `conditions`, so the position is the only stable key.
           // eslint-disable-next-line react/no-array-index-key
           <div key={`child-add-cond-${idx}`} style={{ display: "flex", gap: 8 }}>
-            <FieldValueConditionInput
+            <ChildConditionInput
+              condition={cond}
+              options={options}
               fields={conditionFields}
-              fieldName={cond.fieldName}
-              fieldValue={cond.fieldValue}
-              onChange={(fieldName, fieldValue) => updateCondition(idx, fieldName, fieldValue)}
-              whenTitle="When root ticket field"
-              verb="is"
+              showFields={showFields || !isOptionCondition(cond)}
+              onChange={(condition) => updateCondition(idx, condition)}
             />
             <Button onClick={() => removeCondition(idx)} icon={TrashIcon} title="Remove condition"/>
           </div>
@@ -461,33 +477,33 @@ interface ChildWhenSectionProps {
   child: ChildTemplate;
   editing: boolean;
   conditionFields: Array<ProjectFieldInfo>;
+  options: ReadonlyArray<TemplateOption>;
   ticketFeatures: TicketFeatureAvailability;
-  onChange: (addConditions: Array<FieldStateCondition>) => void;
+  onChange: (addConditions: Array<ChildAddCondition>) => void;
 }
 
-// When a child template is created: conditions on root ticket fields, which only apply to subtasks.
+// When a child template is created: conditions on the template's options, which apply to
+// subtasks and sub-articles, and on root ticket fields, which only apply to subtasks.
 const ChildWhenSection: React.FunctionComponent<ChildWhenSectionProps> = ({
   child,
   editing,
   conditionFields,
+  options,
   ticketFeatures,
   onChange,
 }) => {
-  const hasConditions = getChildAddConditions(child).length > 0;
-  if (ticketFeatures === "unavailable" && !hasConditions) {
-    return (
-      <Text size={Text.Size.M}>
-        Sub-articles are always created; conditions on ticket fields only apply to subtasks.
-      </Text>
-    );
-  }
-  const hint = getSubtaskOnlyHint(ticketFeatures, "conditions");
+  const hasFieldConditions = getChildFieldConditions(child).length > 0;
+  const hint = hasFieldConditions
+    ? getSubtaskOnlyHint(ticketFeatures, "conditions on root ticket fields")
+    : undefined;
   return (
     <>
       <ChildAddConditionsPanel
         child={child}
         editing={editing}
         conditionFields={conditionFields}
+        options={options}
+        showFields={ticketFeatures !== "unavailable"}
         onChange={onChange}
       />
       {hint && (
@@ -713,6 +729,7 @@ const ChildTemplateEdit: React.FunctionComponent<ChildTemplateEditProps> = ({
           child={child}
           editing={editing}
           conditionFields={conditionFields}
+          options={getTemplateOptions(template)}
           ticketFeatures={ticketFeatures}
           onChange={(addConditions) => update((prev) => ({ ...prev, addConditions }))}
         />

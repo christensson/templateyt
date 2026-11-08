@@ -70,6 +70,12 @@ const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({ createNewTem
           root ticket), and can be skipped based on root ticket fields. For articles, sub-articles
           get text replacements and tags only.
         </li>
+        <li>
+          Options are yes/no questions of a hierarchical template, asked when its subtasks or
+          sub-articles are created, e.g. &quot;Security review&quot;. Child templates can be
+          created depending on the answer. An option is either Yes or No by default, or the user
+          must choose every time.
+        </li>
       </ul>
     </Text>
   </div>

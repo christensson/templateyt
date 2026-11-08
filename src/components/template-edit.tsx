@@ -38,6 +38,7 @@ import {
   formatTemplateTag,
   formatTemplateTargetNoun,
   formatTemplateRelation,
+  formatOptionDefault,
   formatValidCondition,
   getAddConditionKey,
   getChildTemplates,
@@ -46,6 +47,7 @@ import {
   getTemplateRelations,
   getRelationLinkNames,
   getTemplateReplacements,
+  getTemplateOptions,
   getValidConditions,
   insertManualChild,
   mergeImportedChildren,
@@ -71,6 +73,7 @@ import ChildTemplateEdit, {
 } from "./child-template-edit";
 import EntityTypeConditionInput from "./entity-type-condition-input";
 import FieldConditionInput from "./field-condition-input";
+import TemplateOptionsPanel from "./template-options-panel";
 import TagConditionInput from "./tag-condition-input";
 import {
   getTemplateArticleSelectItems,
@@ -288,6 +291,7 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
 }) => {
   const validConditions = getValidConditions(template);
   const childCount = flattenChildTemplates(getChildTemplates(template)).length;
+  const options = getTemplateOptions(template);
 
   return (
     <>
@@ -348,6 +352,13 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
             ? `Creates subtasks from ${childCount} child template${childCount === 1 ? "" : "s"}. Select one in the list to see it.`
             : "Not hierarchical."}
         </Text>
+        {template.hierarchical && options.length > 0 && (
+          <LabeledValue label="Options">
+            <Text size={Text.Size.M}>
+              {options.map((option) => `${option.label} (${formatOptionDefault(option)})`).join(", ")}
+            </Text>
+          </LabeledValue>
+        )}
       </TemplateSection>
     </>
   );
@@ -438,6 +449,7 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({
               onInsert={(article) => setTemplate((prev) => insertManualChild(prev, null, article))}
             />
           </LabeledValue>
+          <TemplateOptionsPanel template={template} setTemplate={setTemplate}/>
           <Text size={Text.Size.S} info>
             For articles, sub-articles get text replacements and tags only.
           </Text>

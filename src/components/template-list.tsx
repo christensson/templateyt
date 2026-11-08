@@ -22,6 +22,7 @@ import {
   formatTemplateReplacements,
   formatTemplateEffectTokens,
   formatTemplateSummaryTokens,
+  getTemplateOptions,
   formatTemplateValidCondition,
   getChildTemplates,
   type TemplateTarget,
@@ -163,7 +164,7 @@ const makeChildItem = (
 ): TemplateListItem => {
   const errors = compact ? validateChildTemplate(template, child) : [];
   const note = errors.length > 0 ? null : getChildArticleNote(template, child, articleProjects);
-  let details = formatChildTemplate(child, fieldInfos);
+  let details = formatChildTemplate(child, fieldInfos, getTemplateOptions(template));
   if (errors.length > 0) {
     details = `Incomplete: ${errors[0].message}`;
   } else if (note !== null) {

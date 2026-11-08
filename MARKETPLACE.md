@@ -60,6 +60,9 @@ subtasks below a ticket, or sub-articles below an article.
   for example an extra review only for *Critical* priority, or a UI review when *Components*
   includes *UI*. Before creating, you see which
   subtasks will be made, and you can change the deciding field right in the dialog.
+- **Options:** ask yes/no questions when creating the hierarchy, such as *Security review?*, and
+  create parts of it only for one answer. Each option has a default or must be answered, and
+  options work for sub-articles too.
 - **Inherited fields:** subtasks can copy field values from their parent or from the root ticket.
 - **Links:** link the root ticket, the subtasks and other existing tickets to each other
   automatically.
