@@ -22,18 +22,15 @@ const getValidTemplates = (ctx, issue) => {
         return cond.entityType === "issue";
       } else if (cond.when === "field_is") {
         // Valid templates currently matches the condition...
-        if (issue.is(cond.fieldName, cond.fieldValue)) {
+        if (utils.issueFieldHasValue(issue, cond.fieldName, cond.fieldValue)) {
           return true;
         }
         // ...or was matching the condition before change...
-        if (issue.was(cond.fieldName, cond.fieldValue)) {
+        if (utils.issueFieldWas(issue, cond.fieldName, cond.fieldValue)) {
           return true;
         }
         // ...or will match the condition on change.
-        if (
-          issue.isChanged(cond.fieldName) &&
-          issue.fields.becomes(cond.fieldName, cond.fieldValue)
-        ) {
+        if (utils.issueFieldBecomes(issue, cond.fieldName, cond.fieldValue)) {
           return true;
         }
       } else if (cond.when === "tag_is") {
@@ -137,11 +134,9 @@ const getMatchedActionFields = (issue, validTemplates) => {
       value: t.addCondition.fieldValue,
     }));
   if (issue.isNew) {
-    return validActionFields.filter((f) => issue.fields[f.name]?.name === f.value);
+    return validActionFields.filter((f) => utils.newIssueFieldHasValue(issue, f.name, f.value));
   }
-  return validActionFields.filter(
-    (f) => issue.isChanged(f.name) && issue.fields.becomes(f.name, f.value),
-  );
+  return validActionFields.filter((f) => utils.issueFieldBecomes(issue, f.name, f.value));
 };
 
 // Tag add-conditions of the templates that match the current change (or the new issue).
@@ -204,7 +199,7 @@ exports.rule = entities.Issue.onChange({
         const cond = t.addCondition;
         if (issue.isNew) {
           if (cond.when === "field_becomes") {
-            return issue.is(cond.fieldName, cond.fieldValue);
+            return utils.issueFieldHasValue(issue, cond.fieldName, cond.fieldValue);
           } else if (cond.when === "tag_added") {
             return issue.hasTag(cond.tagName);
           }
@@ -212,9 +207,7 @@ exports.rule = entities.Issue.onChange({
         }
 
         if (cond.when === "field_becomes") {
-          return (
-            issue.isChanged(cond.fieldName) && issue.fields.becomes(cond.fieldName, cond.fieldValue)
-          );
+          return utils.issueFieldBecomes(issue, cond.fieldName, cond.fieldValue);
         } else if (cond.when === "tag_added") {
           return issue.tags.added.find((tag) => tag.name === cond.tagName);
         }
@@ -227,7 +220,7 @@ exports.rule = entities.Issue.onChange({
       .filter((t) => {
         const cond = t.addCondition;
         if (cond.when === "field_becomes") {
-          return issue.isChanged(cond.fieldName) && issue.was(cond.fieldName, cond.fieldValue);
+          return utils.issueFieldWas(issue, cond.fieldName, cond.fieldValue);
         } else if (cond.when === "tag_added") {
           return issue.tags.removed.find((tag) => tag.name === cond.tagName);
         }

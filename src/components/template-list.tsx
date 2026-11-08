@@ -3,6 +3,7 @@ import ChevronRightIcon from "@jetbrains/icons/chevron-right";
 import WarningIcon from "@jetbrains/icons/warning-empty";
 import List, { ListDataItem } from "@jetbrains/ring-ui-built/components/list/list";
 import React, { useMemo } from "react";
+import type { ProjectFieldInfo } from "../../@types/project-info";
 import type { ArticleProjectInfo } from "../../@types/template-article";
 import {
   getNotSharedArticleIds,
@@ -80,9 +81,14 @@ interface TemplateListProps {
   rowStatus?: { [templateId: string]: TemplateRowStatus };
   // Unsaved new template: labelled as new and not flagged as incomplete while being filled in.
   draftTemplateId?: string;
+  // Project fields, used to word conditions on multi-value fields.
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>;
 }
 
-const getDetails = (template: Template): [string, boolean] => {
+const getDetails = (
+  template: Template,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+): [string, boolean] => {
   const hasNoValid =
     !template?.validCondition ||
     (Array.isArray(template.validCondition) && template.validCondition.length === 0);
@@ -90,9 +96,9 @@ const getDetails = (template: Template): [string, boolean] => {
     return ["Incomplete configuration! No validity condition set.", true];
   }
 
-  const parts = [formatTemplateValidCondition(template)];
+  const parts = [formatTemplateValidCondition(template, fieldInfos)];
   if (template.addCondition !== null) {
-    parts.push(formatTemplateAddCondition(template));
+    parts.push(formatTemplateAddCondition(template, fieldInfos));
   }
   const fieldsDescription = formatTemplateFields(template);
   if (fieldsDescription) {
@@ -110,7 +116,11 @@ const getDetails = (template: Template): [string, boolean] => {
 };
 
 // Compact row details: summary tokens, or the first problem of an incomplete template.
-const getCompactDetails = (template: Template, isDraft: boolean): [string, boolean] => {
+const getCompactDetails = (
+  template: Template,
+  isDraft: boolean,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+): [string, boolean] => {
   if (isDraft) {
     return ["Not saved yet.", false];
   }
@@ -118,7 +128,7 @@ const getCompactDetails = (template: Template, isDraft: boolean): [string, boole
   if (errors.length > 0) {
     return [`Incomplete: ${errors[0].message}`, true];
   }
-  return [formatTemplateSummaryTokens(template).join(" · "), false];
+  return [formatTemplateSummaryTokens(template, fieldInfos).join(" · "), false];
 };
 
 // Indented row of a child template below its template; flags problems in compact mode.
@@ -149,10 +159,11 @@ const makeChildItem = (
   disabled: boolean | undefined,
   compact: boolean | undefined,
   articleProjects: Readonly<Record<string, ArticleProjectInfo>>,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
 ): TemplateListItem => {
   const errors = compact ? validateChildTemplate(template, child) : [];
   const note = errors.length > 0 ? null : getChildArticleNote(template, child, articleProjects);
-  let details = formatChildTemplate(child);
+  let details = formatChildTemplate(child, fieldInfos);
   if (errors.length > 0) {
     details = `Incomplete: ${errors[0].message}`;
   } else if (note !== null) {
@@ -179,18 +190,20 @@ type ListOptions = {
   draftTemplateId?: string;
   // Projects of the template articles; rows using articles from other projects are flagged.
   articleProjects?: Readonly<Record<string, ArticleProjectInfo>>;
+  // Project fields, used to word conditions on multi-value fields ("includes" instead of "is").
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>;
 };
 
 const getRowDetails = (
   template: Template,
   isDraft: boolean,
-  { detailsMode, target, rowStatus }: ListOptions,
+  { detailsMode, target, rowStatus, fieldInfos }: ListOptions,
 ): [string, boolean] => {
   if (detailsMode === "compact") {
-    return getCompactDetails(template, isDraft);
+    return getCompactDetails(template, isDraft, fieldInfos);
   }
   if (detailsMode !== "effect") {
-    return getDetails(template);
+    return getDetails(template, fieldInfos);
   }
   const status = rowStatus?.[template.id];
   const tokens = formatTemplateEffectTokens(template, target ?? "ticket");
@@ -253,7 +266,9 @@ const getListItems = (
     ];
     if (expandable && isSelected) {
       for (const { child, depth } of flattenChildTemplates(getChildTemplates(template))) {
-        items.push(makeChildItem(template, child, depth, itemDisabled, compact, articleProjects));
+        items.push(
+          makeChildItem(template, child, depth, itemDisabled, compact, articleProjects, options.fieldInfos),
+        );
       }
     }
     return items;
@@ -342,6 +357,7 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
   target,
   rowStatus,
   draftTemplateId,
+  fieldInfos,
 }) => {
   const articleProjects = useArticleProjects();
   const listItems = useMemo(
@@ -354,10 +370,11 @@ const TemplateList: React.FunctionComponent<TemplateListProps> = ({
         disabled,
         selectedTemplate,
         showChildren,
-        { detailsMode, target, rowStatus, draftTemplateId, articleProjects },
+        { detailsMode, target, rowStatus, draftTemplateId, articleProjects, fieldInfos },
       ),
     [
       articleProjects,
+      fieldInfos,
       detailsMode,
       target,
       rowStatus,

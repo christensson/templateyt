@@ -10,6 +10,7 @@ import {
 import {
   formatCreatedMessage,
   getChangedConditionValues,
+  formatValueListChange,
   getReplacementPreconditions,
   hasMissingRequiredInput,
   needsReplacementFieldInput,
@@ -264,12 +265,40 @@ describe("getChangedConditionValues", () => {
       getChangedConditionValues(
         release,
         { Priority: "Minor", Approver: "jane", Assignee: null },
-        { Priority: "Normal" },
+        { Priority: ["Normal"] },
       ),
     ).toEqual({ Priority: "Minor" });
-    expect(getChangedConditionValues(release, { Priority: "Normal" }, { Priority: "Normal" })).toEqual({});
-    expect(getChangedConditionValues(release, { Priority: null }, { Priority: "Normal" })).toEqual({});
+    expect(getChangedConditionValues(release, { Priority: "Normal" }, { Priority: ["Normal"] })).toEqual({});
+    expect(getChangedConditionValues(release, { Priority: null }, { Priority: ["Normal"] })).toEqual({});
     expect(getChangedConditionValues(release, { Priority: "Minor" }, {})).toEqual({ Priority: "Minor" });
     expect(getChangedConditionValues(bug, { Priority: "Minor" }, {})).toEqual({});
+  });
+
+  it("compares the value sets of multi-value fields", () => {
+    const fieldInfos = [{ name: "Priority", typeName: "enum[*]", values: [] }];
+    const current = { Priority: ["Normal", "Minor"] };
+    expect(getChangedConditionValues(release, {}, current, {}, fieldInfos)).toEqual({});
+    expect(
+      getChangedConditionValues(release, {}, current, { Priority: ["Minor", "Normal"] }, fieldInfos),
+    ).toEqual({});
+    expect(getChangedConditionValues(release, {}, current, { Priority: ["Minor"] }, fieldInfos)).toEqual({
+      Priority: ["Minor"],
+    });
+    expect(getChangedConditionValues(release, {}, current, { Priority: [] }, fieldInfos)).toEqual({
+      Priority: [],
+    });
+    // Single-value choices are ignored for multi-value fields.
+    expect(getChangedConditionValues(release, { Priority: "Major" }, current, {}, fieldInfos)).toEqual({});
+  });
+});
+
+describe("formatValueListChange", () => {
+  it.each([
+    [["Backend"], [], "Adds Backend"],
+    [[], ["UI"], "Removes UI"],
+    [["A", "B", "C"], ["UI"], "Adds A, B and C and removes UI"],
+    [[], [], null],
+  ] as const)("%#", (added, removed, expected) => {
+    expect(formatValueListChange(added, removed)).toBe(expected);
   });
 });

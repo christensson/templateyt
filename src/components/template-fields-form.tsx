@@ -3,8 +3,10 @@ import Button from "@jetbrains/ring-ui-built/components/button/button";
 import { H3 } from "@jetbrains/ring-ui-built/components/heading/heading";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
+import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/select";
+import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import { getFieldValueKind, type ProjectFieldInfo } from "../../@types/project-info";
 import {
   evaluateChildInclusion,
@@ -20,7 +22,9 @@ import {
   formatFieldValue,
   hasUserInputFields,
   hierarchyHasUserInputFields,
+  isMultiValueFieldName,
   type ChildInclusion,
+  type ConditionValues,
   type ChildTemplate,
   type Template,
   type TemplateField,
@@ -29,11 +33,13 @@ import {
 } from "../../@types/template";
 import {
   formatHierarchyLabel,
+  formatValueListChange,
   getChangedConditionValues,
   getReplacementPreconditions,
   hasMissingRequiredInput,
   type ReplacementPrecondition,
   type ReplacementPreconditions,
+  type MultiFieldValues,
 } from "../apply-template";
 import {
   ACTION_LABELS,
@@ -617,7 +623,9 @@ const ChildTemplatePreview: React.FunctionComponent<ChildTemplatePreviewProps> =
     <div className="template-hierarchy-child" style={indentStyle(depth)}>
       <ChildTitle
         child={child}
-        note={[formatChildConditionNote(child), formatInheritance(child)].filter(Boolean).join(" · ")}
+        note={[formatChildConditionNote(child, fieldInfos), formatInheritance(child)]
+          .filter(Boolean)
+          .join(" · ")}
       />
       {hasRows && (
         <div className="template-hierarchy-child-body">
@@ -733,49 +741,139 @@ export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormP
   );
 };
 
+// Values chosen for multi-value root ticket fields that decide which subtasks are created.
+export type MultiConditionInput = {
+  values: MultiFieldValues;
+  setValues: React.Dispatch<React.SetStateAction<MultiFieldValues>>;
+};
+
+// Display text of a field value name, falling back to the name itself.
+const getValuePresentation = (
+  fieldInfos: ReadonlyArray<ProjectFieldInfo>,
+  fieldName: string,
+  valueName: string,
+): string =>
+  fieldInfos.find((info) => info.name === fieldName)?.values.find((value) => value.name === valueName)
+    ?.presentation ?? valueName;
+
+interface MultiValueConditionSelectProps {
+  fieldInfo: ProjectFieldInfo | undefined;
+  fieldName: string;
+  valueNames: ReadonlyArray<string>;
+  onChange: (fieldName: string, valueNames: Array<string>) => void;
+}
+
+// Multi-select over the values of a multi-value field; the chosen values replace the field's
+// values. Looks like the single-value select next to it.
+const MultiValueConditionSelect: React.FunctionComponent<MultiValueConditionSelectProps> = ({
+  fieldInfo,
+  fieldName,
+  valueNames,
+  onChange,
+}) => {
+  const items = useMemo(
+    () => (fieldInfo ? fieldInfo.values.map((v) => ({ key: v.name, label: v.presentation })) : []),
+    [fieldInfo],
+  );
+  // Values the field holds that the project no longer offers are kept as they are.
+  const selected = useMemo(
+    () =>
+      valueNames.map(
+        (name) => items.find((item) => item.key === name) ?? { key: name, label: name },
+      ),
+    [items, valueNames],
+  );
+  return (
+    <Select
+      multiple
+      filter
+      clear
+      label="None"
+      id={`condition-field-${fieldName}`}
+      type={Select.Type.INLINE}
+      size={Select.Size.AUTO}
+      data={items}
+      selected={selected}
+      onChange={(chosen: Array<SelectItem>) => onChange(fieldName, chosen.map((item) => String(item.key)))}
+    />
+  );
+};
+
 interface ConditionFieldsSectionProps {
   template: Template;
   fieldInfos: Array<ProjectFieldInfo>;
   currentFieldValues: FieldValues;
+  currentConditionValues: ConditionValues;
   currentFieldPresentations: Record<string, string | null>;
   fieldInput: ReplacementFieldInput;
+  multiInput: MultiConditionInput;
 }
 
 // The root ticket fields that decide which conditional subtasks are created, with selects to
-// change them; changed values are set on the ticket when the subtasks are created.
+// change them; changed values are set on the ticket when the subtasks are created. Multi-value
+// fields get a multi-select whose chosen values replace the field's values.
 const ConditionFieldsSection: React.FunctionComponent<ConditionFieldsSectionProps> = ({
   template,
   fieldInfos,
   currentFieldValues,
+  currentConditionValues,
   currentFieldPresentations,
   fieldInput,
+  multiInput,
 }) => {
   const fields = getChildConditionFields(template);
   if (fields.length === 0) {
     return null;
   }
-  const changed = getChangedConditionValues(template, fieldInput.values, currentFieldValues);
-  const presentationOf = (fieldName: string, valueName: string): string =>
-    fieldInfos
-      .find((info) => info.name === fieldName)
-      ?.values.find((value) => value.name === valueName)?.presentation ?? valueName;
+  const changed = getChangedConditionValues(
+    template,
+    fieldInput.values,
+    currentConditionValues,
+    multiInput.values,
+    fieldInfos,
+  );
+  const describe = (fieldName: string, childCount: number): string => {
+    const decides = `decides ${childCount === 1 ? "1 subtask" : `${childCount} subtasks`}`;
+    if (!(fieldName in changed)) {
+      return decides;
+    }
+    const value = changed[fieldName];
+    if (Array.isArray(value)) {
+      const current = currentConditionValues[fieldName] ?? [];
+      const change = formatValueListChange(
+        value.filter((name) => !current.includes(name)).map((name) => getValuePresentation(fieldInfos, fieldName, name)),
+        current.filter((name) => !value.includes(name)).map((name) => getValuePresentation(fieldInfos, fieldName, name)),
+      );
+      return change ? `${change} on this ticket` : decides;
+    }
+    return `Changes ${fieldName} from ${currentFieldPresentations[fieldName] ?? "empty"} to ${getValuePresentation(fieldInfos, fieldName, value)} on this ticket`;
+  };
   return (
     <FormSection title="Decides which subtasks are created">
       <EffectList>
         {fields.map(({ fieldName, childIds }) => (
           <EffectRow key={`condition-${fieldName}`} label={fieldName}>
-            <UserInputFieldSelect
-              field={{ fieldName, mode: "user_input" }}
-              fieldInfos={fieldInfos}
-              value={fieldInput.values[fieldName] ?? currentFieldValues[fieldName] ?? null}
-              onChange={(name, value) =>
-                fieldInput.setValues((prev) => ({ ...prev, [name]: value }))
-              }
-            />{" "}
+            {isMultiValueFieldName(fieldInfos, fieldName) ? (
+              <MultiValueConditionSelect
+                fieldInfo={fieldInfos.find((info) => info.name === fieldName)}
+                fieldName={fieldName}
+                valueNames={multiInput.values[fieldName] ?? currentConditionValues[fieldName] ?? []}
+                onChange={(name, valueNames) =>
+                  multiInput.setValues((prev) => ({ ...prev, [name]: valueNames }))
+                }
+              />
+            ) : (
+              <UserInputFieldSelect
+                field={{ fieldName, mode: "user_input" }}
+                fieldInfos={fieldInfos}
+                value={fieldInput.values[fieldName] ?? currentFieldValues[fieldName] ?? null}
+                onChange={(name, value) =>
+                  fieldInput.setValues((prev) => ({ ...prev, [name]: value }))
+                }
+              />
+            )}{" "}
             <Text size={Text.Size.S} info>
-              {fieldName in changed
-                ? `Changes ${fieldName} from ${currentFieldPresentations[fieldName] ?? "empty"} to ${presentationOf(fieldName, changed[fieldName] as string)} on this ticket`
-                : `decides ${childIds.length === 1 ? "1 subtask" : `${childIds.length} subtasks`}`}
+              {describe(fieldName, childIds.length)}
             </Text>
           </EffectRow>
         ))}
@@ -794,26 +892,38 @@ const ConditionFieldsSection: React.FunctionComponent<ConditionFieldsSectionProp
 const withChangedConditions = (
   template: Template,
   fieldInfos: Array<ProjectFieldInfo>,
-  currentFieldValues: FieldValues,
+  currentConditionValues: ConditionValues,
   currentFieldPresentations: Record<string, string | null>,
   chosen: FieldValues,
+  chosenMulti: MultiFieldValues,
 ) => {
-  const changed = getChangedConditionValues(template, chosen, currentFieldValues);
+  const changed = getChangedConditionValues(
+    template,
+    chosen,
+    currentConditionValues,
+    chosenMulti,
+    fieldInfos,
+  );
+  const values: ConditionValues = { ...currentConditionValues };
   const presentations = { ...currentFieldPresentations };
-  for (const [fieldName, valueName] of Object.entries(changed)) {
+  for (const [fieldName, value] of Object.entries(changed)) {
+    const names = Array.isArray(value) ? value : [value];
+    values[fieldName] = names;
     presentations[fieldName] =
-      fieldInfos
-        .find((info) => info.name === fieldName)
-        ?.values.find((value) => value.name === valueName)?.presentation ?? valueName;
+      names.length === 0
+        ? null
+        : names.map((name) => getValuePresentation(fieldInfos, fieldName, name)).join(", ");
   }
-  return { values: { ...currentFieldValues, ...changed }, presentations };
+  return { values, presentations };
 };
 
 interface HierarchyFormProps {
   template: Template;
   fieldInfos: Array<ProjectFieldInfo>;
-  // Current field values of the root ticket, used to preview which subtasks will be created.
+  // Current field values of the root ticket (the first value of multi-value fields).
   currentFieldValues: FieldValues;
+  // All current values of the root ticket's fields, used to preview which subtasks are created.
+  currentConditionValues: ConditionValues;
   currentFieldPresentations: Record<string, string | null>;
   values: ChildFieldValues;
   setValues: React.Dispatch<React.SetStateAction<ChildFieldValues>>;
@@ -823,6 +933,8 @@ interface HierarchyFormProps {
   alreadyCreated: boolean;
   // Values for empty root ticket fields that field replacements use.
   fieldInput: ReplacementFieldInput;
+  // Values chosen for multi-value root ticket fields that decide which subtasks are created.
+  multiConditionInput: MultiConditionInput;
   // The texts were filled in from the texts stored when the template was applied.
   textsRemembered?: boolean;
   submitting: boolean;
@@ -837,6 +949,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   template,
   fieldInfos,
   currentFieldValues,
+  currentConditionValues,
   currentFieldPresentations,
   values,
   setValues,
@@ -844,6 +957,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   setTexts,
   alreadyCreated,
   fieldInput,
+  multiConditionInput,
   textsRemembered = false,
   submitting,
   onConfirm,
@@ -855,9 +969,10 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
   const effective = withChangedConditions(
     template,
     fieldInfos,
-    currentFieldValues,
+    currentConditionValues,
     currentFieldPresentations,
     fieldInput.values,
+    multiConditionInput.values,
   );
   const preconditions = getReplacementPreconditions(
     template,
@@ -866,7 +981,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
     effective.presentations,
     false,
   );
-  const inclusion = evaluateChildInclusion(template, effective.values);
+  const inclusion = evaluateChildInclusion(template, effective.values, fieldInfos);
   const createdCount = flat.filter(({ child }) => inclusion[child.id]?.created).length;
   const hasReplacements = getTemplateReplacements(template).length > 0;
   const rootRelations = getTemplateRelations(template);
@@ -889,8 +1004,10 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
           template={template}
           fieldInfos={fieldInfos}
           currentFieldValues={currentFieldValues}
+          currentConditionValues={currentConditionValues}
           currentFieldPresentations={currentFieldPresentations}
           fieldInput={fieldInput}
+          multiInput={multiConditionInput}
         />
         {hasReplacements && (
           <FormSection title="Text replacements, used in every subtask">

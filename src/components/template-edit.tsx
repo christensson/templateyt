@@ -276,12 +276,15 @@ const EffectsView: React.FunctionComponent<EffectsViewProps> = ({ template }) =>
 interface TemplateViewProps {
   template: Template;
   templateArticleSelectItems: Array<TemplateArticleSelectItem>;
+  // Project fields, used to word conditions on multi-value fields.
+  projectFields: Array<ProjectFieldInfo>;
 }
 
 // Read-only presentation of a template, grouped like the edit form.
 const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
   template,
   templateArticleSelectItems,
+  projectFields,
 }) => {
   const validConditions = getValidConditions(template);
   const childCount = flattenChildTemplates(getChildTemplates(template)).length;
@@ -318,7 +321,7 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
                 // Conditions have no identity of their own; the list is small and rendered read-only.
                 // eslint-disable-next-line react/no-array-index-key
                 <Text size={Text.Size.M} key={`valid-cond-text-${idx}`}>
-                  <Icon glyph={ConditionIcon}/> {formatValidCondition(cond, true)}.
+                  <Icon glyph={ConditionIcon}/> {formatValidCondition(cond, true, projectFields)}.
                 </Text>
               ))}
             </div>
@@ -330,7 +333,7 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
               ADD_CONDITION_OPTIONS[0].label + "."
             ) : (
               <>
-                <Icon glyph={ConditionIcon}/> When {formatAddCondition(template.addCondition)}
+                <Icon glyph={ConditionIcon}/> When {formatAddCondition(template.addCondition, false, projectFields)}
               </>
             )}
           </Text>
@@ -787,6 +790,8 @@ interface TemplateEditProps {
   setSelectedChildId: (childId: string | null) => void;
   // Starts editing the given template as a new, unsaved draft (used by Duplicate).
   startDraft?: (template: Template) => void;
+  // Called with the project's fields once loaded, e.g. to word conditions in the template list.
+  onProjectFieldsLoaded?: (fields: Array<ProjectFieldInfo>) => void;
 }
 
 const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
@@ -801,6 +806,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
   selectedChildId,
   setSelectedChildId,
   startDraft,
+  onProjectFieldsLoaded,
 }) => {
   const [projectFields, setProjectFields] = useState<Array<ProjectFieldInfo>>([]);
   const [projectTags, setProjectTags] = useState<Array<TagInfo>>([]);
@@ -893,6 +899,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       .then((result) => {
         console.log("Project info", result);
         setProjectFields(result.fields);
+        onProjectFieldsLoaded?.(result.fields);
       });
     fetchTags("", true);
     host
@@ -900,7 +907,7 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
         query: { fields: "name,directed,aggregation,readOnly,sourceToTarget,targetToSource" },
       })
       .then((types) => setLinkNames(getRelationLinkNames(types)));
-  }, [fetchTags]);
+  }, [fetchTags, onProjectFieldsLoaded]);
 
   // A ticket can be a relation target only when the user can read it.
   const checkIssue: IssueChecker = useCallback(async (issueId) => {
@@ -1057,7 +1064,11 @@ const TemplateEdit: React.FunctionComponent<TemplateEditProps> = ({
       );
     }
     return (
-      <TemplateView template={template} templateArticleSelectItems={templateArticleSelectItems}/>
+      <TemplateView
+        template={template}
+        templateArticleSelectItems={templateArticleSelectItems}
+        projectFields={projectFields}
+      />
     );
   };
 

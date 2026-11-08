@@ -57,7 +57,8 @@ continue later, for example when you create the subtasks.
 Arrange template articles in a tree, and one template can create a complete hierarchy of
 subtasks below a ticket, or sub-articles below an article.
 - **Conditional subtasks:** only create a subtask when a field of the ticket has a given value,
-  for example an extra review only for *Critical* priority. Before creating, you see which
+  for example an extra review only for *Critical* priority, or a UI review when *Components*
+  includes *UI*. Before creating, you see which
   subtasks will be made, and you can change the deciding field right in the dialog.
 - **Inherited fields:** subtasks can copy field values from their parent or from the root ticket.
 - **Links:** link the root ticket, the subtasks and other existing tickets to each other

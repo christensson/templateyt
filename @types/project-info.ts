@@ -18,7 +18,8 @@ export type ProjectFieldInfo = {
 };
 
 // Field types that can be used in template conditions (must match template-utils.js).
-export const CONDITION_FIELD_TYPES = ["state[1]", "enum[1]"];
+// Conditions on multi-value fields match when the field includes the value.
+export const CONDITION_FIELD_TYPES = ["state[1]", "enum[1]", "ownedField[1]", "enum[*]", "ownedField[*]"];
 
 export const isConditionField = (field: ProjectFieldInfo): boolean =>
   CONDITION_FIELD_TYPES.includes(field.typeName);

@@ -6,6 +6,8 @@ import {
   getTemplateFields,
   getTemplateReplacements,
   hasUserInputFields,
+  toConditionValues,
+  type ConditionValues,
   type HasFields,
   type Template,
 } from "../@types/template";
@@ -17,7 +19,10 @@ export type IssueTemplateInfo = {
   templates: Array<Template>;
   validTemplateIds: Array<string>;
   fields: Array<ProjectFieldInfo>;
+  // Current value of each field; the first value for multi-value fields.
   currentFieldValues: Record<string, string | null>;
+  // All current values of each field; missing from older backends.
+  currentFieldValueLists?: ConditionValues;
   // Display texts of the same fields, for previewing field replacements.
   currentFieldPresentations: Record<string, string | null>;
   // Applied templates whose user-input fields have not been set yet.
@@ -27,6 +32,10 @@ export type IssueTemplateInfo = {
   // Texts entered when the templates were applied; missing from older backends.
   replacementTexts?: StoredReplacementTexts;
 };
+
+// All current values of the ticket's fields, for evaluating conditions.
+export const getCurrentConditionValues = (info: IssueTemplateInfo): ConditionValues =>
+  info.currentFieldValueLists ?? toConditionValues(info.currentFieldValues);
 
 // "add" applies the whole template (description and fields), "fields" only sets its fields.
 export type ApplyMode = "add" | "fields";
@@ -191,7 +200,8 @@ export const createHierarchy = (
   // Values for empty root ticket fields that field replacements use; also set on the ticket.
   replacementFieldValues: FieldValues = {},
   // New values for root ticket fields that child add conditions depend on; set on the ticket.
-  conditionFieldValues: FieldValues = {},
+  // Multi-value fields get the complete list of value names.
+  conditionFieldValues: Record<string, string | Array<string>> = {},
 ): Promise<CreateHierarchyResult> =>
   host.fetchApp<CreateHierarchyResult>("backend/createHierarchy", {
     scope: true,

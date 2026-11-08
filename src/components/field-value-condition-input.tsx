@@ -4,7 +4,8 @@ import type { SelectItem } from "@jetbrains/ring-ui-built/components/select/sele
 import Select from "@jetbrains/ring-ui-built/components/select/select";
 import Text from "@jetbrains/ring-ui-built/components/text/text";
 import React, { useCallback, useMemo } from "react";
-import type { ProjectFieldInfo } from "../../@types/project-info";
+import { isMultiValueField, type ProjectFieldInfo } from "../../@types/project-info";
+import { getConditionVerb } from "../../@types/template";
 
 interface FieldValueConditionInputProps {
   fields: Array<ProjectFieldInfo>;
@@ -12,12 +13,14 @@ interface FieldValueConditionInputProps {
   fieldValue: string;
   onChange: (fieldName: string, fieldValue: string) => void;
   whenTitle: string;
-  // Word between the field and the value, e.g. "is" or "becomes".
-  verb: string;
+  // Kind of condition: the field "is" a value, or "becomes" it. Multi-value fields read
+  // "includes" and "gains" instead.
+  verb: "is" | "becomes";
   disabled?: boolean;
 }
 
-// One "field <verb> value" condition row: a field select and a value select.
+// One "field <verb> value" condition row: a field select and a value select. The verb follows
+// the selected field, so conditions on multi-value fields read "includes" / "gains".
 const FieldValueConditionInput: React.FunctionComponent<FieldValueConditionInputProps> = ({
   fields,
   fieldName,
@@ -47,7 +50,12 @@ const FieldValueConditionInput: React.FunctionComponent<FieldValueConditionInput
   );
 
   const selectFieldItems = useMemo(
-    () => fields.map((field) => ({ key: field.name, label: field.name })),
+    () =>
+      fields.map((field) => ({
+        key: field.name,
+        label: field.name,
+        description: isMultiValueField(field) ? "multiple values" : undefined,
+      })),
     [fields],
   );
 
@@ -65,6 +73,7 @@ const FieldValueConditionInput: React.FunctionComponent<FieldValueConditionInput
       <Text size={Text.Size.M}>{whenTitle + " "}</Text>
       <Select
         clear
+        filter
         disabled={disabled}
         label="..."
         type={Select.Type.INLINE}
@@ -73,9 +82,10 @@ const FieldValueConditionInput: React.FunctionComponent<FieldValueConditionInput
         onSelect={onSelectField}
         selected={selectedFieldItem}
       />
-      <Text size={Text.Size.M}>{` ${verb} `}</Text>
+      <Text size={Text.Size.M}>{` ${getConditionVerb(verb, fields, fieldName)} `}</Text>
       <Select
         clear
+        filter
         label="..."
         disabled={disabled || selectedFieldItem === null}
         type={Select.Type.INLINE}

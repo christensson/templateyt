@@ -24,15 +24,28 @@ type Utils = {
     overrides: Record<string, string>;
     errors: Array<string>;
   };
-  getAssignmentOverrides: (issue: unknown, assignments: Array<unknown>) => Record<string, string>;
-  isChildTemplateAdded: (issue: unknown, child: unknown, overrides?: Record<string, string>) => boolean;
+  getAssignmentOverrides: (issue: unknown, assignments: Array<unknown>) => Record<string, string | null>;
+  isChildTemplateAdded: (
+    issue: unknown,
+    child: unknown,
+    overrides?: Record<string, string | Array<string>>,
+  ) => boolean;
+  issueFieldHasValue: (issue: unknown, fieldName: string, valueName: string) => boolean;
+  issueFieldBecomes: (issue: unknown, fieldName: string, valueName: string) => boolean;
+  issueFieldWas: (issue: unknown, fieldName: string, valueName: string) => boolean;
+  newIssueFieldHasValue: (issue: unknown, fieldName: string, valueName: string) => boolean;
+  getIssueFieldValueLists: (
+    issue: unknown,
+    fieldInfos: Array<{ name: string; typeName: string }>,
+  ) => Record<string, Array<string>>;
+  applyFieldAssignments: (issue: unknown, assignments: Array<unknown>) => void;
   resolveConditionFieldInputs: (
     issue: unknown,
     template: unknown,
     values: unknown,
   ) => {
-    assignments: Array<{ fieldName: string; multi: boolean }>;
-    valueOverrides: Record<string, string>;
+    assignments: Array<{ fieldName: string; multi: boolean; additive: boolean; value: unknown }>;
+    valueOverrides: Record<string, string | Array<string>>;
     errors: Array<string>;
   };
   getStoredReplacementTexts: (entity: unknown) => Record<string, Record<string, string>>;
@@ -292,7 +305,7 @@ describe("conditional child templates", () => {
     expect(utils.isChildTemplateAdded(root, conditional.children[1], { Priority: "x" })).toBe(true);
   });
 
-  it("accepts changed values of single-value condition fields only", () => {
+  it("accepts changed values of condition fields only", () => {
     const root = makeRoot({ Priority: { name: "Normal" }, State: { name: "Open" } });
     const result = utils.resolveConditionFieldInputs(root, conditional, {
       Priority: "Minor",
@@ -302,9 +315,11 @@ describe("conditional child templates", () => {
       Unrelated: "x",
     });
     expect(result.errors).toEqual([]);
-    expect(result.valueOverrides).toEqual({ Priority: "Minor" });
+    // A single name for a multi-value field is taken as a one-value list.
+    expect(result.valueOverrides).toEqual({ Priority: "Minor", Labels: ["a"] });
     expect(result.assignments.map(({ fieldName, multi }) => ({ fieldName, multi }))).toEqual([
       { fieldName: "Priority", multi: false },
+      { fieldName: "Labels", multi: true },
     ]);
     expect(utils.resolveConditionFieldInputs(root, conditional, undefined).assignments).toEqual([]);
   });
@@ -317,6 +332,174 @@ describe("conditional child templates", () => {
     });
     expect(result.errors).toEqual(['Value "Urgent" not found for field "Priority".']);
     expect(result.valueOverrides).toEqual({ State: "Fixed" });
+  });
+});
+
+describe("conditions on multi-value fields", () => {
+  type V = { name: string };
+  // A workflow Set: an array with the added and removed values of the current change.
+  const makeSet = (values: Array<V>, added: Array<V> = [], removed: Array<V> = []) => {
+    const set = [...values] as Array<V> & {
+      added: Array<V>;
+      removed: Array<V>;
+      clear: () => void;
+      add: (v: V) => void;
+    };
+    set.added = added;
+    set.removed = removed;
+    set.clear = () => set.splice(0, set.length);
+    set.add = (v: V) => set.push(v);
+    return set;
+  };
+  const values: Record<string, Array<V>> = {
+    Type: [{ name: "Bug" }, { name: "Task" }],
+    Team: [{ name: "Core" }, { name: "Web" }],
+    Components: [{ name: "UI" }, { name: "Backend" }, { name: "Docs" }],
+    Areas: [{ name: "North" }, { name: "South" }],
+  };
+  const types: Record<string, string> = {
+    Type: "enum[1]",
+    Team: "ownedField[1]",
+    Components: "enum[*]",
+    Areas: "ownedField[*]",
+  };
+  const calls: Array<string> = [];
+  const makeRootIssue = (fields: Record<string, unknown>, changed: Array<string> = []) => ({
+    fields: {
+      ...fields,
+      becomes: (fieldName: string, valueName: string) => {
+        calls.push(`becomes ${fieldName}`);
+        return (fields[fieldName] as V | null)?.name === valueName;
+      },
+    },
+    is: (fieldName: string, valueName: string) => {
+      calls.push(`is ${fieldName}`);
+      return (fields[fieldName] as V | null)?.name === valueName;
+    },
+    was: (fieldName: string, valueName: string) => {
+      calls.push(`was ${fieldName}`);
+      return valueName === "Task";
+    },
+    isChanged: (fieldName: string) => changed.includes(fieldName),
+    project: {
+      findFieldByName: (name: string) =>
+        name in types
+          ? {
+              typeName: types[name],
+              findValueByName: (n: string) => values[name].find((v) => v.name === n) ?? null,
+            }
+          : null,
+    },
+  });
+
+  it("uses the workflow API for single-value fields, as before", () => {
+    calls.length = 0;
+    const issue = makeRootIssue({ Type: { name: "Bug" }, Team: { name: "Core" } }, ["Type"]);
+    expect(utils.issueFieldHasValue(issue, "Type", "Bug")).toBe(true);
+    expect(utils.issueFieldHasValue(issue, "Team", "Web")).toBe(false);
+    expect(utils.issueFieldBecomes(issue, "Type", "Bug")).toBe(true);
+    expect(utils.issueFieldWas(issue, "Type", "Task")).toBe(true);
+    // Unchanged fields neither become nor were anything, without asking the API.
+    expect(utils.issueFieldBecomes(issue, "Team", "Core")).toBe(false);
+    expect(utils.issueFieldWas(issue, "Team", "Task")).toBe(false);
+    expect(calls).toEqual(["is Type", "is Team", "becomes Type", "was Type"]);
+    expect(utils.newIssueFieldHasValue(issue, "Team", "Core")).toBe(true);
+    expect(utils.newIssueFieldHasValue(makeRootIssue({ Type: null }), "Type", "Bug")).toBe(false);
+  });
+
+  it("matches multi-value fields by membership, added and removed values", () => {
+    const issue = makeRootIssue(
+      {
+        Components: makeSet([{ name: "UI" }, { name: "Backend" }], [{ name: "Backend" }], [{ name: "Docs" }]),
+        Areas: makeSet([]),
+      },
+      ["Components"],
+    );
+    expect(utils.issueFieldHasValue(issue, "Components", "UI")).toBe(true);
+    expect(utils.issueFieldHasValue(issue, "Components", "Docs")).toBe(false);
+    expect(utils.issueFieldHasValue(issue, "Areas", "North")).toBe(false);
+    expect(utils.issueFieldBecomes(issue, "Components", "Backend")).toBe(true);
+    expect(utils.issueFieldBecomes(issue, "Components", "UI")).toBe(false);
+    expect(utils.issueFieldWas(issue, "Components", "Docs")).toBe(true);
+    expect(utils.issueFieldWas(issue, "Components", "UI")).toBe(false);
+    expect(utils.newIssueFieldHasValue(issue, "Components", "UI")).toBe(true);
+    expect(
+      utils.getIssueFieldValueLists(issue, [
+        { name: "Components", typeName: "enum[*]" },
+        { name: "Areas", typeName: "ownedField[*]" },
+      ]),
+    ).toEqual({ Components: ["UI", "Backend"], Areas: [] });
+  });
+
+  it("adds child templates when the root ticket's field includes the value", () => {
+    const child = {
+      id: "c",
+      addConditions: [{ when: "field_is", fieldName: "Components", fieldValue: "Docs" }],
+      children: [],
+    };
+    const root = makeRootIssue({ Components: makeSet([{ name: "UI" }, { name: "Docs" }]) });
+    expect(utils.isChildTemplateAdded(root, child)).toBe(true);
+    expect(utils.isChildTemplateAdded(root, child, { Components: ["UI"] })).toBe(false);
+    expect(utils.isChildTemplateAdded(makeRootIssue({ Components: makeSet([]) }), child, { Components: ["Docs"] })).toBe(
+      true,
+    );
+  });
+
+  const conditionTemplate = {
+    id: "t",
+    children: [
+      {
+        id: "a",
+        addConditions: [
+          { when: "field_is", fieldName: "Components", fieldValue: "UI" },
+          { when: "field_is", fieldName: "Team", fieldValue: "Web" },
+        ],
+        children: [],
+      },
+    ],
+  };
+
+  it("replaces the values of multi-value condition fields with the chosen list", () => {
+    const root = makeRootIssue({ Components: makeSet([{ name: "UI" }, { name: "Docs" }]), Team: { name: "Core" } });
+    expect(
+      utils.resolveConditionFieldInputs(root, conditionTemplate, { Components: ["Docs", "UI"], Team: "Core" }).assignments,
+    ).toEqual([]);
+
+    const changed = utils.resolveConditionFieldInputs(root, conditionTemplate, {
+      Components: ["Backend", "UI", "Backend"],
+      Team: "Web",
+    });
+    expect(changed.errors).toEqual([]);
+    expect(changed.valueOverrides).toEqual({ Components: ["Backend", "UI"], Team: "Web" });
+    expect(
+      changed.assignments.map(({ fieldName, multi, additive, value }) => [fieldName, multi, additive, (value as V).name]),
+    ).toEqual([
+      ["Components", true, false, "Backend"],
+      ["Components", true, true, "UI"],
+      ["Team", false, false, "Web"],
+    ]);
+    utils.applyFieldAssignments(root, changed.assignments);
+    expect(((root.fields as Record<string, unknown>).Components as Array<V>).map((v) => v.name)).toEqual(["Backend", "UI"]);
+  });
+
+  it("clears a multi-value field when no values are chosen", () => {
+    const root = makeRootIssue({ Components: makeSet([{ name: "UI" }]) });
+    const cleared = utils.resolveConditionFieldInputs(root, conditionTemplate, { Components: [] });
+    expect(cleared.valueOverrides).toEqual({ Components: [] });
+    expect(cleared.assignments.map(({ multi, additive, value }) => [multi, additive, value])).toEqual([
+      [true, false, null],
+    ]);
+    expect(utils.getAssignmentOverrides(root, cleared.assignments)).toEqual({ Components: null });
+    utils.applyFieldAssignments(root, cleared.assignments);
+    expect(((root.fields as Record<string, unknown>).Components as Array<V>).length).toBe(0);
+  });
+
+  it("rejects the whole list when a value is unknown", () => {
+    const root = makeRootIssue({ Components: makeSet([]) });
+    const result = utils.resolveConditionFieldInputs(root, conditionTemplate, { Components: ["UI", "Nope"] });
+    expect(result.errors).toEqual(['Value "Nope" not found for field "Components".']);
+    expect(result.assignments).toEqual([]);
+    expect(result.valueOverrides).toEqual({});
   });
 });
 

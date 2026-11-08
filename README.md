@@ -82,9 +82,11 @@ automatically to tickets or articles, and which ticket fields the template sets.
     - Added when ticket or article is tagged with a specific *tag*.
 
     If the template is added automatically when a field becomes a specific value, the template
-    may not set that field to any other value.
+    may not set that field to any other value. For a multi-value field it may add values to it.
 
-[^1]: *Note! Currently only state and enum fields are supported in conditions.*
+[^1]: *State, enum and owned fields are supported in conditions, single-value and multi-value.
+A multi-value field matches when it includes the value ("Components includes UI"), and a template
+is added automatically when the value is added to the field ("Components gains UI").*
 [^2]: *State, enum, user, version, build and owned fields are supported, single-value and
 multi-value. Users are picked from the users configured for the field. Date, date and time,
 period, integer, float and string fields are supported too. Fixed values of date and date and
@@ -141,12 +143,14 @@ content as description.
   imported a second time, and they can be moved (up, down or under another node), removed, and
   can import their own child articles. Imported child templates always follow the article tree.
 - A child template can have *conditions when it is added*: one or more "ticket field is value"
-  checks against the ticket the hierarchy is created from. It is created when any condition
+  checks against the ticket the hierarchy is created from (for multi-value fields "ticket field
+  includes value"). It is created when any condition
   matches, or always when it has none. A skipped child template takes its own children with it.
   The *"Create subtasks"* form lists the fields that decide which subtasks are created, and marks
   conditional subtasks with their condition. Changing a field there updates the preview; the new
   value is set on the ticket when the subtasks are created (which may trigger other workflows,
-  such as templates added automatically).
+  such as templates added automatically). Multi-value fields are changed with a multi-select
+  whose values replace the field's values.
 - The hierarchy is created manually from *"Create subtasks"* (*"Create sub-articles"* for
   articles) in the *"Apply template"* menu. It is offered right after the template is applied,
   with the texts just entered for text replacements filled in, and later for the applied

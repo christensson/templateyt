@@ -37,7 +37,8 @@ const SUPPORTED_FIELD_TYPES = [
 ];
 
 // Field types that can be used in template conditions (must match @types/project-info.ts).
-const CONDITION_FIELD_TYPES = ["state[1]", "enum[1]"];
+// Conditions on multi-value fields match when the field includes the value.
+const CONDITION_FIELD_TYPES = ["state[1]", "enum[1]", "ownedField[1]", "enum[*]", "ownedField[*]"];
 
 const isUserType = (typeName) => typeof typeName === "string" && typeName.indexOf("user[") === 0;
 
@@ -214,26 +215,6 @@ const flattenChildTemplates = (children, depth) =>
     ...flattenChildTemplates(child.children, (depth || 0) + 1),
   ]);
 
-// A child template is added when it has no add conditions or any of them matches the root
-// ticket (the ticket the hierarchy is created from).
-// valueOverrides (value name by field name) holds root ticket field values that are being set in
-// the same request; they are used instead of the root ticket's current values.
-const isChildTemplateAdded = (rootIssue, child, valueOverrides) => {
-  const conditions = Array.isArray(child.addConditions) ? child.addConditions : [];
-  if (conditions.length === 0) {
-    return true;
-  }
-  return conditions.some((cond) => {
-    if (cond.when !== "field_is") {
-      return false;
-    }
-    const override = valueOverrides ? valueOverrides[cond.fieldName] : undefined;
-    return typeof override === "string"
-      ? override === cond.fieldValue
-      : rootIssue.is(cond.fieldName, cond.fieldValue);
-  });
-};
-
 // Names of the root ticket fields that add conditions in the child tree depend on.
 const getChildConditionFieldNames = (template) => {
   const names = [];
@@ -407,32 +388,6 @@ const getTemplates = (ctx) => {
   return templates.filter((t) => t.id && t.articleId);
 };
 
-const isTemplateValidForIssue = (ytIssue, template) => {
-  const conditions = Array.isArray(template.validCondition) ? template.validCondition : [];
-  if (conditions.length === 0) {
-    return false;
-  }
-  for (const cond of conditions) {
-    if (!cond || !cond.when) {
-      continue;
-    }
-    if (cond.when === "entity_is") {
-      if (cond.entityType === "issue") {
-        return true;
-      }
-    } else if (cond.when === "field_is") {
-      if (ytIssue.is(cond.fieldName, cond.fieldValue)) {
-        return true;
-      }
-    } else if (cond.when === "tag_is") {
-      if (ytIssue.hasTag(cond.tagName)) {
-        return true;
-      }
-    }
-  }
-  return false;
-};
-
 const isTemplateValidForArticle = (ytArticle, template) => {
   const conditions = Array.isArray(template.validCondition) ? template.validCondition : [];
   if (conditions.length === 0) {
@@ -536,6 +491,18 @@ const getIssueFieldValues = (issue, fieldInfos) => {
   return values;
 };
 
+// All current value names of the given fields on an issue, keyed by field name (empty when the
+// field is empty). Used to evaluate conditions on multi-value fields.
+const getIssueFieldValueLists = (issue, fieldInfos) => {
+  const values = {};
+  for (const info of fieldInfos) {
+    values[info.name] = getIssueFieldValueList(issue, info.typeName, info.name).map((value) =>
+      getFieldValueName(info.typeName, value),
+    );
+  }
+  return values;
+};
+
 // Display texts of the given fields on an issue, keyed by field name (null when empty).
 const getIssueFieldPresentations = (issue, fieldInfos) => {
   const values = {};
@@ -562,6 +529,122 @@ const findFieldValue = (projectField, valueName) => {
   } catch {
     return null;
   }
+};
+
+// Type name of an issue's field, or null when the project has no such field.
+const getIssueFieldTypeName = (issue, fieldName) => {
+  const projectField = issue && issue.project ? findProjectField(issue.project, fieldName) : null;
+  return projectField ? projectField.typeName : null;
+};
+
+// True if a Set of field values holds a value with the given name.
+const setHasValueName = (typeName, wfSet, valueName) => {
+  if (!wfSet) {
+    return false;
+  }
+  return toArray(wfSet).some((value) => value && getFieldValueName(typeName, value) === valueName);
+};
+
+// Whether a condition field of an issue matches a value name. Multi-value fields match when they
+// include the value; single-value fields use the workflow API's issue.is, as before.
+const issueFieldHasValue = (issue, fieldName, valueName) => {
+  const typeName = getIssueFieldTypeName(issue, fieldName);
+  if (!isMultiValueType(typeName)) {
+    return issue.is(fieldName, valueName);
+  }
+  return getIssueFieldValueList(issue, typeName, fieldName).some(
+    (value) => getFieldValueName(typeName, value) === valueName,
+  );
+};
+
+// Whether a condition field gets a value in the current change: becomes the value for
+// single-value fields, has it added for multi-value fields.
+const issueFieldBecomes = (issue, fieldName, valueName) => {
+  if (!issue.isChanged(fieldName)) {
+    return false;
+  }
+  const typeName = getIssueFieldTypeName(issue, fieldName);
+  if (!isMultiValueType(typeName)) {
+    return issue.fields.becomes(fieldName, valueName);
+  }
+  const field = issue.fields[fieldName];
+  return setHasValueName(typeName, field && field.added, valueName);
+};
+
+// Whether a condition field loses a value in the current change: was the value before for
+// single-value fields, has it removed for multi-value fields.
+const issueFieldWas = (issue, fieldName, valueName) => {
+  if (!issue.isChanged(fieldName)) {
+    return false;
+  }
+  const typeName = getIssueFieldTypeName(issue, fieldName);
+  if (!isMultiValueType(typeName)) {
+    return issue.was(fieldName, valueName);
+  }
+  const field = issue.fields[fieldName];
+  return setHasValueName(typeName, field && field.removed, valueName);
+};
+
+// Whether a condition field of a new issue holds a value: equals it for single-value fields,
+// includes it for multi-value fields.
+const newIssueFieldHasValue = (issue, fieldName, valueName) => {
+  const typeName = getIssueFieldTypeName(issue, fieldName);
+  if (!isMultiValueType(typeName)) {
+    const value = issue.fields[fieldName];
+    return Boolean(value) && value.name === valueName;
+  }
+  return issueFieldHasValue(issue, fieldName, valueName);
+};
+
+// A child template is added when it has no add conditions or any of them matches the root
+// ticket (the ticket the hierarchy is created from).
+// valueOverrides (value name, or list of value names for multi-value fields, by field name) holds
+// root ticket field values that are being set in the same request; they are used instead of the
+// root ticket's current values. Conditions on multi-value fields match when the field includes the
+// value.
+const isChildTemplateAdded = (rootIssue, child, valueOverrides) => {
+  const conditions = Array.isArray(child.addConditions) ? child.addConditions : [];
+  if (conditions.length === 0) {
+    return true;
+  }
+  return conditions.some((cond) => {
+    if (cond.when !== "field_is") {
+      return false;
+    }
+    const override = valueOverrides ? valueOverrides[cond.fieldName] : undefined;
+    if (Array.isArray(override)) {
+      return override.includes(cond.fieldValue);
+    }
+    return typeof override === "string"
+      ? override === cond.fieldValue
+      : issueFieldHasValue(rootIssue, cond.fieldName, cond.fieldValue);
+  });
+};
+
+const isTemplateValidForIssue = (ytIssue, template) => {
+  const conditions = Array.isArray(template.validCondition) ? template.validCondition : [];
+  if (conditions.length === 0) {
+    return false;
+  }
+  for (const cond of conditions) {
+    if (!cond || !cond.when) {
+      continue;
+    }
+    if (cond.when === "entity_is") {
+      if (cond.entityType === "issue") {
+        return true;
+      }
+    } else if (cond.when === "field_is") {
+      if (issueFieldHasValue(ytIssue, cond.fieldName, cond.fieldValue)) {
+        return true;
+      }
+    } else if (cond.when === "tag_is") {
+      if (ytIssue.hasTag(cond.tagName)) {
+        return true;
+      }
+    }
+  }
+  return false;
 };
 
 // The value to assign for a value name: a value of the field's list, or the parsed value of a
@@ -663,7 +746,10 @@ const applyFieldAssignments = (issue, assignments) => {
     if (!assignment.additive) {
       set.clear();
     }
-    set.add(assignment.value);
+    // A null value only clears the field, e.g. when all values of a condition field are removed.
+    if (assignment.value !== null) {
+      set.add(assignment.value);
+    }
   }
 };
 
@@ -818,6 +904,10 @@ const resolveFieldReplacement = (rootIssue, replacement, fieldOverrides) => {
   if (typeof override === "string" && override !== "") {
     return { value: override, error: null, empty: false };
   }
+  if (override === null) {
+    // The field is cleared in the same request.
+    return { value: null, error: `Root ticket field "${replacement.fieldName}" is empty.`, empty: true };
+  }
   const projectField = findProjectField(rootIssue.project, replacement.fieldName);
   if (projectField === null) {
     return {
@@ -889,55 +979,94 @@ const resolveReplacementFieldInputs = (issue, template, valuesByField) => {
   return { assignments: assignments, overrides: overrides, errors: errors };
 };
 
+// Value names chosen for a condition field: a list for multi-value fields (a single name is
+// accepted as a one-element list), a single name for single-value fields; null when nothing usable
+// was sent. An empty list is valid for multi-value fields and clears the field.
+const getChosenConditionValues = (multi, chosen) => {
+  if (multi) {
+    if (Array.isArray(chosen)) {
+      const names = chosen.filter((name) => typeof name === "string" && name !== "");
+      return names.filter((name, idx) => names.indexOf(name) === idx);
+    }
+    return typeof chosen === "string" && chosen !== "" ? [chosen] : null;
+  }
+  return typeof chosen === "string" && chosen !== "" ? chosen : null;
+};
+
+const sameValueNames = (a, b) => a.length === b.length && a.every((name) => b.includes(name));
+
 // New values chosen for root ticket fields that child add conditions depend on, keyed by field
-// name. Only condition fields of the template's child tree with a condition field type are
-// accepted, and only values different from the current one; other keys are ignored. Returns
-// { assignments, valueOverrides: { fieldName: valueName }, errors } without modifying anything;
-// assignments have the shape of resolveTemplateFieldValues.
+// name: a value name for single-value fields, a list of value names for multi-value fields (the
+// list replaces the field's values). Only condition fields of the template's child tree with a
+// condition field type are accepted, and only values different from the current ones; other keys
+// are ignored. Returns { assignments, valueOverrides: { fieldName: valueName | [valueName] },
+// errors } without modifying anything; assignments have the shape of resolveTemplateFieldValues.
 const resolveConditionFieldInputs = (issue, template, valuesByField) => {
   const assignments = [];
   const valueOverrides = {};
   const errors = [];
   for (const fieldName of getChildConditionFieldNames(template)) {
-    const valueName = valuesByField ? valuesByField[fieldName] : null;
-    if (typeof valueName !== "string" || valueName === "") {
-      continue;
-    }
     const projectField = findProjectField(issue.project, fieldName);
     if (projectField === null || !CONDITION_FIELD_TYPES.includes(projectField.typeName)) {
       continue;
     }
-    const current = issue.fields[fieldName];
-    if (current && getFieldValueName(projectField.typeName, current) === valueName) {
+    const typeName = projectField.typeName;
+    const multi = isMultiValueType(typeName);
+    const chosen = getChosenConditionValues(multi, valuesByField ? valuesByField[fieldName] : null);
+    if (chosen === null) {
       continue;
     }
-    const value = findFieldValue(projectField, valueName);
-    if (value === null) {
-      errors.push(`Value "${valueName}" not found for field "${fieldName}".`);
+    const currentNames = getIssueFieldValueList(issue, typeName, fieldName).map((value) =>
+      getFieldValueName(typeName, value),
+    );
+    const chosenNames = multi ? chosen : [chosen];
+    if (sameValueNames(chosenNames, currentNames)) {
       continue;
     }
-    assignments.push({
-      fieldName: fieldName,
-      typeName: projectField.typeName,
-      value: value,
-      multi: false,
-      additive: false,
-    });
-    valueOverrides[fieldName] = valueName;
+    const resolved = [];
+    for (const valueName of chosenNames) {
+      const value = findFieldValue(projectField, valueName);
+      if (value === null) {
+        errors.push(`Value "${valueName}" not found for field "${fieldName}".`);
+      } else {
+        resolved.push(value);
+      }
+    }
+    if (resolved.length !== chosenNames.length) {
+      continue;
+    }
+    if (!multi) {
+      assignments.push({ fieldName, typeName, value: resolved[0], multi: false, additive: false });
+    } else if (resolved.length === 0) {
+      assignments.push({ fieldName, typeName, value: null, multi: true, additive: false });
+    } else {
+      resolved.forEach((value, idx) =>
+        assignments.push({ fieldName, typeName, value, multi: true, additive: idx > 0 }),
+      );
+    }
+    valueOverrides[fieldName] = chosen;
   }
   return { assignments: assignments, valueOverrides: valueOverrides, errors: errors };
 };
 
 // Display texts the issue's fields will have after the assignments, keyed by field name, so that
-// replacements insert the values being set rather than the previous ones.
+// replacements insert the values being set rather than the previous ones. A field cleared by an
+// assignment without a value maps to null.
 const getAssignmentOverrides = (issue, assignments) => {
   const overrides = {};
   for (const assignment of assignments) {
+    if (assignment.value === null) {
+      overrides[assignment.fieldName] = null;
+      continue;
+    }
     const text = getFieldValuePresentation(assignment.typeName, assignment.value);
-    const current =
-      assignment.multi && assignment.additive
-        ? getFieldPresentationText(issue, assignment.typeName, assignment.fieldName)
-        : null;
+    let current = null;
+    if (assignment.multi && assignment.additive) {
+      // Later values of a multi-value field add to the earlier assignments of the same request.
+      current = assignment.fieldName in overrides
+        ? overrides[assignment.fieldName]
+        : getFieldPresentationText(issue, assignment.typeName, assignment.fieldName);
+    }
     overrides[assignment.fieldName] =
       current === null || current.split(", ").includes(text) ? current || text : `${current}, ${text}`;
   }
@@ -1094,7 +1223,12 @@ module.exports = {
   isTemplateValidForArticle,
   getProjectFieldInfo,
   getIssueFieldValues,
+  getIssueFieldValueLists,
   getIssueFieldPresentations,
+  issueFieldHasValue,
+  issueFieldBecomes,
+  issueFieldWas,
+  newIssueFieldHasValue,
   templateHasUserInput,
   applyReplacements,
   resolveReplacements,

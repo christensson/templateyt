@@ -11,7 +11,12 @@ import {
   flattenChildTemplates,
   getAddConditionKey,
   evaluateChildInclusion,
+  formatAddCondition,
+  formatChildAddConditions,
   formatChildConditionNote,
+  formatValidCondition,
+  getConditionVerb,
+  toConditionValues,
   formatChildTemplate,
   getChildAddConditions,
   getChildConditionFields,
@@ -499,12 +504,79 @@ describe("conditional child templates", () => {
   it("re-evaluates inclusion, with subtrees following their parent", () => {
     const highChild = getChildTemplates(high)[0];
     const lowChild = getChildTemplates(low)[0];
-    const normal = evaluateChildInclusion(release, { Priority: "Normal" });
+    const normal = evaluateChildInclusion(release, { Priority: ["Normal"] });
     expect([normal[high.id].created, normal[highChild.id].created]).toEqual([true, true]);
     expect([normal[low.id].created, normal[lowChild.id].created]).toEqual([false, false]);
-    const minor = evaluateChildInclusion(release, { Priority: "Minor" });
+    const minor = evaluateChildInclusion(release, { Priority: ["Minor"] });
     expect([minor[high.id].created, minor[highChild.id].created]).toEqual([false, false]);
     expect([minor[low.id].created, minor[lowChild.id].created]).toEqual([true, true]);
+  });
+
+  it("evaluates the same as before for single values from older backends", () => {
+    const fromOld = evaluateChildInclusion(release, toConditionValues({ Priority: "Normal" }));
+    expect(fromOld).toEqual(evaluateChildInclusion(release, { Priority: ["Normal"] }));
+    expect(evaluateChildInclusion(release, toConditionValues({ Priority: null }))[high.id]).toEqual({
+      created: false,
+      reason: "root ticket field Priority is empty, requires Normal.",
+    });
+  });
+});
+
+describe("conditions on multi-value fields", () => {
+  const fieldInfos = [
+    { name: "Components", typeName: "enum[*]", values: [] },
+    { name: "Team", typeName: "ownedField[1]", values: [] },
+    { name: "Areas", typeName: "ownedField[*]", values: [] },
+  ];
+  const parent = clone(current.find((t) => t.name === "Release template") as Template);
+  const [first, second] = getChildTemplates(parent);
+  first.addConditions = [{ when: "field_is", fieldName: "Components", fieldValue: "UI" }];
+  second.addConditions = [
+    { when: "field_is", fieldName: "Team", fieldValue: "Core" },
+    { when: "field_is", fieldName: "Areas", fieldValue: "Backend" },
+  ];
+
+  it("matches when the field includes the value", () => {
+    const both = evaluateChildInclusion(parent, { Components: ["Backend", "UI"], Team: [], Areas: [] }, fieldInfos);
+    expect(both[first.id].created).toBe(true);
+    const other = evaluateChildInclusion(parent, { Components: ["Backend"], Team: ["Core"] }, fieldInfos);
+    expect(other[first.id]).toEqual({
+      created: false,
+      reason: "root ticket field Components has Backend, requires UI.",
+    });
+    expect(other[second.id].created).toBe(true);
+    expect(evaluateChildInclusion(parent, { Areas: ["Backend", "UI"] }, fieldInfos)[second.id].created).toBe(true);
+  });
+
+  it("words multi-value conditions with includes and gains", () => {
+    expect(formatChildConditionNote(first, fieldInfos)).toBe("when Components includes UI");
+    expect(formatChildConditionNote(second, fieldInfos)).toBe("when Team is Core, or Areas includes Backend");
+    expect(formatChildAddConditions(first, fieldInfos)).toBe(
+      "Added when root ticket field Components includes UI.",
+    );
+    expect(formatValidCondition({ when: "field_is", fieldName: "Components", fieldValue: "UI" }, true, fieldInfos)).toBe(
+      "Ticket field Components includes UI",
+    );
+    expect(
+      formatAddCondition({ when: "field_becomes", fieldName: "Components", fieldValue: "UI" }, false, fieldInfos),
+    ).toBe("ticket field Components gains UI.");
+    expect(getConditionVerb("becomes", fieldInfos, "Team")).toBe("becomes");
+  });
+
+  it("keeps the single-value wording without field infos", () => {
+    expect(formatChildConditionNote(first)).toBe("when Components is UI");
+    expect(formatAddCondition({ when: "field_becomes", fieldName: "Components", fieldValue: "UI" })).toBe(
+      "ticket field Components becomes UI.",
+    );
+  });
+
+  it("allows adding values to the trigger field of a multi-value add condition", () => {
+    const auto = clone(current.find((t) => t.name === "Release template") as Template);
+    auto.addCondition = { when: "field_becomes", fieldName: "Components", fieldValue: "UI" };
+    auto.fields = [{ fieldName: "Components", mode: "fixed", fieldValue: "Backend", additive: true }];
+    expect(validateTemplateFields(auto)).toBeNull();
+    auto.fields = [{ fieldName: "Components", mode: "fixed", fieldValue: "Backend" }];
+    expect(validateTemplateFields(auto)).toContain("automatic add condition");
   });
 });
 

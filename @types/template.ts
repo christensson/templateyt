@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import type { FieldValueKind } from "./project-info";
+import { isMultiValueField, type FieldValueKind, type ProjectFieldInfo } from "./project-info";
 
 export type EntityTypeCondition = {
   when: "entity_is";
@@ -400,15 +400,38 @@ export const getMoveTargets = (template: Template, childId: string): Array<MoveT
 export const hierarchyHasUserInputFields = (template: Template): boolean =>
   flattenChildTemplates(getChildTemplates(template)).some((flat) => hasUserInputFields(flat.child));
 
+// True if the named field is a multi-value field according to the given field infos. Without
+// field infos (or for unknown fields) fields are treated as single-value.
+export const isMultiValueFieldName = (
+  fieldInfos: ReadonlyArray<ProjectFieldInfo> | undefined,
+  fieldName: string,
+): boolean => fieldInfos?.some((info) => info.name === fieldName && isMultiValueField(info)) ?? false;
+
+// Verb of a field condition. A multi-value field "includes" a value rather than "is" it, and
+// "gains" a value rather than "becomes" it.
+export const getConditionVerb = (
+  kind: "is" | "becomes",
+  fieldInfos: ReadonlyArray<ProjectFieldInfo> | undefined,
+  fieldName: string,
+): string => {
+  if (!isMultiValueFieldName(fieldInfos, fieldName)) {
+    return kind;
+  }
+  return kind === "is" ? "includes" : "gains";
+};
+
+// fieldInfos (optional) decides the verb for multi-value fields, see getConditionVerb.
 export const formatValidCondition = (
   validCond: ValidCondition,
   capitalize: boolean = false,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
 ): string => {
   let str = "";
   if (validCond.when === "entity_is") {
     str = validCond.entityType === "issue" ? "ticket" : "article";
   } else if (validCond.when === "field_is") {
-    str = `ticket field ${validCond.fieldName} is ${validCond.fieldValue}`;
+    const verb = getConditionVerb("is", fieldInfos, validCond.fieldName);
+    str = `ticket field ${validCond.fieldName} ${verb} ${validCond.fieldValue}`;
   } else if (validCond.when === "tag_is") {
     str = `ticket or article has tag ${validCond.tagName}`;
   }
@@ -418,6 +441,7 @@ export const formatValidCondition = (
 export const formatAddCondition = (
   addCond: AddCondition | null,
   capitalize: boolean = false,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
 ): string => {
   let str = "No automatic addition condition set.";
   if (addCond == null || addCond?.when == null) {
@@ -425,7 +449,8 @@ export const formatAddCondition = (
   }
 
   if (addCond.when === "field_becomes") {
-    str = `ticket field ${addCond.fieldName} becomes ${addCond.fieldValue}.`;
+    const verb = getConditionVerb("becomes", fieldInfos, addCond.fieldName);
+    str = `ticket field ${addCond.fieldName} ${verb} ${addCond.fieldValue}.`;
   } else if (addCond.when === "tag_added") {
     str = `ticket or article is tagged with ${addCond.tagName}.`;
   }
@@ -549,14 +574,17 @@ export const formatTemplateField = (field: TemplateField, capitalize: boolean = 
   return capitalize ? capitalizeFirst(str) : str;
 };
 
-export const formatTemplateValidCondition = (template: Template): string => {
+export const formatTemplateValidCondition = (
+  template: Template,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+): string => {
   const conditions = getValidConditions(template);
   if (conditions.length === 0) {
     return "No validity condition set.";
   }
 
   const parts = conditions
-    .map((validCond) => formatValidCondition(validCond))
+    .map((validCond) => formatValidCondition(validCond, false, fieldInfos))
     .filter((s) => s.length > 0);
 
   if (parts.length === 0) {
@@ -569,13 +597,16 @@ export const formatTemplateValidCondition = (template: Template): string => {
   return `Valid when ${parts.join(" or ")}.`;
 };
 
-export const formatTemplateAddCondition = (template: Template): string => {
+export const formatTemplateAddCondition = (
+  template: Template,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+): string => {
   const addCond = template.addCondition;
   if (addCond == null || addCond?.when == null) {
     return "No automatic addition condition set.";
   }
 
-  return `Added when ${formatAddCondition(addCond)}`;
+  return `Added when ${formatAddCondition(addCond, false, fieldInfos)}`;
 };
 
 // Short summary of the fields a template sets, or empty string when it sets none.
@@ -704,21 +735,30 @@ export const formatTemplateHierarchy = (template: Template): string => {
 
 // Child add conditions are evaluated on the root ticket (the ticket the hierarchy is created
 // from), so their wording names it explicitly, unlike template conditions.
-export const formatChildAddCondition = (cond: FieldStateCondition): string =>
-  `root ticket field ${cond.fieldName} is ${cond.fieldValue}`;
+export const formatChildAddCondition = (
+  cond: FieldStateCondition,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+): string =>
+  `root ticket field ${cond.fieldName} ${getConditionVerb("is", fieldInfos, cond.fieldName)} ${cond.fieldValue}`;
 
 // "Always added." or "Added when root ticket field Type is Bug, or root ticket field Type is Task."
-export const formatChildAddConditions = (child: ChildTemplate): string => {
+export const formatChildAddConditions = (
+  child: ChildTemplate,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+): string => {
   const conditions = getChildAddConditions(child);
   if (conditions.length === 0) {
     return "Always added.";
   }
-  return `Added when ${conditions.map(formatChildAddCondition).join(", or ")}.`;
+  return `Added when ${conditions.map((cond) => formatChildAddCondition(cond, fieldInfos)).join(", or ")}.`;
 };
 
-// Short form of a child's add conditions for previews, e.g. "when Type is Bug or Task", or null
-// when the child is always added.
-export const formatChildConditionNote = (child: ChildTemplate): string | null => {
+// Short form of a child's add conditions for previews, e.g. "when Type is Bug or Task" or
+// "when Components includes UI or Backend", or null when the child is always added.
+export const formatChildConditionNote = (
+  child: ChildTemplate,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+): string | null => {
   const requiredByField = new Map<string, Array<string>>();
   for (const cond of getChildAddConditions(child)) {
     requiredByField.set(cond.fieldName, [...(requiredByField.get(cond.fieldName) ?? []), cond.fieldValue]);
@@ -727,7 +767,8 @@ export const formatChildConditionNote = (child: ChildTemplate): string | null =>
     return null;
   }
   const parts = Array.from(requiredByField.entries()).map(
-    ([fieldName, values]) => `${fieldName} is ${values.join(" or ")}`,
+    ([fieldName, values]) =>
+      `${fieldName} ${getConditionVerb("is", fieldInfos, fieldName)} ${values.join(" or ")}`,
   );
   return `when ${parts.join(", or ")}`;
 };
@@ -761,11 +802,24 @@ export const getChildConditionFields = (template: Template): Array<ChildConditio
   return Array.from(byField.values());
 };
 
+// All value names of root ticket fields, keyed by field name; an empty list means the field is
+// empty. Single-value fields have at most one value.
+export type ConditionValues = Record<string, Array<string>>;
+
+// Condition values from single value names per field, e.g. from an older backend that only
+// reports the first value of each field.
+export const toConditionValues = (values: Record<string, string | null>): ConditionValues =>
+  Object.fromEntries(
+    Object.entries(values).map(([fieldName, value]) => [fieldName, value ? [value] : []]),
+  );
+
 // Why unmet conditions skip a child, stating the root ticket's actual values, e.g.
-// "root ticket field Type is Feature, requires Bug or Task."
+// "root ticket field Type is Feature, requires Bug or Task." or
+// "root ticket field Components has Backend, requires UI."
 const formatUnmetConditions = (
   conditions: Array<FieldStateCondition>,
-  currentFieldValues: Record<string, string | null>,
+  currentValues: ConditionValues,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
 ): string => {
   const requiredByField = new Map<string, Array<string>>();
   for (const cond of conditions) {
@@ -773,20 +827,28 @@ const formatUnmetConditions = (
     required.push(cond.fieldValue);
     requiredByField.set(cond.fieldName, required);
   }
-  const parts = Array.from(requiredByField.entries()).map(
-    ([fieldName, required]) =>
-      `root ticket field ${fieldName} is ${currentFieldValues[fieldName] ?? "empty"}, requires ${required.join(" or ")}`,
-  );
+  const parts = Array.from(requiredByField.entries()).map(([fieldName, required]) => {
+    const current = currentValues[fieldName] ?? [];
+    let state = "is empty";
+    if (current.length > 0) {
+      state = isMultiValueFieldName(fieldInfos, fieldName)
+        ? `has ${current.join(", ")}`
+        : `is ${current.join(", ")}`;
+    }
+    return `root ticket field ${fieldName} ${state}, requires ${required.join(" or ")}`;
+  });
   return `${parts.join("; ")}.`;
 };
 
-// Whether each child template would be created for a root ticket with the given field values
-// (value names keyed by field name), keyed by child template id, with the reason when not.
+// Whether each child template would be created for a root ticket with the given field values,
+// keyed by child template id, with the reason when not. A condition matches when the field's
+// values include the condition value, which for single-value fields means equals it.
 export type ChildInclusion = { created: boolean; reason: string | null };
 
 export const evaluateChildInclusion = (
   template: Template,
-  currentFieldValues: Record<string, string | null>,
+  currentValues: ConditionValues,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
 ): Record<string, ChildInclusion> => {
   const result: Record<string, ChildInclusion> = {};
   const visit = (children: Array<ChildTemplate>, parentCreated: boolean) => {
@@ -797,11 +859,11 @@ export const evaluateChildInclusion = (
         inclusion = { created: false, reason: "Parent subtask is not created." };
       } else if (
         conditions.length > 0 &&
-        !conditions.some((cond) => currentFieldValues[cond.fieldName] === cond.fieldValue)
+        !conditions.some((cond) => (currentValues[cond.fieldName] ?? []).includes(cond.fieldValue))
       ) {
         inclusion = {
           created: false,
-          reason: formatUnmetConditions(conditions, currentFieldValues),
+          reason: formatUnmetConditions(conditions, currentValues, fieldInfos),
         };
       }
       result[child.id] = inclusion;
@@ -812,13 +874,16 @@ export const evaluateChildInclusion = (
   return result;
 };
 
-export const formatChildTemplate = (child: ChildTemplate): string => {
+export const formatChildTemplate = (
+  child: ChildTemplate,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+): string => {
   const parts: Array<string> = [];
   if (child.manual) {
     parts.push("Inserted manually.");
   }
   if (getChildAddConditions(child).length > 0) {
-    parts.push(formatChildAddConditions(child));
+    parts.push(formatChildAddConditions(child, fieldInfos));
   }
   if (child.inheritParentFields) {
     parts.push("Inherits fields from parent.");
@@ -869,6 +934,8 @@ export const validateTemplateFields = (template: Template): string | null => {
     const conflict = fields.find(
       (field) =>
         field.fieldName === addCond.fieldName &&
+        // Values added to a multi-value field keep the trigger value.
+        field.additive !== true &&
         (field.mode !== "fixed" || field.fieldValue !== addCond.fieldValue),
     );
     if (conflict) {
@@ -1178,27 +1245,39 @@ export const duplicateTemplate = (template: Template): Template => {
 const countLabel = (count: number, singular: string, plural: string = `${singular}s`): string =>
   `${count} ${count === 1 ? singular : plural}`;
 
-const formatShortValidCondition = (cond: ValidCondition): string => {
+const formatShortValidCondition = (
+  cond: ValidCondition,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+): string => {
   if (cond.when === "entity_is") {
     return cond.entityType === "issue" ? "ticket" : "article";
   }
   if (cond.when === "field_is") {
-    return `${cond.fieldName} is ${cond.fieldValue}`;
+    return `${cond.fieldName} ${getConditionVerb("is", fieldInfos, cond.fieldName)} ${cond.fieldValue}`;
   }
   return `tag ${cond.tagName}`;
 };
 
 // Compact, scannable summary of a template for list rows, e.g.
 // ["Ticket or article", "Auto: Type → Task", "3 fields", "11 subtasks"].
-export const formatTemplateSummaryTokens = (template: Template): Array<string> => {
+export const formatTemplateSummaryTokens = (
+  template: Template,
+  fieldInfos?: ReadonlyArray<ProjectFieldInfo>,
+): Array<string> => {
   const tokens: Array<string> = [];
   const conditions = getValidConditions(template);
   if (conditions.length > 0) {
-    tokens.push(capitalizeFirst(conditions.map(formatShortValidCondition).join(" or ")));
+    tokens.push(
+      capitalizeFirst(conditions.map((cond) => formatShortValidCondition(cond, fieldInfos)).join(" or ")),
+    );
   }
   const addCond = template.addCondition;
   if (addCond?.when === "field_becomes") {
-    tokens.push(`Auto: ${addCond.fieldName} → ${addCond.fieldValue}`);
+    tokens.push(
+      isMultiValueFieldName(fieldInfos, addCond.fieldName)
+        ? `Auto: ${addCond.fieldName} + ${addCond.fieldValue}`
+        : `Auto: ${addCond.fieldName} → ${addCond.fieldValue}`,
+    );
   } else if (addCond?.when === "tag_added") {
     tokens.push(`Auto: tag ${addCond.tagName}`);
   }

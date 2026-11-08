@@ -4,6 +4,8 @@ import type { ProjectFieldInfo } from "../@types/project-info";
 import {
   flattenChildTemplates,
   getChildConditionFields,
+  isMultiValueFieldName,
+  type ConditionValues,
   getChildTemplates,
   getTemplateFields,
   getTemplateRelations,
@@ -321,19 +323,65 @@ export const hasMissingRequiredInput = (
       !(item.kind === "empty" ? replacementFieldValues : fieldValues)[item.fieldName],
   );
 
+// Value names chosen for multi-value fields, keyed by field name; an empty list clears the field.
+export type MultiFieldValues = Record<string, Array<string>>;
+
+// New values of root ticket condition fields as sent to the backend: a value name for
+// single-value fields, the complete list of value names for multi-value fields.
+export type ConditionFieldValues = Record<string, string | Array<string>>;
+
+export const sameValueNames = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+  a.length === b.length && a.every((name) => b.includes(name));
+
 // Values chosen in the subtask form for root ticket fields that child add conditions depend on,
 // keeping only those that differ from the ticket's current values: the fields to change.
+// chosen holds single-value choices, chosenMulti the value lists of multi-value fields (fields
+// the user did not touch are missing from it).
 export const getChangedConditionValues = (
   template: Template,
   chosen: FieldValues,
-  current: FieldValues,
-): FieldValues => {
-  const changed: FieldValues = {};
+  current: ConditionValues,
+  chosenMulti: MultiFieldValues = {},
+  fieldInfos: ReadonlyArray<ProjectFieldInfo> = [],
+): ConditionFieldValues => {
+  const changed: ConditionFieldValues = {};
   for (const { fieldName } of getChildConditionFields(template)) {
+    const currentNames = current[fieldName] ?? [];
+    if (isMultiValueFieldName(fieldInfos, fieldName)) {
+      const names = chosenMulti[fieldName];
+      if (names !== undefined && !sameValueNames(names, currentNames)) {
+        changed[fieldName] = names;
+      }
+      continue;
+    }
     const value = chosen[fieldName];
-    if (value && value !== (current[fieldName] ?? null)) {
+    if (value && value !== (currentNames[0] ?? null)) {
       changed[fieldName] = value;
     }
   }
   return changed;
+};
+
+// "A", "A and B", "A, B and C".
+const joinNames = (names: ReadonlyArray<string>): string =>
+  names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+
+// What changing a multi-value field does, e.g. "Adds Backend and removes UI", or null when
+// nothing changes. Names are display texts.
+export const formatValueListChange = (
+  added: ReadonlyArray<string>,
+  removed: ReadonlyArray<string>,
+): string | null => {
+  const parts: Array<string> = [];
+  if (added.length > 0) {
+    parts.push(`adds ${joinNames(added)}`);
+  }
+  if (removed.length > 0) {
+    parts.push(`removes ${joinNames(removed)}`);
+  }
+  if (parts.length === 0) {
+    return null;
+  }
+  const text = parts.join(" and ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
 };

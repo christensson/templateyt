@@ -15,6 +15,7 @@ import {
   needsReplacementFieldInput,
   notify,
   type ApplyActionKey,
+  type MultiFieldValues,
   type ReplacementPreconditions,
 } from "../../apply-template";
 import {
@@ -28,6 +29,7 @@ import {
   ACTION_LABELS,
   createHierarchy,
   fetchIssueTemplateInfo,
+  getCurrentConditionValues,
   getInitialChildFieldValues,
   getInitialFieldValues,
   getInitialReplacementTexts,
@@ -95,6 +97,8 @@ const AppComponent: React.FunctionComponent = () => {
   const [replacementTexts, setReplacementTexts] = useState<ReplacementTexts>({});
   // Values chosen for empty ticket fields that field replacements use.
   const [replacementFieldValues, setReplacementFieldValues] = useState<FieldValues>({});
+  // Values chosen for multi-value root ticket fields that decide which subtasks are created.
+  const [conditionMultiValues, setConditionMultiValues] = useState<MultiFieldValues>({});
   const [hierarchy, setHierarchy] = useState<HierarchyStep | null>(null);
   const [childValues, setChildValues] = useState<ChildFieldValues>({});
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -147,6 +151,7 @@ const AppComponent: React.FunctionComponent = () => {
         ...texts,
       });
       setReplacementFieldValues({});
+      setConditionMultiValues({});
       setHierarchy({ template, afterApply });
     },
     [],
@@ -261,7 +266,9 @@ const AppComponent: React.FunctionComponent = () => {
           : getChangedConditionValues(
             hierarchy.template,
             replacementFieldValues,
-            issueTemplateInfo.currentFieldValues,
+            getCurrentConditionValues(issueTemplateInfo),
+            conditionMultiValues,
+            issueTemplateInfo.fields,
           ),
       );
       console.log(`Create hierarchy ${hierarchy.template.id} result`, result);
@@ -283,6 +290,7 @@ const AppComponent: React.FunctionComponent = () => {
     childValues,
     replacementTexts,
     replacementFieldValues,
+    conditionMultiValues,
     issueTemplateInfo,
     checkTemplate,
   ]);
@@ -373,6 +381,7 @@ const AppComponent: React.FunctionComponent = () => {
           template={hierarchy.template}
           fieldInfos={issueTemplateInfo.fields}
           currentFieldValues={issueTemplateInfo.currentFieldValues}
+          currentConditionValues={getCurrentConditionValues(issueTemplateInfo)}
           currentFieldPresentations={issueTemplateInfo.currentFieldPresentations}
           values={childValues}
           setValues={setChildValues}
@@ -382,6 +391,7 @@ const AppComponent: React.FunctionComponent = () => {
             hierarchy.template.id,
           )}
           fieldInput={{ values: replacementFieldValues, setValues: setReplacementFieldValues }}
+          multiConditionInput={{ values: conditionMultiValues, setValues: setConditionMultiValues }}
           textsRemembered={hasStoredReplacementTexts(
             hierarchy.template,
             issueTemplateInfo.replacementTexts,
@@ -424,6 +434,7 @@ const AppComponent: React.FunctionComponent = () => {
             detailsMode="effect"
             target={TARGET}
             rowStatus={rowStatus}
+            fieldInfos={issueTemplateInfo.fields}
             className="apply-template-list"
           />
         </div>

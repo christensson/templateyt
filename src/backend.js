@@ -141,11 +141,13 @@ const validateTemplateFields = (template) => {
 
   // A template must never set its own trigger field to another value than the one that
   // triggers it, otherwise applying the template would undo the condition that added it.
+  // Values added to a multi-value field (additive) keep the trigger value and are allowed.
   const addCond = template.addCondition;
   if (addCond && addCond.when === "field_becomes") {
     const conflict = fields.find(
       (field) =>
         field.fieldName === addCond.fieldName &&
+        field.additive !== true &&
         (field.mode !== "fixed" || field.fieldValue !== addCond.fieldValue),
     );
     if (conflict) {
@@ -839,6 +841,7 @@ exports.httpHandler = {
           validTemplateIds: validTemplateIds,
           fields: fields,
           currentFieldValues: utils.getIssueFieldValues(issue, fields),
+          currentFieldValueLists: utils.getIssueFieldValueLists(issue, fields),
           currentFieldPresentations: utils.getIssueFieldPresentations(issue, fields),
           pendingTemplateIds: utils.getPendingTemplateIds(issue),
           createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(issue),

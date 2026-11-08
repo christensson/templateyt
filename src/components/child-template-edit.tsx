@@ -146,7 +146,7 @@ const ChildAddConditionsPanel: React.FunctionComponent<ChildAddConditionsPanelPr
       <Text size={Text.Size.S} info>
         Created when any of these match the root ticket (the ticket the hierarchy is created from)
       </Text>
-      {!editing && <Text size={Text.Size.M}>{formatChildAddConditions(child)}</Text>}
+      {!editing && <Text size={Text.Size.M}>{formatChildAddConditions(child, conditionFields)}</Text>}
       {editing && conditions.length === 0 && (
         <Text size={Text.Size.M}>No conditions, always added.</Text>
       )}

@@ -11,6 +11,7 @@ import {
   type ChildTemplate,
   type Template,
 } from "../../../@types/template";
+import type { ProjectFieldInfo } from "../../../@types/project-info";
 import type { ArticleProjectInfo, TemplateArticle } from "../../../@types/template-article";
 import { addArticleProjects } from "../../components/article-projects";
 import TemplateEdit from "../../components/template-edit";
@@ -25,6 +26,8 @@ const FILTER_MIN_TEMPLATES = 6;
 
 const AppComponent: React.FunctionComponent = () => {
   const [isDraft, setIsDraft] = useState<boolean>(false);
+  // Project fields, loaded by the template editor; used to word conditions in the list.
+  const [projectFields, setProjectFields] = useState<Array<ProjectFieldInfo>>([]);
   const [editing, setEditing] = useState<boolean>(false);
   const [templates, setTemplates] = useState<Array<Template>>([]);
   const [template, setTemplate] = useState<Template>(createNullTemplate());
@@ -187,6 +190,7 @@ const AppComponent: React.FunctionComponent = () => {
               setSelectedTemplate={selectTemplate}
               showChildren
               draftTemplateId={isDraft ? template.id : undefined}
+              fieldInfos={projectFields}
               selectedChildId={selectedChildId}
               onSelectChild={selectChildTemplate}
             />
@@ -209,6 +213,7 @@ const AppComponent: React.FunctionComponent = () => {
                   selectedChildId={selectedChildId}
                   setSelectedChildId={setSelectedChildId}
                   startDraft={startDraft}
+                  onProjectFieldsLoaded={setProjectFields}
                 />
               )}
             </div>
