@@ -137,7 +137,7 @@ content as description.
   fields configured by the root template are copied from the root ticket), and its own ticket
   fields, which work like the fields of a template. Precedence is own fields first, then the
   closest parent, then the root ticket.
-- Any knowledge base article can be *inserted* as a child template by its article id, below the
+- Any template article shared with the project can be *inserted* as a child template, below the
   template or below any child template, without being part of the article tree. Inserted child
   templates keep their place when child articles are re-imported, an inserted article is never
   imported a second time, and they can be moved (up, down or under another node), removed, and
@@ -240,13 +240,18 @@ permitted groups (`isArticleReadableBy` in `src/template-utils.js`). A missing a
 article the user can't read give the same error, so the existence of articles is not revealed.
 
 - **Configuration** (project `addTemplate`): the template article and every child article must be
-  readable by the project admin. A child article must also either be a template article
-  (*inserted*; marking an article as template requires `UPDATE_PROJECT` in its own project) or be
-  below the article of its parent in the article tree (*imported*).
+  readable by the project admin. The template article and *inserted* child articles must also be
+  usable by the project: from the project itself, or marked as template and shared with the
+  project (marking an article as template requires `UPDATE_PROJECT` in its own project, see
+  [Sharing template articles](#sharing-template-articles)). *Imported* child articles must be below
+  the article of their parent in the article tree.
 - **Article lists** (`getTemplateArticles`, `getChildArticles`): only articles the user can read
   are returned; child articles the user can't read are left out with their subtrees.
-- **Manual use** (issue and article `addTemplate`, `removeTemplate`, `createHierarchy`): the user
-  applying the template must be able to read the template article and the child articles.
+- **Manual use** (issue and article `addTemplate`, issue `applyTemplateFields`, `createHierarchy`):
+  the user applying the template must be able to read the template article and the child
+  articles, and they must still be usable by the project. `removeTemplate` always unregisters the
+  template, but only takes its text out when the user can read the article and the project may
+  use it, since that reads the article.
 - **Automatic use** (the *Add template to ticket* and *Add template to article* workflows): the
   user who edits the ticket or article is *not* checked. Templates are added automatically for
   everyone, and the content is copied into the ticket or article. The project admin is
@@ -255,7 +260,8 @@ article the user can't read give the same error, so the existence of articles is
   the template list and child templates show a warning icon. Articles whose settings explicitly
   share them with this project (see below) get an informational note instead, since the other
   project's admin chose to share them. Imported child articles follow the template article they
-  are imported from.
+  are imported from. Sharing is checked again on every change: a template whose article the
+  project may no longer use is skipped and logged, and nothing of it is applied.
 
 ### Sharing template articles
 
@@ -265,14 +271,19 @@ lists the projects the admin can see; by default only the article's own project 
 
 - The *Template article* and *Insert article as child template* lists of *Ticket Templates
   Config* only offer template articles shared with the project (`getTemplateArticles`).
-- Saving a template (project `addTemplate`) is refused when its template article, or an inserted
-  child template article, is not shared with the project. Imported child articles are covered by
-  the article they are imported from.
-- Templates already configured in a project that is no longer shared keep working, both
-  automatically and from the menu. The configuration flags them, and they can't be saved until
-  the article is shared again or replaced.
+- A project may use an article of its own, or an article of another project that is marked as
+  template and shared with it (`isUsableTemplateArticle` in `src/template-utils.js`). This applies
+  to the template article and to inserted child template articles; imported child articles are
+  covered by the article they are imported from.
+- The check runs when a template is saved (project `addTemplate`) and every time it is used:
+  automatically by the workflows, from the menu, and when creating subtasks or sub-articles.
+- When an article is no longer shared with a project, or is no longer marked as template, the
+  project's templates using it stop working: the workflows skip them, and the menu actions and
+  hierarchy creation are refused. They can still be removed from tickets and articles. The
+  configuration flags them, and they can't be saved until the article is shared again or replaced.
 - Articles marked as template before this setting existed have no `templateProjectKeys` and stay
-  usable in all projects, until the setting is saved for them.
+  usable in all projects while they are marked as template, until the setting is saved for them.
+  Articles that were never marked as template are only usable in their own project.
 - Projects are stored by ID. If a project's ID is changed, it loses access to the article until
   the setting is saved again with the new ID.
 

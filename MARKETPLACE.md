@@ -95,18 +95,22 @@ The app only lets people do what their YouTrack permissions allow:
   article's project. You also choose which projects can use the article as a template; by
   default only its own project. Other projects don't see it until you share it with them.
 - **Apply, remove or set fields of a template from the menu:** requires *Update issue* on the
-  ticket (or *Update article* on the article), and read access to the template's articles.
+  ticket (or *Update article* on the article). Applying and setting fields also require read access
+  to the template's articles.
 - **Create subtasks or sub-articles:** additionally requires *Create issue* (or *Create
   article*).
 - **Templates added automatically:** these are added for anyone who creates or edits a matching
   ticket or article, whether or not that person can read the template article. The template
   content is copied, so everyone who can see the ticket or article can read it.
-- **Articles from other projects:** a template may use articles from another project. The
-  configuration page clearly flags this with a warning, because the copied content becomes
+- **Articles from other projects:** a template may use an article from another project only if
+  that project marked it as template and shared it with this project. The copied content becomes
   visible to everyone who can see the tickets or articles in this project, also people without
-  access to the other project. Use such articles only for content that may be shared. When the
-  other project has shared the article with this project in its *Configure as template* settings,
-  the configuration shows an informational note instead of a warning.
+  access to the other project. The configuration shows an informational note for shared articles,
+  and a warning for articles marked as template before sharing existed, which are shared with all
+  projects until their settings are saved.
+- **Sharing is checked every time:** if the other project stops sharing an article or unmarks it,
+  templates using it are no longer added or applied, automatically or from the menu, and no
+  subtasks or sub-articles are created from them. They can still be removed.
 
 ## Good to know
 - **Articles:** articles have no fields or links. For articles, templates add content, tags,

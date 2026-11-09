@@ -327,32 +327,55 @@ const isArticleSharedWithProject = (article, project) => {
   return keys === null || keys.includes(project.key);
 };
 
-// Validates that the user may read the template article and the articles of all child templates.
-// A child article must be a template article (inserted; marking an article as template requires
-// permission to update its project) or below the article of its parent (imported).
+// True if templates of the project may use the article: articles of the project itself, or
+// template articles shared with the project. Unrestricted sharing (no templateProjectKeys) only
+// applies to articles still marked as template, so unmarking an article revokes its sharing.
+const isUsableTemplateArticle = (article, project) =>
+  article.project.key === project.key ||
+  (article.extensionProperties.isTemplate === true && isArticleSharedWithProject(article, project));
+
+// The error that prevents templates of the project from using an article that is neither of the
+// project nor a template article shared with it, or null.
+const getArticleUsageError = (article, project, subject) => {
+  if (isUsableTemplateArticle(article, project)) {
+    return null;
+  }
+  if (article.extensionProperties.isTemplate !== true) {
+    return `${subject} is from another project and not a template article.`;
+  }
+  return `${subject} is not shared with project ${project.name}.`;
+};
+
+// Validates that the template article and the articles of all child templates exist and may be
+// used by templates of the project. findArticle(articleId) returns the article or null. A child
+// article must be below the article of its parent (imported) or itself usable by the project
+// (inserted; marking an article as template requires permission to update its project).
 // Returns an error message or null.
-const getTemplateArticleError = (template, user, project) => {
-  const root = findReadableArticle(template.articleId, user);
+const getTemplateUsageError = (template, project, findArticle) => {
+  const root = findArticle(template.articleId);
   if (root === null) {
     return `Template article ${template.articleId} not found or not accessible.`;
   }
-  if (!isArticleSharedWithProject(root, project)) {
-    return `Template article ${template.articleId} is not shared with project ${project.name}.`;
+  const rootError = getArticleUsageError(root, project, `Template article ${template.articleId}`);
+  if (rootError !== null) {
+    return rootError;
   }
   const visit = (children, parentArticleId) => {
     for (const child of Array.isArray(children) ? children : []) {
-      const article = findReadableArticle(child.articleId, user);
+      const article = findArticle(child.articleId);
       if (article === null) {
         return `Child template "${child.name}": article ${child.articleId} not found or not accessible.`;
       }
       // Imported children are covered by the article they are imported from; inserted ones
-      // are template articles of their own and must be shared with the project.
+      // must be usable by the project themselves.
       if (!isArticleBelow(article, parentArticleId)) {
-        if (article.extensionProperties.isTemplate !== true) {
-          return `Child template "${child.name}": article ${child.articleId} is neither a template article nor below ${parentArticleId}.`;
-        }
-        if (!isArticleSharedWithProject(article, project)) {
-          return `Child template "${child.name}": template article ${child.articleId} is not shared with project ${project.name}.`;
+        const error = getArticleUsageError(
+          article,
+          project,
+          `Child template "${child.name}": article ${child.articleId}`,
+        );
+        if (error !== null) {
+          return error;
         }
       }
       const error = visit(child.children, child.articleId);
@@ -364,6 +387,11 @@ const getTemplateArticleError = (template, user, project) => {
   };
   return visit(template.children, template.articleId);
 };
+
+// Validates that the user may read the template article and the articles of all child templates,
+// and that templates of the project may use them (see getTemplateUsageError).
+const getTemplateArticleError = (template, user, project) =>
+  getTemplateUsageError(template, project, (articleId) => findReadableArticle(articleId, user));
 
 // The project of an article, whether it differs from the given project, and whether the article's
 // template settings explicitly share it with the given project.
@@ -1303,6 +1331,8 @@ module.exports = {
   getTemplateArticleError,
   getTemplateProjectKeys,
   isArticleSharedWithProject,
+  isUsableTemplateArticle,
+  getTemplateUsageError,
   getArticleTree,
   getCreatedHierarchyTemplateIds,
   markHierarchyCreated,

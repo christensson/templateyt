@@ -59,9 +59,10 @@ const getValidTemplates = (ctx, issue) => {
 // Load the knowledge base articles referenced by the given templates, keyed by article id.
 // Not checked against the current user on purpose: templates are added automatically for anyone
 // who edits a matching entity. The project admin decides which articles are used: the backend
-// only stores templates whose articles the admin may read, and the configuration warns about
-// articles from other projects.
-const loadTemplateArticles = (templates) => {
+// only stores templates whose articles the admin may read. Sharing is checked again here, since
+// the article's project may have stopped sharing it since: articles the project may no longer use
+// are skipped (and logged), never applied.
+const loadTemplateArticles = (issue, templates) => {
   const articles = {};
   for (const t of templates) {
     const articleId = t.articleId;
@@ -69,11 +70,21 @@ const loadTemplateArticles = (templates) => {
       continue;
     }
     const article = entities.Article.findById(articleId);
-    if (article != null) {
+    if (article != null && utils.isUsableTemplateArticle(article, issue.project)) {
       articles[articleId] = article;
+    } else {
+      log(
+        `Issue ${issue.id}: Template "${t.name}" (${t.id}) skipped: article ${articleId} not found or not shared with project ${issue.project.key}`,
+      );
     }
   }
   return articles;
+};
+
+// Trimmed content of the template's article, or "" when the article was skipped when loading.
+const getTemplateContent = (articles, template) => {
+  const article = articles[template.articleId];
+  return article && article.content ? article.content.trim() : "";
 };
 
 // Sets the fixed-value fields and the relations to fixed tickets of a template on the issue; tags
@@ -230,14 +241,13 @@ exports.rule = entities.Issue.onChange({
     log(`Ticket ${issue.id}: Templates to apply: ${JSON.stringify(newTemplates)}`);
     log(`Ticket ${issue.id}: Templates to potentially remove: ${JSON.stringify(oldTemplates)}`);
 
-    const articles = loadTemplateArticles([...newTemplates, ...oldTemplates]);
+    const articles = loadTemplateArticles(issue, [...newTemplates, ...oldTemplates]);
     let newDescription = issue.description ? issue.description.trim() : "";
     let newSummary = issue.summary || "";
 
     // Remove any old (or new) non-modified templates.
     for (const template of oldTemplates) {
-      const article = articles[template.articleId];
-      const templateContent = article.content.trim();
+      const templateContent = getTemplateContent(articles, template);
       if (templateContent) {
         const lenBefore = newDescription.length;
         newDescription = newDescription.replace(templateContent, "");
@@ -261,10 +271,13 @@ exports.rule = entities.Issue.onChange({
       if (usedTemplateIds.includes(template.id)) {
         continue;
       }
+      // A template whose article may not be used applies nothing (logged when loading).
+      if (!articles[template.articleId]) {
+        continue;
+      }
       const replacementValues = resolveReplacementValues(issue, template);
-      const article = articles[template.articleId];
       const templateContent = utils.applyReplacements(
-        article ? article.content.trim() : "",
+        getTemplateContent(articles, template),
         replacementValues,
       );
       if (templateContent) {

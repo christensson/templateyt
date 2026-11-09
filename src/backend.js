@@ -442,7 +442,7 @@ const getTemplateArticleProjects = (templates, project, user) => {
     if (article !== null) {
       result[articleId] = {
         ...utils.getArticleProjectInfo(article, project),
-        isShared: utils.isArticleSharedWithProject(article, project),
+        isShared: utils.isUsableTemplateArticle(article, project),
       };
     }
   };
@@ -469,6 +469,13 @@ const lookupRequestTemplate = (templates, body, verb) => {
     };
   }
   return { template: template, error: null };
+};
+
+// The template article if the user may read it and templates of the project may use it,
+// otherwise null.
+const findUsableTemplateArticle = (articleId, user, project) => {
+  const article = utils.findReadableArticle(articleId, user);
+  return article !== null && utils.isUsableTemplateArticle(article, project) ? article : null;
 };
 
 // Returns an error message if the template is invalid, otherwise null.
@@ -534,7 +541,10 @@ const getAddedChildTemplates = (rootIssue, children, valueOverrides, optionValue
 // fixedLinks } } }.
 const planHierarchy = (rootIssue, template, childFieldValues, user, valueOverrides, optionValues) => {
   const project = rootIssue.project;
-  const errors = [];
+  // The template article and inserted child articles must still be usable by the project; their
+  // sharing may have changed since the template was saved.
+  const usageError = utils.getTemplateArticleError(template, user, project);
+  const errors = usageError !== null ? [usageError] : [];
   const byChildId = {};
   for (const child of getAddedChildTemplates(
     rootIssue,
@@ -615,8 +625,11 @@ const linkHierarchy = (rootIssue, template, createdById, plan) => {
 // anything. Articles have no fields, so field conditions, fields and inheritance do not apply;
 // option conditions do (optionValues, see utils.resolveOptionValues).
 // Returns { errors: [string], byChildId: { [childId]: { content, tagNames } } }.
-const planArticleHierarchy = (template, user, optionValues) => {
-  const errors = [];
+const planArticleHierarchy = (template, user, project, optionValues) => {
+  // The template article and inserted child articles must still be usable by the project; their
+  // sharing may have changed since the template was saved.
+  const usageError = utils.getTemplateArticleError(template, user, project);
+  const errors = usageError !== null ? [usageError] : [];
   const byChildId = {};
   for (const child of getAddedChildTemplates(null, template.children, {}, optionValues)) {
     const article = utils.findReadableArticle(child.articleId, user);
@@ -931,12 +944,16 @@ exports.httpHandler = {
           return;
         }
 
-        const templateArticle = utils.findReadableArticle(template.articleId, ctx.currentUser);
+        const templateArticle = findUsableTemplateArticle(
+          template.articleId,
+          ctx.currentUser,
+          issue.project,
+        );
         if (templateArticle === null) {
           ctx.response.status = 400;
           ctx.response.json({
             success: false,
-            message: `Failed to add template, template ${templateId} article ${template.articleId} not found or not accessible.`,
+            message: `Failed to add template, template ${templateId} article ${template.articleId} not found, not accessible or not shared with this project.`,
           });
           return;
         }
@@ -1046,6 +1063,13 @@ exports.httpHandler = {
           badRequest(
             ctx,
             `Failed to set fields from template, template ${template.id} is not valid for this issue.`,
+          );
+          return;
+        }
+        if (findUsableTemplateArticle(template.articleId, ctx.currentUser, issue.project) === null) {
+          badRequest(
+            ctx,
+            `Failed to set fields from template, template ${template.id} article ${template.articleId} not found, not accessible or not shared with this project.`,
           );
           return;
         }
@@ -1277,16 +1301,15 @@ exports.httpHandler = {
 
         // Don't check if template is valid for ticket, allow removal anyway.
 
-        const templateArticle = utils.findReadableArticle(template.articleId, ctx.currentUser);
-        if (templateArticle === null) {
-          ctx.response.status = 400;
-          ctx.response.json({
-            success: false,
-            message: `Failed to remove template, template ${templateId} article ${template.articleId} not found or not accessible.`,
-          });
-          return;
-        }
-        const templateContent = templateArticle.content;
+        // The template is unregistered even when its article is gone or no longer shared with the
+        // project, so that it can be cleaned up; its text is only removed if the article may still
+        // be used, since that reads the article.
+        const templateArticle = findUsableTemplateArticle(
+          template.articleId,
+          ctx.currentUser,
+          issue.project,
+        );
+        const templateContent = templateArticle !== null ? templateArticle.content : "";
 
         // Remove template from ticket description.
         let newDescription = issue.description ? issue.description : "";
@@ -1388,12 +1411,16 @@ exports.httpHandler = {
           return;
         }
 
-        const templateArticle = utils.findReadableArticle(template.articleId, ctx.currentUser);
+        const templateArticle = findUsableTemplateArticle(
+          template.articleId,
+          ctx.currentUser,
+          article.project,
+        );
         if (templateArticle === null) {
           ctx.response.status = 400;
           ctx.response.json({
             success: false,
-            message: `Failed to add template, template ${templateId} article ${template.articleId} not found or not accessible.`,
+            message: `Failed to add template, template ${templateId} article ${template.articleId} not found, not accessible or not shared with this project.`,
           });
           return;
         }
@@ -1474,7 +1501,12 @@ exports.httpHandler = {
 
         // Answers to the template's options; options without a default must be answered.
         const options = utils.resolveOptionValues(template, body.optionValues);
-        const plan = planArticleHierarchy(template, ctx.currentUser, options.values);
+        const plan = planArticleHierarchy(
+          template,
+          ctx.currentUser,
+          article.project,
+          options.values,
+        );
         const rootTags = utils.resolveTemplateTags(template);
         const planErrors = rootTags.errors.concat(options.errors, plan.errors);
         if (planErrors.length > 0) {
@@ -1567,16 +1599,15 @@ exports.httpHandler = {
 
         // Don't check if template is valid for article, allow removal anyway.
 
-        const templateArticle = utils.findReadableArticle(template.articleId, ctx.currentUser);
-        if (templateArticle === null) {
-          ctx.response.status = 400;
-          ctx.response.json({
-            success: false,
-            message: `Failed to remove template, template ${templateId} article ${template.articleId} not found or not accessible.`,
-          });
-          return;
-        }
-        const templateContent = templateArticle.content;
+        // The template is unregistered even when its article is gone or no longer shared with the
+        // project, so that it can be cleaned up; its text is only removed if the article may still
+        // be used, since that reads the article.
+        const templateArticle = findUsableTemplateArticle(
+          template.articleId,
+          ctx.currentUser,
+          article.project,
+        );
+        const templateContent = templateArticle !== null ? templateArticle.content : "";
 
         // Remove template from article content.
         let newDescription = article.content ? article.content : "";

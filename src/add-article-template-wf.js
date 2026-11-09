@@ -47,9 +47,10 @@ const getValidTemplates = (ctx, article) => {
 // Load the knowledge base articles referenced by the given templates, keyed by article id.
 // Not checked against the current user on purpose: templates are added automatically for anyone
 // who edits a matching entity. The project admin decides which articles are used: the backend
-// only stores templates whose articles the admin may read, and the configuration warns about
-// articles from other projects.
-const loadTemplateArticles = (templates) => {
+// only stores templates whose articles the admin may read. Sharing is checked again here, since
+// the article's project may have stopped sharing it since: articles the project may no longer use
+// are skipped (and logged), never applied.
+const loadTemplateArticles = (article, templates) => {
   const articles = {};
   for (const t of templates) {
     const articleId = t.articleId;
@@ -57,11 +58,21 @@ const loadTemplateArticles = (templates) => {
       continue;
     }
     const templateArticle = entities.Article.findById(articleId);
-    if (templateArticle != null) {
+    if (templateArticle != null && utils.isUsableTemplateArticle(templateArticle, article.project)) {
       articles[articleId] = templateArticle;
+    } else {
+      log(
+        `Article ${article.id}: Template "${t.name}" (${t.id}) skipped: article ${articleId} not found or not shared with project ${article.project.key}`,
+      );
     }
   }
   return articles;
+};
+
+// Trimmed content of the template's article, or "" when the article was skipped when loading.
+const getTemplateContent = (articles, template) => {
+  const templateArticle = articles[template.articleId];
+  return templateArticle && templateArticle.content ? templateArticle.content.trim() : "";
 };
 
 exports.rule = entities.Article.onChange({
@@ -146,13 +157,12 @@ exports.rule = entities.Article.onChange({
     log(`Ticket ${article.id}: Templates to apply: ${JSON.stringify(newTemplates)}`);
     log(`Ticket ${article.id}: Templates to potentially remove: ${JSON.stringify(oldTemplates)}`);
 
-    const articles = loadTemplateArticles([...newTemplates, ...oldTemplates]);
+    const articles = loadTemplateArticles(article, [...newTemplates, ...oldTemplates]);
     let newDescription = article.content ? article.content.trim() : "";
 
     // Remove any old (or new) non-modified templates.
     for (const template of oldTemplates) {
-      const templateArticle = articles[template.articleId];
-      const templateContent = templateArticle.content.trim();
+      const templateContent = getTemplateContent(articles, template);
       if (templateContent) {
         const lenBefore = newDescription.length;
         newDescription = newDescription.replace(templateContent, "");
@@ -175,8 +185,8 @@ exports.rule = entities.Article.onChange({
       if (usedTemplateIds.includes(template.id)) {
         continue;
       }
-      const templateArticle = articles[template.articleId];
-      const templateContent = templateArticle.content.trim();
+      // A template whose article may not be used applies nothing (logged when loading).
+      const templateContent = getTemplateContent(articles, template);
       if (templateContent) {
         if (newDescription !== "") {
           newDescription += "\n\n";

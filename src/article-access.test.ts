@@ -25,6 +25,7 @@ type Utils = {
   getArticleTree: (article: FakeArticle, user: FakeUser, project: FakeProject) => unknown;
   getTemplateArticleError: (template: unknown, user: FakeUser, project: FakeProject) => string | null;
   isArticleSharedWithProject: (article: FakeArticle, project: FakeProject) => boolean;
+  isUsableTemplateArticle: (article: FakeArticle, project: FakeProject) => boolean;
 };
 
 // The entities stub is shared with the loaded script, so tests can decide what
@@ -188,7 +189,7 @@ describe("getTemplateArticleError", () => {
     setup();
     const template = { articleId: "DEMO-A-1", children: [child("DOCS-A-2")] };
     expect(utils.getTemplateArticleError(template, admin, DEMO)).toBe(
-      'Child template "Child DOCS-A-2": article DOCS-A-2 is neither a template article nor below DEMO-A-1.',
+      'Child template "Child DOCS-A-2": article DOCS-A-2 is from another project and not a template article.',
     );
   });
 
@@ -224,10 +225,58 @@ describe("getTemplateArticleError", () => {
     ).toBeNull();
     expect(
       utils.getTemplateArticleError({ articleId: "DOCS-A-1", children: [child("DOCS-A-3")] }, admin, DEMO),
-    ).toBe('Child template "Child DOCS-A-3": template article DOCS-A-3 is not shared with project Demo.');
+    ).toBe('Child template "Child DOCS-A-3": article DOCS-A-3 is not shared with project Demo.');
     expect(utils.getTemplateArticleError({ articleId: "DOCS-A-4", children: [] }, admin, DEMO)).toBe(
       "Template article DOCS-A-4 is not shared with project Demo.",
     );
+  });
+
+  // Review of 0.3.0: an article never marked as template has no project list, which must not
+  // count as shared with every project.
+  it("rejects a root article from another project that is not a template article", () => {
+    const unmarked = makeArticle("DEMO-A-6", DEMO);
+    const unmarkedRestricted = makeArticle("DEMO-A-2", DEMO, {
+      extensionProperties: { isTemplate: false, templateProjectKeys: JSON.stringify(["DOCS"]) },
+    });
+    stubArticles([unmarked, unmarkedRestricted]);
+    expect(utils.getTemplateArticleError({ articleId: "DEMO-A-6", children: [] }, admin, DOCS)).toBe(
+      "Template article DEMO-A-6 is from another project and not a template article.",
+    );
+    expect(utils.getTemplateArticleError({ articleId: "DEMO-A-2", children: [] }, admin, DOCS)).toBe(
+      "Template article DEMO-A-2 is from another project and not a template article.",
+    );
+    // Articles of the project itself need no template marking or sharing.
+    expect(utils.getTemplateArticleError({ articleId: "DEMO-A-6", children: [] }, admin, DEMO)).toBeNull();
+  });
+});
+
+describe("isUsableTemplateArticle", () => {
+  it("allows the project's own articles and template articles shared with it", () => {
+    const own = makeArticle("DEMO-A-1", DEMO);
+    const ownNotListed = makeArticle("DEMO-A-2", DEMO, {
+      extensionProperties: { isTemplate: true, templateProjectKeys: JSON.stringify(["DOCS"]) },
+    });
+    const legacy = makeArticle("DOCS-A-1", DOCS, { extensionProperties: { isTemplate: true } });
+    const listed = makeArticle("DOCS-A-2", DOCS, {
+      extensionProperties: { isTemplate: true, templateProjectKeys: JSON.stringify(["DEMO"]) },
+    });
+    expect(utils.isUsableTemplateArticle(own, DEMO)).toBe(true);
+    expect(utils.isUsableTemplateArticle(ownNotListed, DEMO)).toBe(true);
+    expect(utils.isUsableTemplateArticle(legacy, DEMO)).toBe(true);
+    expect(utils.isUsableTemplateArticle(listed, DEMO)).toBe(true);
+  });
+
+  it("rejects other projects' articles that are not shared or no longer marked as template", () => {
+    const neverMarked = makeArticle("DOCS-A-1", DOCS);
+    const notListed = makeArticle("DOCS-A-2", DOCS, {
+      extensionProperties: { isTemplate: true, templateProjectKeys: JSON.stringify(["DOCS"]) },
+    });
+    const unmarked = makeArticle("DOCS-A-3", DOCS, {
+      extensionProperties: { isTemplate: false, templateProjectKeys: JSON.stringify(["DEMO"]) },
+    });
+    expect(utils.isUsableTemplateArticle(neverMarked, DEMO)).toBe(false);
+    expect(utils.isUsableTemplateArticle(notListed, DEMO)).toBe(false);
+    expect(utils.isUsableTemplateArticle(unmarked, DEMO)).toBe(false);
   });
 });
 
