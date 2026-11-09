@@ -2,13 +2,13 @@
   "$schema": "https://json.schemastore.org/youtrack-app.json",
   "name": "templateyt",
   "title": "Ticket Templates",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Ticket and article templates that set content and fields, are applied on conditions or on demand, and can be hierarchical.",
   "vendor": {
     "name": "Marcus Christensson",
     "url": "https://github.com/christensson/templateyt"
   },
-  "changeNotes": "Version 0.3.0:<br/>- Configure as template: choose which projects can use a template article; by default only its own project. Articles marked as template before this version stay usable in all projects until saved again.<br/>- Templates can set date, date and time, period, integer, float and string fields, to a fixed value or a value chosen by the user. Fixed dates are relative to when the template is applied, e.g. +14d, or +2d 4h for date and time. These fields can also be used in text replacements and inherited by subtasks.<br/>- Conditions can use owned fields and multi-value enum and owned fields; a multi-value field matches when it includes the value.<br/>- Hierarchical templates can define options: yes/no questions answered when creating subtasks or sub-articles, with a default or required. Child templates can be created depending on the answer.",
+  "changeNotes": "Version 0.3.1:<br/>- Configure as template: choose which projects can use a template article; by default only its own project. Articles marked as template before this version stay usable in all projects until saved again.<br/>- Template article sharing is enforced whenever a template is applied, automatically or manually, and when subtasks or sub-articles are created: articles from other projects must be marked as template and shared with the project. Templates whose article is no longer shared are skipped.<br/>- Templates can set date, date and time, period, integer, float and string fields, to a fixed value or a value chosen by the user. Fixed dates are relative to when the template is applied, e.g. +14d, or +2d 4h for date and time. These fields can also be used in text replacements and inherited by subtasks.<br/>- Conditions can use owned fields and multi-value enum and owned fields; a multi-value field matches when it includes the value.<br/>- Hierarchical templates can define options: yes/no questions answered when creating subtasks or sub-articles, with a default or required. Child templates can be created depending on the answer.",
   "minYouTrackVersion": "2026.1.0",
   "icon": "icon-small.svg",
   "widgets": [
