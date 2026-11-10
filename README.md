@@ -185,6 +185,19 @@ content as description.
   possible after a warning and adds another set of subtasks.
 - Subtasks created this way do not get templates added automatically on creation, even if their
   fields match an automatic add condition.
+- *"Add a summary comment when subtasks are created"* (under *Hierarchy*, off by default) adds a
+  comment to the ticket or article each time subtasks or sub-articles are created, as a record
+  for later reference. The comment is by the user who created them and lists:
+  - the answers to all options,
+  - the text replacements and their values,
+  - the ticket fields the template sets or uses in conditions, marking those changed in the
+    *"Create subtasks"* form,
+  - the created subtasks as a nested list, with the values entered for each, and why conditional
+    ones were created,
+  - the child templates that were not created, struck through and linked to their template
+    article, with the conditions they needed. A skipped subtree is one line with its count.
+
+  No comment is added when nothing was created.
 
 ### Use templates
 

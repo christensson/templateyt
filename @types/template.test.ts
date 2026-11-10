@@ -52,6 +52,7 @@ import {
   formatTitleSetting,
   getTemplateTitle,
   validateTemplateTitle,
+  hasSummaryComment,
   type ChildTemplate,
   type Template,
 } from "./template";
@@ -889,5 +890,24 @@ describe("applyReplacements (preview)", () => {
     ["Ärende KUND", [{ search: "KUND", value: "Åke" }], "Ärende Åke"],
   ])("replaces whole words in %j like the backend", (text, values, expected) => {
     expect(applyReplacements(text, values)).toBe(expected);
+  });
+});
+
+describe("summary comment setting", () => {
+  const release = (): Template => clone(current.find((t) => t.name === "Release template") as Template);
+
+  it("is off for templates of older versions and for non-hierarchical templates", () => {
+    for (const template of all) {
+      expect(hasSummaryComment(template)).toBe(false);
+    }
+    expect(hasSummaryComment({ ...release(), summaryComment: true })).toBe(true);
+    expect(hasSummaryComment({ ...release(), summaryComment: true, hierarchical: false })).toBe(false);
+  });
+
+  it("must be a boolean when set", () => {
+    expect(validateChildTemplates({ ...release(), summaryComment: true })).toBeNull();
+    expect(validateChildTemplates({ ...release(), summaryComment: "yes" } as unknown as Template)).toBe(
+      "Template summaryComment must be a boolean.",
+    );
   });
 });

@@ -1,5 +1,6 @@
 var entities = require("@jetbrains/youtrack-scripting-api/entities");
 var utils = require("./template-utils");
+var summary = require("./hierarchy-summary");
 
 const storeTemplates = (ctx, templates) => {
   const props = ctx.project.extensionProperties;
@@ -348,6 +349,9 @@ const validateTemplateTitle = (template) => {
 const validateChildTemplates = (template) => {
   if (template.hierarchical !== undefined && typeof template.hierarchical !== "boolean") {
     return "Template hierarchical must be a boolean.";
+  }
+  if (template.summaryComment !== undefined && typeof template.summaryComment !== "boolean") {
+    return "Template summaryComment must be a boolean.";
   }
   const optionIds = (Array.isArray(template.options) ? template.options : [])
     .filter((option) => option && typeof option.id === "string")
@@ -711,6 +715,63 @@ const getArticleHierarchyError = (article, template) => {
 };
 
 const uniqueNames = (names) => names.filter((name, index) => names.indexOf(name) === index);
+
+// Record of a child template that was not created, for the summary comment, with the title and
+// URL of its template article. The article was checked with the whole template before anything
+// was created (utils.getTemplateArticleError: readable by the user and usable by the project), so
+// its title may be shown like the content of the created ones; it is looked up again with the
+// same read check and left out when that fails.
+const skippedNode = (child, why, replacementValues, user) => {
+  const article = utils.findReadableArticle(child.articleId, user);
+  return {
+    name: utils.applyReplacements(child.name, replacementValues),
+    articleId: child.articleId,
+    articleTitle: article !== null && article.summary ? article.summary : null,
+    articleUrl:
+      article !== null && typeof article.url === "string" && article.url !== ""
+        ? article.url
+        : `/articles/${child.articleId}`,
+    created: null,
+    conditional: why.conditional,
+    matched: why.matched,
+    unmet: why.unmet,
+    skippedCount: utils.flattenChildTemplates(child.children).length,
+    children: [],
+  };
+};
+
+// Record of a child template that was created as entity, for the summary comment.
+const createdNode = (child, why, entity, entered, children) => ({
+  name: child.name,
+  articleId: child.articleId,
+  created: { id: entity.id, summary: entity.summary || "", entered: entered },
+  conditional: why.conditional,
+  matched: why.matched,
+  unmet: why.unmet,
+  skippedCount: 0,
+  children: children,
+});
+
+// Adds the summary comment of a created hierarchy to the root ticket or article when the template
+// enables it and anything was created. Runs in the same transaction as the creation.
+// data: { target, nodes, replacementValues, optionValues, rootFields }.
+const addSummaryComment = (ctx, entity, template, body, data) => {
+  if (!utils.hasSummaryComment(template) || !data.nodes.some((node) => node.created !== null)) {
+    return;
+  }
+  const user = ctx.currentUser;
+  const text = summary.buildHierarchySummary({
+    target: data.target,
+    templateName: template.name || template.id,
+    userName: (user && (user.fullName || user.login)) || "unknown user",
+    total: utils.flattenChildTemplates(template.children).length,
+    options: summary.describeOptions(template, data.optionValues, body.optionValues),
+    replacements: summary.describeReplacements(template, data.replacementValues),
+    rootFields: data.rootFields,
+    nodes: data.nodes,
+  });
+  entity.addComment(text, user);
+};
 
 exports.httpHandler = {
   endpoints: [
@@ -1277,13 +1338,23 @@ exports.httpHandler = {
         const createdById = {};
         // Fields configured by the root template, inherited from the root ticket on request.
         const rootManagedFields = template.fields.map((field) => field.fieldName);
+        // Returns the records of the children for the summary comment.
         const createChildren = (parentIssue, parentManagedFields, children) => {
+          const nodes = [];
           for (const child of children) {
+            const why = summary.explainChildConditions(
+              issue,
+              child,
+              conditionInputs.valueOverrides,
+              options.values,
+              template.options,
+            );
             // Skipped child templates take their whole subtree with them.
             if (
               !utils.isChildTemplateAdded(issue, child, conditionInputs.valueOverrides, options.values)
             ) {
               skippedChildIds.push(child.id);
+              nodes.push(skippedNode(child, why, replacements.values, ctx.currentUser));
               continue;
             }
             const prepared = plan.byChildId[child.id];
@@ -1313,13 +1384,27 @@ exports.httpHandler = {
             const managedNames = uniqueNames(
               rootNames.concat(inheritedNames, child.fields.map((field) => field.fieldName)),
             );
-            createChildren(ticket, managedNames, child.children);
+            const childNodes = createChildren(ticket, managedNames, child.children);
+            const entered = summary.describeEnteredValues(child, prepared.assignments);
+            nodes.push(createdNode(child, why, ticket, entered, childNodes));
           }
+          return nodes;
         };
         utils.applyTags(issue, rootTags.tagNames);
         utils.applyRelations(issue, rootRelations.links);
-        createChildren(issue, rootManagedFields, template.children);
+        const nodes = createChildren(issue, rootManagedFields, template.children);
         const skippedRelations = linkHierarchy(issue, template, createdById, plan);
+        addSummaryComment(ctx, issue, template, body, {
+          target: "ticket",
+          nodes: nodes,
+          replacementValues: replacements.values,
+          optionValues: options.values,
+          rootFields: summary.describeRootFields(
+            issue,
+            template,
+            conditionInputs.assignments.concat(fieldInputs.assignments).map((a) => a.fieldName),
+          ),
+        });
         utils.markHierarchyCreated(issue, template.id);
         utils.storeReplacementTexts(issue, template, body.replacementTexts);
 
@@ -1584,10 +1669,14 @@ exports.httpHandler = {
         }
 
         const createdArticleIds = [];
+        // Returns the records of the children for the summary comment.
         const createChildren = (parentArticle, children) => {
+          const nodes = [];
           for (const child of children) {
+            const why = summary.explainChildConditions(null, child, {}, options.values, template.options);
             // Skipped child templates take their whole subtree with them.
             if (!utils.isChildTemplateAdded(null, child, {}, options.values)) {
+              nodes.push(skippedNode(child, why, replacements.values, ctx.currentUser));
               continue;
             }
             const prepared = plan.byChildId[child.id];
@@ -1602,11 +1691,20 @@ exports.httpHandler = {
             created.parentArticle = parentArticle;
             utils.applyTags(created, prepared.tagNames);
             createdArticleIds.push(created.id);
-            createChildren(created, child.children);
+            const childNodes = createChildren(created, child.children);
+            nodes.push(createdNode(child, why, created, [], childNodes));
           }
+          return nodes;
         };
         utils.applyTags(article, rootTags.tagNames);
-        createChildren(article, template.children);
+        const nodes = createChildren(article, template.children);
+        addSummaryComment(ctx, article, template, body, {
+          target: "article",
+          nodes: nodes,
+          replacementValues: replacements.values,
+          optionValues: options.values,
+          rootFields: [],
+        });
         utils.markHierarchyCreated(article, template.id);
         utils.storeReplacementTexts(article, template, body.replacementTexts);
 

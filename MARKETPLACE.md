@@ -77,6 +77,9 @@ subtasks below a ticket, or sub-articles below an article.
 - **Inherited fields:** subtasks can copy field values from their parent or from the root ticket.
 - **Links:** link the root ticket, the subtasks and other existing tickets to each other
   automatically.
+- **Summary comment:** optionally add a comment to the ticket each time subtasks are created. It
+  is a readable record of what was done: who created them, the answers to the options, the
+  placeholder values, the values entered, and which subtasks were created or skipped, and why.
 
 ### Link tickets
 Add links, such as *relates to* or *depends on*, from the ticket to fixed tickets, to the root

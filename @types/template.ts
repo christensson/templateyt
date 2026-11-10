@@ -159,6 +159,9 @@ export type Template = {
   // Title set when the template is applied; missing or null keeps the title (templates stored
   // before titles could be set).
   title?: TemplateTitle | null;
+  // Adds a summary comment to the root ticket or article when the hierarchy is created; off when
+  // missing (templates stored before the setting existed).
+  summaryComment?: boolean;
 };
 
 const capitalizeFirst = (str: string): string =>
@@ -215,6 +218,11 @@ export const formatTitleSetting = (title: TemplateTitle | null): string => {
   }
   return `Template article title, ${title.when === "always" ? "always" : "only when empty"}`;
 };
+
+// Whether creating the hierarchy adds a summary comment. Keep in sync with hasSummaryComment in
+// template-utils.js.
+export const hasSummaryComment = (template: Template): boolean =>
+  template?.summaryComment === true && template.hierarchical === true;
 
 export const getTemplateRelations = (template: HasRelations): Array<TemplateRelation> =>
   Array.isArray(template?.relations) ? template.relations : [];
@@ -1334,6 +1342,9 @@ const validateChildSettings = (
 // Validates the child templates of a hierarchical template. Returns an error message, or null.
 // Keep in sync with validateChildTemplates in backend.js.
 export const validateChildTemplates = (template: Template): string | null => {
+  if (template.summaryComment !== undefined && typeof template.summaryComment !== "boolean") {
+    return "Template summaryComment must be a boolean.";
+  }
   if (!template.hierarchical) {
     return null;
   }

@@ -661,6 +661,36 @@ const newIssueFieldHasValue = (issue, fieldName, valueName) => {
   return issueFieldHasValue(issue, fieldName, valueName);
 };
 
+// The add conditions of a child template that count: all of them for tickets; for articles
+// (rootIssue null) only option conditions, since articles have no fields.
+// Whether the template adds a summary comment when its hierarchy is created; off when missing
+// (templates stored before the setting existed). Keep in sync with hasSummaryComment in
+// @types/template.ts.
+const hasSummaryComment = (template) =>
+  Boolean(template) && template.summaryComment === true && template.hierarchical === true;
+
+const getChildActiveConditions = (rootIssue, child) => {
+  const all = Array.isArray(child.addConditions) ? child.addConditions : [];
+  return rootIssue == null ? all.filter((cond) => cond && cond.when === "option_is") : all;
+};
+
+// Whether one add condition of a child template matches; see isChildTemplateAdded.
+const isChildConditionMet = (rootIssue, cond, valueOverrides, optionValues) => {
+  if (cond && cond.when === "option_is") {
+    return Boolean(optionValues) && optionValues[cond.optionId] === cond.value;
+  }
+  if (!cond || cond.when !== "field_is" || rootIssue == null) {
+    return false;
+  }
+  const override = valueOverrides ? valueOverrides[cond.fieldName] : undefined;
+  if (Array.isArray(override)) {
+    return override.includes(cond.fieldValue);
+  }
+  return typeof override === "string"
+    ? override === cond.fieldValue
+    : issueFieldHasValue(rootIssue, cond.fieldName, cond.fieldValue);
+};
+
 // A child template is added when it has no add conditions or any of them matches: a field
 // condition the root ticket (the ticket the hierarchy is created from), an option condition the
 // answer in optionValues (option id to boolean, see resolveOptionValues). rootIssue is null for
@@ -671,26 +701,11 @@ const newIssueFieldHasValue = (issue, fieldName, valueName) => {
 // root ticket's current values. Conditions on multi-value fields match when the field includes the
 // value.
 const isChildTemplateAdded = (rootIssue, child, valueOverrides, optionValues) => {
-  const all = Array.isArray(child.addConditions) ? child.addConditions : [];
-  const conditions = rootIssue == null ? all.filter((cond) => cond && cond.when === "option_is") : all;
+  const conditions = getChildActiveConditions(rootIssue, child);
   if (conditions.length === 0) {
     return true;
   }
-  return conditions.some((cond) => {
-    if (cond && cond.when === "option_is") {
-      return Boolean(optionValues) && optionValues[cond.optionId] === cond.value;
-    }
-    if (!cond || cond.when !== "field_is" || rootIssue == null) {
-      return false;
-    }
-    const override = valueOverrides ? valueOverrides[cond.fieldName] : undefined;
-    if (Array.isArray(override)) {
-      return override.includes(cond.fieldValue);
-    }
-    return typeof override === "string"
-      ? override === cond.fieldValue
-      : issueFieldHasValue(rootIssue, cond.fieldName, cond.fieldValue);
-  });
+  return conditions.some((cond) => isChildConditionMet(rootIssue, cond, valueOverrides, optionValues));
 };
 
 const isTemplateValidForIssue = (ytIssue, template) => {
@@ -1396,6 +1411,14 @@ module.exports = {
   clearTemplatePending,
   flattenChildTemplates,
   isChildTemplateAdded,
+  isChildConditionMet,
+  hasSummaryComment,
+  getChildActiveConditions,
+  getChildConditionFieldNames,
+  getIssueFieldTypeName,
+  getFieldPresentationText,
+  getFieldValuePresentation,
+  isMultiValueType,
   resolveOptionValues,
   isArticleReadableBy,
   findReadableArticle,

@@ -34,6 +34,7 @@ import {
   flattenChildTemplates,
   formatTitleSetting,
   getTemplateTitle,
+  hasSummaryComment,
   formatAddCondition,
   formatReplacement,
   formatTemplateField,
@@ -358,6 +359,11 @@ const TemplateView: React.FunctionComponent<TemplateViewProps> = ({
             ? `Creates subtasks from ${childCount} child template${childCount === 1 ? "" : "s"}. Select one in the list to see it.`
             : "Not hierarchical."}
         </Text>
+        {hasSummaryComment(template) && (
+          <LabeledValue label="Summary comment">
+            <Text size={Text.Size.M}>Added each time the hierarchy is created.</Text>
+          </LabeledValue>
+        )}
         {template.hierarchical && options.length > 0 && (
           <LabeledValue label="Options">
             <Text size={Text.Size.M}>
@@ -385,6 +391,13 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({
   const [importing, setImporting] = useState<boolean>(false);
   const [importMessage, setImportMessage] = useState<string>("");
   const childCount = flattenChildTemplates(getChildTemplates(template)).length;
+  // "ticket", "article" or "ticket or article".
+  const rootNoun = formatTemplateTargetNoun(template);
+  // "subtasks", "sub-articles" or "subtasks or sub-articles".
+  const childNouns = formatTemplateTargetNoun(template, true)
+    .split(" or ")
+    .map((noun) => `${noun}s`)
+    .join(" or ");
 
   const importChildren = async () => {
     setImporting(true);
@@ -456,6 +469,20 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({
             />
           </LabeledValue>
           <TemplateOptionsPanel template={template} setTemplate={setTemplate}/>
+          <LabeledValue label="Summary comment">
+            <Checkbox
+              label={`Add a comment to the ${rootNoun} when ${childNouns} are created`}
+              checked={template.summaryComment === true}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                const summaryComment = e.target.checked;
+                setTemplate((prev) => ({ ...prev, summaryComment }));
+              }}
+            />
+            <Text size={Text.Size.S} info>
+              A record for later reference: option answers, text replacements, entered values, and
+              which {childNouns} were created or skipped, and why.
+            </Text>
+          </LabeledValue>
           <Text size={Text.Size.S} info>
             For articles, sub-articles get text replacements and tags only.
           </Text>

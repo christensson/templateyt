@@ -8,7 +8,7 @@
     "name": "Marcus Christensson",
     "url": "https://github.com/christensson/templateyt"
   },
-  "changeNotes": "Version 0.4.0:<br/>- Templates can set the title of the ticket or article they are applied to, from the title of the template article: always, or only when the title is empty. When applied from the Apply template dialog to a ticket or article that has a title, the user is asked whether to replace it. Text replacements are applied to the new title. Templates saved by earlier versions keep the title.",
+  "changeNotes": "Version 0.4.0:<br/>- Templates can set the title of the ticket or article they are applied to, from the title of the template article: always, or only when the title is empty. When applied from the Apply template dialog to a ticket or article that has a title, the user is asked whether to replace it. Text replacements are applied to the new title. Templates saved by earlier versions keep the title.<br/>- Hierarchical templates can add a summary comment each time subtasks or sub-articles are created, recording who created them, the option answers, the text replacements, the values entered, and which subtasks were created or skipped, and why. Off by default.",
   "minYouTrackVersion": "2026.1.0",
   "icon": "icon-small.svg",
   "widgets": [

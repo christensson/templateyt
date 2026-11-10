@@ -35,6 +35,13 @@ type Utils = {
     template: unknown,
     chosen: unknown,
   ) => { values: Record<string, boolean>; errors: Array<string> };
+  isChildConditionMet: (
+    issue: unknown,
+    cond: unknown,
+    overrides?: Record<string, string | Array<string>>,
+    optionValues?: Record<string, boolean>,
+  ) => boolean;
+  getChildActiveConditions: (issue: unknown, child: unknown) => Array<unknown>;
   issueFieldHasValue: (issue: unknown, fieldName: string, valueName: string) => boolean;
   issueFieldBecomes: (issue: unknown, fieldName: string, valueName: string) => boolean;
   issueFieldWas: (issue: unknown, fieldName: string, valueName: string) => boolean;
@@ -308,6 +315,31 @@ describe("conditional child templates", () => {
     expect(utils.isChildTemplateAdded(root, child, { Priority: "Minor" })).toBe(true);
     expect(utils.isChildTemplateAdded(makeRoot({ Priority: { name: "Minor" } }), child, { Priority: "Normal" })).toBe(false);
     expect(utils.isChildTemplateAdded(root, conditional.children[1], { Priority: "x" })).toBe(true);
+  });
+
+  it("evaluates each condition the same way as the whole child template", () => {
+    const root = makeRoot({ Priority: { name: "Normal" }, State: { name: "Fixed" } });
+    const option = { when: "option_is", optionId: "o", value: true };
+    const cases: Array<[unknown, Record<string, string | Array<string>> | undefined, Record<string, boolean> | undefined]> = [
+      [cond("Priority", "Minor"), undefined, undefined],
+      [cond("Priority", "Minor"), { Priority: "Minor" }, undefined],
+      [cond("State", "Fixed"), undefined, undefined],
+      [cond("Labels", "a"), { Labels: ["b", "a"] }, undefined],
+      [cond("Labels", "a"), { Labels: [] }, undefined],
+      [option, undefined, { o: true }],
+      [option, undefined, { o: false }],
+      [option, undefined, undefined],
+    ];
+    for (const [condition, overrides, options] of cases) {
+      const child = { addConditions: [condition] };
+      expect(utils.isChildConditionMet(root, condition, overrides, options)).toBe(
+        utils.isChildTemplateAdded(root, child, overrides, options),
+      );
+    }
+    // Articles only count option conditions.
+    const mixed = { addConditions: [cond("Priority", "Minor"), option] };
+    expect(utils.getChildActiveConditions(null, mixed)).toEqual([option]);
+    expect(utils.getChildActiveConditions(root, mixed)).toHaveLength(2);
   });
 
   it("accepts changed values of condition fields only", () => {

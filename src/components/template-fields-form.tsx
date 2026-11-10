@@ -37,6 +37,7 @@ import {
   type TemplateField,
   type TemplateRelation,
   type TextReplacement,
+  hasSummaryComment,
 } from "../../@types/template";
 import {
   formatHierarchyLabel,
@@ -370,6 +371,17 @@ const FormSection: React.FunctionComponent<FormSectionProps> = ({ title, childre
     {children}
   </div>
 );
+
+// Tells that a summary comment will record the created hierarchy, when the template adds one.
+const SummaryCommentNote: React.FunctionComponent<{ template: Template; noun: "ticket" | "article" }> = ({
+  template,
+  noun,
+}) =>
+  hasSummaryComment(template) ? (
+    <Text size={Text.Size.S} info>
+      A summary comment is added to this {noun}.
+    </Text>
+  ) : null;
 
 interface FormActionsProps {
   label: string;
@@ -930,6 +942,7 @@ export const ArticleHierarchyForm: React.FunctionComponent<ArticleHierarchyFormP
             })}
           </div>
         </FormSection>
+        <SummaryCommentNote template={template} noun="article"/>
       </div>
       <FormActions
         label={formatHierarchyLabel("article", alreadyCreated)}
@@ -1272,6 +1285,7 @@ export const HierarchyForm: React.FunctionComponent<HierarchyFormProps> = ({
             </Text>
           )}
         </FormSection>
+        <SummaryCommentNote template={template} noun="ticket"/>
       </div>
       <FormActions
         label={formatHierarchyLabel("ticket", alreadyCreated)}

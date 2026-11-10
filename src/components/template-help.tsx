@@ -86,6 +86,11 @@ const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({ createNewTem
           created depending on the answer. An option is either Yes or No by default, or the user
           must choose every time.
         </li>
+        <li>
+          A hierarchical template can add a summary comment each time its subtasks or sub-articles
+          are created. The comment records who created them, the answers to the options, the text
+          replacements, the values entered, and which subtasks were created or skipped, and why.
+        </li>
       </ul>
     </Text>
   </div>

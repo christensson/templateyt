@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { callEndpoint, findEndpoint as findIn, type Endpoint } from "../test/fake-ctx";
 import { entitiesStub, loadBackendScript } from "../test/load-backend-script.mjs";
 
 // Templates can set the title (summary) of the ticket or article they are applied to, from the
@@ -23,7 +24,6 @@ type FakeArticle = {
   extensionProperties: { isTemplate?: boolean; templateProjectKeys?: string };
 };
 type Rule = { action: (ctx: unknown) => void };
-type Endpoint = { scope: string; method: string; path: string; handle: (ctx: unknown) => void };
 type TitleSetting = { source: string; when: string } | null;
 type Utils = {
   getTemplateTitleSetting: (template: unknown) => TitleSetting;
@@ -52,13 +52,8 @@ afterEach(() => {
   entities.Article.findById = originalFindById;
 });
 
-const findEndpoint = (scope: string, method: string, path: string): Endpoint => {
-  const endpoint = endpoints.find((e) => e.scope === scope && e.method === method && e.path === path);
-  if (endpoint === undefined) {
-    throw new Error(`No endpoint ${scope} ${method} ${path}`);
-  }
-  return endpoint;
-};
+const findEndpoint = (scope: string, method: string, path: string): Endpoint =>
+  findIn(endpoints, scope, method, path);
 
 const makeProject = (key: string, templates: Array<unknown> = []): FakeProject => ({
   key,
@@ -141,21 +136,7 @@ const makeTargetArticle = (project: FakeProject, summary: string) => ({
   extensionProperties: {} as Record<string, unknown>,
 });
 
-// Calls an endpoint with a fake context; returns the JSON response.
-const call = (endpoint: Endpoint, ctx: Record<string, unknown>, body?: unknown) => {
-  let json: Record<string, unknown> = {};
-  endpoint.handle({
-    ...ctx,
-    request: { body: JSON.stringify(body ?? {}) },
-    response: {
-      status: 200,
-      json: (value: Record<string, unknown>) => {
-        json = value;
-      },
-    },
-  });
-  return json;
-};
+const call = callEndpoint;
 
 const ALWAYS = { source: "article", when: "always" };
 const IF_EMPTY = { source: "article", when: "if_empty" };
