@@ -1,8 +1,8 @@
 # Ticket Templates for YouTrack
 
 Write tickets and articles that look the same every time. Ticket Templates turns ordinary
-knowledge base articles into reusable templates. They can fill in the description, set fields,
-add tags, link tickets and even create a whole tree of subtasks, either automatically or with a
+knowledge base articles into reusable templates. They can fill in the title and the description,
+set fields, add tags, link tickets and even create a whole tree of subtasks, either automatically or with a
 couple of clicks.
 
 ## Why use it
@@ -34,6 +34,17 @@ Open **Apply template** from the "…" menu of a ticket or article. The dialog s
 Only the actions that make sense for the selected template are offered, and you get a
 confirmation when it's done.
 
+### Set the title
+- Use the title of the template article as the ticket or article title, either always or only
+  when the title is empty.
+- When a template is added automatically, an existing title is only replaced if the template
+  always sets it.
+- When you apply a template from the menu to a ticket or article that already has a title, you
+  see the current and the new title side by side and decide whether to replace it.
+- Placeholders in the title are filled in too, e.g. *"Release VERSION"* becomes
+  *"Release 2.1"*.
+- Templates created with earlier versions keep the title as it is.
+
 ### Set fields and tags
 - Set ticket fields to a fixed value, or ask the user to choose a value when the template is
   applied.
@@ -46,7 +57,7 @@ confirmation when it's done.
 
 ### Fill in placeholders
 Use placeholder words in the template, such as `CUSTOMER` or `VERSION`. They are replaced in the
-summary and the content with:
+title and the content with:
 - text the user types when applying the template, or
 - the value of a ticket field, such as the *Fix versions* of the ticket.
 
@@ -79,7 +90,7 @@ ticket or to the created subtasks.
    template, pick the article and decide:
    - where it is available (tickets, articles, or tickets with a certain field value or tag);
    - whether it is added automatically;
-   - what it sets: fields, tags, links, placeholders and subtasks.
+   - what it sets: the title, fields, tags, links, placeholders and subtasks.
 3. **Use it.** Change the ticket field or tag that triggers the template, or apply it from the
    **Apply template** menu.
 
@@ -101,7 +112,8 @@ The app only lets people do what their YouTrack permissions allow:
   article*).
 - **Templates added automatically:** these are added for anyone who creates or edits a matching
   ticket or article, whether or not that person can read the template article. The template
-  content is copied, so everyone who can see the ticket or article can read it.
+  content, and the article title if the template sets it, is copied, so everyone who can see the
+  ticket or article can read it.
 - **Articles from other projects:** a template may use an article from another project only if
   that project marked it as template and shared it with this project. The copied content becomes
   visible to everyone who can see the tickets or articles in this project, also people without
@@ -110,11 +122,13 @@ The app only lets people do what their YouTrack permissions allow:
   projects until their settings are saved.
 - **Sharing is checked every time:** if the other project stops sharing an article or unmarks it,
   templates using it are no longer added or applied, automatically or from the menu, and no
-  subtasks or sub-articles are created from them. They can still be removed.
+  subtasks or sub-articles are created from them. They can still be removed. The same check
+  covers the article title: it is only used, or shown in the **Apply template** dialog, when the
+  article's content may be used.
 
 ## Good to know
-- **Articles:** articles have no fields or links. For articles, templates add content, tags,
-  placeholders and sub-articles.
+- **Articles:** articles have no fields or links. For articles, templates set the title and add
+  content, tags, placeholders and sub-articles.
 - **Article content refresh:** after a template is added to an article, reload the article page
   to see the new content.
 - **Removing templates:** removing a template takes its text out of the ticket again, as long as

@@ -8,7 +8,7 @@
     "name": "Marcus Christensson",
     "url": "https://github.com/christensson/templateyt"
   },
-  "changeNotes": "Version 0.4.0:<br/>",
+  "changeNotes": "Version 0.4.0:<br/>- Templates can set the title of the ticket or article they are applied to, from the title of the template article: always, or only when the title is empty. When applied from the Apply template dialog to a ticket or article that has a title, the user is asked whether to replace it. Text replacements are applied to the new title. Templates saved by earlier versions keep the title.",
   "minYouTrackVersion": "2026.1.0",
   "icon": "icon-small.svg",
   "widgets": [

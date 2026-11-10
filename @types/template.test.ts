@@ -48,6 +48,10 @@ import {
   validateReplacements,
   validateTemplate,
   validateTemplateFields,
+  applyReplacements,
+  formatTitleSetting,
+  getTemplateTitle,
+  validateTemplateTitle,
   type ChildTemplate,
   type Template,
 } from "./template";
@@ -429,12 +433,17 @@ describe("formatTemplateEffectTokens", () => {
       "Release template",
       "ticket",
       [
+        "Sets title if empty",
         "Asks for Assignee, Fix versions, CUSTOMER",
         "Tags test4",
         "Creates 11 subtasks (2 conditional)",
       ],
     ],
-    ["Release template", "article", ["Asks for CUSTOMER", "Tags test4", "Creates 11 sub-articles"]],
+    [
+      "Release template",
+      "article",
+      ["Sets title if empty", "Asks for CUSTOMER", "Tags test4", "Creates 11 sub-articles"],
+    ],
     [
       "SW Module Documentation",
       "article",
@@ -828,5 +837,57 @@ describe("options", () => {
     expect(getTemplateOptions(legacy[0])).toEqual([]);
     expect(getUsedOptions(base)).toEqual([]);
     expect(getInitialOptionValues(base)).toEqual({});
+  });
+});
+
+describe("template title setting", () => {
+  it("reads templates of older versions and malformed settings as keeping the title", () => {
+    for (const template of legacy) {
+      expect(getTemplateTitle(template)).toBeNull();
+    }
+    const base = createEmptyTemplate();
+    expect(getTemplateTitle(base)).toBeNull();
+    expect(getTemplateTitle({ ...base, title: null })).toBeNull();
+    const malformed = [{ source: "fixed", when: "always" }, { source: "article", when: "never" }, "article"];
+    for (const title of malformed) {
+      expect(getTemplateTitle({ ...base, title } as unknown as Template)).toBeNull();
+    }
+    expect(getTemplateTitle(current.find((t) => t.name === "Release template") as Template)).toEqual({ source: "article", when: "if_empty" });
+  });
+
+  it.each([
+    [undefined, null],
+    [null, null],
+    [{ source: "article", when: "always" }, null],
+    [{ source: "article", when: "if_empty" }, null],
+    [{ source: "fixed", when: "always" }, "Template title has an unknown source."],
+    [{ source: "article", when: "never" }, "Template title must be set always or only when empty."],
+  ])("validateTemplateTitle(%j) is %j", (title, expected) => {
+    const template = { ...createEmptyTemplate(), title } as unknown as Template;
+    expect(validateTemplateTitle(template)).toBe(expected);
+    const errors = validateTemplate({ ...template, name: "T", articleId: "A-1" });
+    expect(errors.some((error) => error.section === "effects" && error.message === expected)).toBe(
+      expected !== null,
+    );
+  });
+
+  it("formats the setting", () => {
+    expect(formatTitleSetting(null)).toBe("Keeps the current title");
+    expect(formatTitleSetting({ source: "article", when: "always" })).toBe("Template article title, always");
+    expect(formatTitleSetting({ source: "article", when: "if_empty" })).toBe(
+      "Template article title, only when empty",
+    );
+  });
+});
+
+describe("applyReplacements (preview)", () => {
+  it.each([
+    ["Release VERSION.", [{ search: "VERSION", value: "1.2" }], "Release 1.2."],
+    ["VERSION-1 MY_VERSION", [{ search: "VERSION", value: "1.2" }], "VERSION-1 MY_VERSION"],
+    ["Pay COST", [{ search: "COST", value: "$5" }], "Pay $5"],
+    ["Över VERSION", [{ search: "VERSION", value: null }], "Över VERSION"],
+    ["Ärende KUND", [{ search: "KUND", value: "Åke" }], "Ärende Åke"],
+  ])("replaces whole words in %j like the backend", (text, values, expected) => {
+    expect(applyReplacements(text, values)).toBe(expected);
   });
 });

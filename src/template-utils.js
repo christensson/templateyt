@@ -961,7 +961,75 @@ const applyReplacements = (text, values) => {
   return result;
 };
 
-// Display text of a root ticket field for a field replacement: { value, error, empty }.
+const TITLE_SOURCES = ["article"];
+const TITLE_WHENS = ["always", "if_empty"];
+
+// The title setting of a template ({ source, when }), or null when the template keeps the title:
+// templates stored before titles could be set, and unknown or malformed settings.
+// Keep in sync with getTemplateTitle in @types/template.ts.
+const getTemplateTitleSetting = (template) => {
+  const title = template ? template.title : null;
+  if (
+    title == null ||
+    typeof title !== "object" ||
+    !TITLE_SOURCES.includes(title.source) ||
+    !TITLE_WHENS.includes(title.when)
+  ) {
+    return null;
+  }
+  return title;
+};
+
+// The title the template sets, or null when it keeps the title. templateArticle must be the
+// template article as checked by the caller for use by the project (and the user, where one
+// applies it), exactly as for its content; null when the check failed, so that the title of an
+// article the project may not use never leaks.
+const getTemplateTitleText = (template, templateArticle) => {
+  if (getTemplateTitleSetting(template) === null || templateArticle == null) {
+    return null;
+  }
+  const text = templateArticle.summary ? templateArticle.summary.trim() : "";
+  return text === "" ? null : text;
+};
+
+// Whether a title setting replaces currentTitle. An empty title is always set. replaceChoice is
+// the user's answer when applying manually; without one (workflows, older clients) only "always"
+// replaces an existing title.
+const shouldSetTitle = (currentTitle, setting, replaceChoice) => {
+  if (setting === null) {
+    return false;
+  }
+  if ((currentTitle || "").trim() === "") {
+    return true;
+  }
+  if (typeof replaceChoice === "boolean") {
+    return replaceChoice;
+  }
+  return setting.when === "always";
+};
+
+// The title after applying the template: the template's title when it is set, else currentTitle.
+const pickTemplateTitle = (currentTitle, template, templateArticle, replaceChoice) => {
+  const text = getTemplateTitleText(template, templateArticle);
+  if (text === null || !shouldSetTitle(currentTitle, getTemplateTitleSetting(template), replaceChoice)) {
+    return currentTitle;
+  }
+  return text;
+};
+
+// Sets the summary of the ticket or article to the template's title when it applies; assigns
+// only on change. Returns whether the title was changed.
+const applyTemplateTitle = (entity, template, templateArticle, replaceChoice) => {
+  const current = entity.summary || "";
+  const next = pickTemplateTitle(current, template, templateArticle, replaceChoice);
+  if (next === current) {
+    return false;
+  }
+  entity.summary = next;
+  return true;
+};
+
+
 // fieldOverrides (display text by field name) holds values being set in the same request, used
 // instead of the issue's current value.
 const resolveFieldReplacement = (rootIssue, replacement, fieldOverrides) => {
@@ -1303,6 +1371,11 @@ module.exports = {
   newIssueFieldHasValue,
   templateHasUserInput,
   applyReplacements,
+  getTemplateTitleSetting,
+  getTemplateTitleText,
+  shouldSetTitle,
+  pickTemplateTitle,
+  applyTemplateTitle,
   resolveReplacements,
   resolveReplacementFieldInputs,
   resolveConditionFieldInputs,

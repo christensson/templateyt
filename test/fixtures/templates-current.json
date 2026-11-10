@@ -126,6 +126,7 @@
     "id": "1fe062c8-6f65-4a21-9af4-569df586e4f4",
     "name": "Release template",
     "articleId": "SAN-A-28",
+    "title": { "source": "article", "when": "if_empty" },
     "validCondition": [
       {
         "when": "field_is",

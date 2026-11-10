@@ -32,6 +32,8 @@ import {
   duplicateTemplate,
   findChildTemplate,
   flattenChildTemplates,
+  formatTitleSetting,
+  getTemplateTitle,
   formatAddCondition,
   formatReplacement,
   formatTemplateField,
@@ -84,6 +86,7 @@ import TemplateJsonDialog from "./template-json-dialog";
 import TemplateRelationsPanel, { type IssueChecker } from "./template-relations-panel";
 import TemplateReplacementsPanel from "./template-replacements-panel";
 import TemplateSection from "./template-section";
+import TemplateTitlePanel from "./template-title-panel";
 import TemplateTagsPanel from "./template-tags-panel";
 
 // Register widget in YouTrack. To learn more, see https://www.jetbrains.com/help/youtrack/devportal-apps/apps-host-api.html
@@ -227,6 +230,9 @@ const EffectsView: React.FunctionComponent<EffectsViewProps> = ({ template }) =>
 
   return (
     <>
+      <LabeledValue label="Title">
+        <Text size={Text.Size.M}>{formatTitleSetting(getTemplateTitle(template))}</Text>
+      </LabeledValue>
       {templateFields.length > 0 && (
         <LabeledValue label={`Ticket fields${ticketOnlySuffix}`}>
           {templateFields.map((field) => (
@@ -726,6 +732,14 @@ const TemplateEditForm: React.FunctionComponent<TemplateEditFormProps> = ({
         </LabeledValue>
       </TemplateSection>
       <TemplateSection title="What it does" hasError={hasSectionError(errors, "effects")}>
+        <TemplateTitlePanel
+          template={template}
+          setTemplate={setTemplate}
+          articleTitle={
+            templateArticleSelectItems.find((item) => item.key === template.articleId)
+              ?.templateArticleItem.summary ?? null
+          }
+        />
         <TicketFieldsPanel
           template={template}
           setTemplate={setTemplate}

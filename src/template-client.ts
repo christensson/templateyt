@@ -32,6 +32,9 @@ export type IssueTemplateInfo = {
   createdHierarchyTemplateIds: Array<string>;
   // Texts entered when the templates were applied; missing from older backends.
   replacementTexts?: StoredReplacementTexts;
+  // The ticket summary and the titles templates set (see TitleInfo); missing from older backends.
+  currentTitle?: string;
+  templateTitles?: Record<string, string>;
 };
 
 // All current values of the ticket's fields, for evaluating conditions.
@@ -185,11 +188,14 @@ export const submitTemplateFields = (
   replacementTexts: ReplacementTexts,
   // Values for empty ticket fields that field replacements use; also set on the ticket.
   replacementFieldValues: FieldValues = {},
+  // Whether to replace the current title with the template's (apply only); left out when the
+  // user was not asked, so the backend follows the template's setting.
+  replaceTitle?: boolean,
 ): Promise<TemplateActionResult> =>
   host.fetchApp<TemplateActionResult>(ENDPOINTS[mode], {
     scope: true,
     method: "POST",
-    body: { templateId, fieldValues, replacementTexts, replacementFieldValues },
+    body: { templateId, fieldValues, replacementTexts, replacementFieldValues, replaceTitle },
   });
 
 // Posts to the createHierarchy endpoint of the widget's scope: the ticket or the article.
@@ -230,11 +236,13 @@ export const addTemplateToArticle = (
   host: HostAPI,
   templateId: string,
   replacementTexts: ReplacementTexts,
+  // See submitTemplateFields.
+  replaceTitle?: boolean,
 ): Promise<TemplateActionResult> =>
   host.fetchApp<TemplateActionResult>("backend/addTemplate", {
     scope: true,
     method: "POST",
-    body: { templateId, replacementTexts },
+    body: { templateId, replacementTexts, replaceTitle },
   });
 
 export const removeTemplate = (host: HostAPI, templateId: string): Promise<TemplateActionResult> =>

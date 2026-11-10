@@ -286,6 +286,9 @@ exports.rule = entities.Issue.onChange({
         }
         newDescription += templateContent;
       }
+      // Only articles the project may use are loaded, so the title never comes from another one.
+      // There is no user to ask: an existing title is only replaced by "always" templates.
+      newSummary = utils.pickTemplateTitle(newSummary, template, articles[template.articleId], undefined);
       newSummary = utils.applyReplacements(newSummary, replacementValues);
       applyTemplateFields(ctx, issue, template);
       usedTemplateIds.push(template.id);

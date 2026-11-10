@@ -94,10 +94,28 @@ time fields are relative to when the template is applied: `+14d` or `+1w 2d` for
 `+2d 4h 30m` for date and time (calendar time). Users choosing the value pick an actual date.
 Periods are entered as `1w 2d 4h 30m` and follow the project's working time settings.*
 
+### Title
+
+A template can set the title (summary) of the ticket or article it is applied to. Choose it in the
+*"Title"* setting under *"What it does"*:
+
+- *Keep the current title*: the title is not changed. This is the default, and what templates
+  stored by earlier versions do.
+- *Use the template article title*: the title of the template article, read when the template is
+  applied, either *Always* or *Only when the title is empty*.
+
+An empty title is always set. When a template is added automatically, an existing title is only
+replaced by *Always*. When it is applied from the *"Apply template"* dialog and the ticket or
+article already has a title, the dialog shows the current and the new title and asks whether to
+replace it, preselected to replace for *Always* and to keep for *Only when the title is empty*.
+Text replacements are applied to the new title. The template article title follows the same
+access rules as its content: it is only used, or shown in the dialog, when the project may use the
+article (and the user may read it, when applying manually).
+
 ### Text replacements
 
-A template can replace placeholder words when it is applied, both in the ticket summary and in
-the template content, and for hierarchical templates in every subtask summary and description.
+A template can replace placeholder words when it is applied, both in the ticket summary (or
+article title) and in the template content, and for hierarchical templates in every subtask summary and description.
 Configure them in the template's *"Text replacements"* panel. Each replacement names the word to
 replace and what to insert:
 

@@ -317,6 +317,32 @@ const applyReplacementsToIssue = (issue, values) => {
   }
 };
 
+// Sets the article title from the template (see utils.applyTemplateTitle), then applies the
+// replacements to it as they are applied to ticket summaries. Assigns only on change.
+const applyTitleToArticle = (article, template, templateArticle, replaceTitle, values) => {
+  utils.applyTemplateTitle(article, template, templateArticle, replaceTitle);
+  const newTitle = utils.applyReplacements(article.summary || "", values);
+  if (newTitle !== (article.summary || "")) {
+    article.summary = newTitle;
+  }
+};
+
+// Validates the title setting of a template. Returns an error message or null.
+// Keep in sync with validateTemplateTitle in @types/template.ts.
+const validateTemplateTitle = (template) => {
+  const title = template.title;
+  if (title === undefined || title === null) {
+    return null;
+  }
+  if (typeof title !== "object" || title.source !== "article") {
+    return "Template title has an unknown source.";
+  }
+  if (title.when !== "always" && title.when !== "if_empty") {
+    return "Template title must be set always or only when empty.";
+  }
+  return null;
+};
+
 // Validates the hierarchy settings of a template. Returns an error message or null.
 // Keep in sync with validateChildTemplates in @types/template.ts.
 const validateChildTemplates = (template) => {
@@ -478,6 +504,24 @@ const findUsableTemplateArticle = (articleId, user, project) => {
   return article !== null && utils.isUsableTemplateArticle(article, project) ? article : null;
 };
 
+// Raw titles (before replacements) of the templates that set one, keyed by template id, for the
+// apply dialog. Only templates whose article the user may read and the project may use are
+// listed, as for their content, so that no other article title leaks.
+const getTemplateTitles = (templates, user, project) => {
+  const result = {};
+  for (const template of templates) {
+    if (utils.getTemplateTitleSetting(template) === null) {
+      continue;
+    }
+    const article = findUsableTemplateArticle(template.articleId, user, project);
+    const text = utils.getTemplateTitleText(template, article);
+    if (text !== null) {
+      result[template.id] = text;
+    }
+  }
+  return result;
+};
+
 // Returns an error message if the template is invalid, otherwise null.
 const validateTemplate = (template) => {
   if (template.hasOwnProperty("id") === false || template.id === "") {
@@ -510,6 +554,7 @@ const validateTemplate = (template) => {
     validateChildTemplates,
     validateTemplateOptions,
     validateReplacements,
+    validateTemplateTitle,
   ];
   for (const validate of validators) {
     const error = validate(template);
@@ -911,6 +956,12 @@ exports.httpHandler = {
           pendingTemplateIds: utils.getPendingTemplateIds(issue),
           createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(issue),
           replacementTexts: utils.getStoredReplacementTexts(issue),
+          currentTitle: issue.summary || "",
+          templateTitles: getTemplateTitles(
+            templates.filter((t) => validTemplateIds.includes(t.id)),
+            ctx.currentUser,
+            issue.project,
+          ),
         });
       },
     },
@@ -1002,8 +1053,10 @@ exports.httpHandler = {
           return;
         }
 
-        // Add template to ticket description, with replacements applied to the ticket summary
-        // and to the template content.
+        // Set the title from the template article (checked above like its content), then add
+        // the template to the ticket description, with replacements applied to the ticket
+        // summary and to the template content.
+        utils.applyTemplateTitle(issue, template, templateArticle, body.replaceTitle);
         applyReplacementsToIssue(issue, replacements.values);
         let newDescription = issue.description ? issue.description.trim() : "";
         if (newDescription.length > 0) {
@@ -1357,6 +1410,12 @@ exports.httpHandler = {
           isTemplate: articleProps?.isTemplate || false,
           createdHierarchyTemplateIds: utils.getCreatedHierarchyTemplateIds(article),
           replacementTexts: utils.getStoredReplacementTexts(article),
+          currentTitle: article.summary || "",
+          templateTitles: getTemplateTitles(
+            templates.filter((t) => validTemplateIds.includes(t.id)),
+            ctx.currentUser,
+            article.project,
+          ),
         });
       },
     },
@@ -1447,6 +1506,9 @@ exports.httpHandler = {
           return;
         }
         utils.applyTags(article, tags.tagNames);
+
+        // Set the title from the template article (checked above like its content).
+        applyTitleToArticle(article, template, templateArticle, body.replaceTitle, replacements.values);
 
         // Add template to article content.
         let newDescription = article.content ? article.content.trim() : "";

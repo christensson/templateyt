@@ -25,7 +25,9 @@ export const loadBackendScript = (relativePath) => {
   // way, since Node would treat them as ES modules.
   const scriptRequire = (id) =>
     id.startsWith("./")
-      ? loadBackendScript(path.relative(ROOT, path.resolve(path.dirname(file), id)))
+      ? loadBackendScript(
+        path.relative(ROOT, path.resolve(path.dirname(file), id.endsWith(".js") ? id : `${id}.js`)),
+      )
       : nodeRequire(stubs[id] ?? id);
   const module = { exports: {} };
   const run = vm.compileFunction(fs.readFileSync(file, "utf8"), ["require", "module", "exports"], {

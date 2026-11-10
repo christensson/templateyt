@@ -11,6 +11,9 @@ import {
   getTemplateRelations,
   getTemplateReplacements,
   getTemplateTags,
+  getTemplateTitle,
+  applyReplacements,
+  type ReplacementValue,
   type Template,
   type TemplateTarget,
 } from "../@types/template";
@@ -106,6 +109,88 @@ export const formatStatusSummary = (status: ApplyStatus, target: TemplateTarget)
     default:
       return `Applied to this ${target}.`;
   }
+};
+
+// What the apply dialogs know about titles: the current title of the ticket or article and the
+// raw titles of the templates that set one. Missing from older backends.
+export type TitleInfo = {
+  currentTitle?: string;
+  templateTitles?: Record<string, string>;
+};
+
+// What applying a template does to the title, or null when it leaves the title alone.
+export type TitlePlan = {
+  currentTitle: string;
+  // The template's title before replacements.
+  newTitle: string;
+  // The title is not empty, so the user decides whether to replace it.
+  ask: boolean;
+  // The preselected answer: replace for "always" templates, keep for "only when empty".
+  defaultReplace: boolean;
+};
+
+export const getTitlePlan = (template: Template, info: TitleInfo): TitlePlan | null => {
+  const setting = getTemplateTitle(template);
+  // No title from the backend: an older backend, or the article may not be used here.
+  const newTitle = info.templateTitles?.[template.id];
+  if (setting === null || typeof newTitle !== "string" || newTitle === "") {
+    return null;
+  }
+  const currentTitle = info.currentTitle ?? "";
+  return {
+    currentTitle,
+    newTitle,
+    // Without a known current title (older backend) the backend decides on its own.
+    ask: info.currentTitle !== undefined && currentTitle.trim() !== "",
+    defaultReplace: setting.when === "always",
+  };
+};
+
+// Whether applying the template must ask the user about replacing the current title.
+export const needsTitleChoice = (template: Template, info: TitleInfo): boolean =>
+  getTitlePlan(template, info)?.ask === true;
+
+// The template's title with the replacements known in the dialog filled in: entered texts, then
+// values chosen for empty fields, then current field display texts. Unknown words stay.
+export const previewTitle = (
+  title: string,
+  template: Template,
+  texts: Record<string, string>,
+  currentFieldPresentations?: Record<string, string | null>,
+  chosenFieldValues?: Record<string, string | null>,
+): string => {
+  const values: Array<ReplacementValue> = getTemplateReplacements(template).map((replacement) => {
+    if (replacement.mode === "user_input") {
+      const text = (texts[replacement.search] ?? "").trim();
+      return { search: replacement.search, value: text === "" ? null : text };
+    }
+    const value =
+      chosenFieldValues?.[replacement.fieldName] ||
+      currentFieldPresentations?.[replacement.fieldName] ||
+      null;
+    return { search: replacement.search, value };
+  });
+  return applyReplacements(title, values);
+};
+
+// The title a template sets when applied, and whether the user wants to replace the current one.
+export type TitleChoice = {
+  plan: TitlePlan;
+  replace: boolean;
+  setReplace: (replace: boolean) => void;
+};
+
+// The title choice for the apply form, or null when applying leaves the title alone (or only the
+// fields are set).
+export const makeTitleChoice = (
+  template: Template,
+  info: TitleInfo | null,
+  replace: boolean,
+  setReplace: (replace: boolean) => void,
+  mode: "add" | "fields" = "add",
+): TitleChoice | null => {
+  const plan = info !== null && mode === "add" ? getTitlePlan(template, info) : null;
+  return plan === null ? null : { plan, replace, setReplace };
 };
 
 export const countChildren = (template: Template): number =>

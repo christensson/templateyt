@@ -30,7 +30,10 @@ const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({ createNewTem
           Under <i>When to use</i>, choose where the template is available in the Apply template
           menu, and optionally when it is applied automatically.
         </li>
-        <li>Optionally, under <i>What it does</i>, set fields, tags, relations and text replacements.</li>
+        <li>
+          Optionally, under <i>What it does</i>, set the title, fields, tags, relations and text
+          replacements.
+        </li>
       </ol>
     </Text>
     <H3 className="template-section-title">Good to know</H3>
@@ -58,9 +61,16 @@ const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({ createNewTem
           available for both.
         </li>
         <li>
+          A template can set the ticket or article title to the title of its template article,
+          always or only when the title is empty. When added automatically, an existing title is
+          only replaced by &quot;Always&quot;. When applied from the Apply template menu, the user
+          is asked before an existing title is replaced. Templates created before this setting
+          keep the title.
+        </li>
+        <li>
           Text replacements replace whole words only: VERSION matches in &quot;Release
-          VERSION.&quot; but not in VERSION-1 or MY_VERSION. They apply to the ticket summary, the
-          template content and all subtasks. Text entered by the user is required when applying
+          VERSION.&quot; but not in VERSION-1 or MY_VERSION. They apply to the ticket summary or
+          article title, the template content and all subtasks. Text entered by the user is required when applying
           manually; a root ticket field inserts the display text of that field.
         </li>
         <li>

@@ -89,6 +89,13 @@ export type UserInputReplacement = { search: string; mode: "user_input" };
 export type FieldReplacement = { search: string; mode: "field"; fieldName: string };
 export type TextReplacement = UserInputReplacement | FieldReplacement;
 
+// How a template sets the title (summary) of the ticket or article it is applied to. Discriminated
+// by `source` so that other sources (e.g. a fixed text) can be added later without changing the
+// stored format. "always" replaces an existing title when applied automatically (the Apply
+// template dialog asks first); "if_empty" only sets an empty title.
+export type TitleWhen = "always" | "if_empty";
+export type TemplateTitle = { source: "article"; when: TitleWhen };
+
 // A yes/no question of a hierarchical template, answered when its hierarchy is created. Child
 // templates can be created depending on the answer.
 export type TemplateOption = {
@@ -149,6 +156,9 @@ export type Template = {
   children: Array<ChildTemplate>;
   // Questions answered when the hierarchy is created; missing in templates without options.
   options?: Array<TemplateOption>;
+  // Title set when the template is applied; missing or null keeps the title (templates stored
+  // before titles could be set).
+  title?: TemplateTitle | null;
 };
 
 const capitalizeFirst = (str: string): string =>
@@ -163,6 +173,48 @@ export const getTemplateFields = (template: HasFields): Array<TemplateField> =>
 
 export const getTemplateTags = (template: HasTags): Array<string> =>
   Array.isArray(template?.tags) ? template.tags : [];
+
+const TITLE_SOURCES: ReadonlyArray<TemplateTitle["source"]> = ["article"];
+const TITLE_WHENS: ReadonlyArray<TitleWhen> = ["always", "if_empty"];
+
+// The title setting of a template, or null when the template keeps the title. Unknown or
+// malformed settings (e.g. from a newer app version) keep the title too.
+export const getTemplateTitle = (template: { title?: TemplateTitle | null }): TemplateTitle | null => {
+  const title = template?.title;
+  if (
+    title == null ||
+    typeof title !== "object" ||
+    !TITLE_SOURCES.includes(title.source) ||
+    !TITLE_WHENS.includes(title.when)
+  ) {
+    return null;
+  }
+  return title;
+};
+
+// Validates the title setting. Returns an error message, or null when valid.
+// Keep in sync with validateTemplateTitle in backend.js.
+export const validateTemplateTitle = (template: Template): string | null => {
+  const title = template?.title;
+  if (title == null) {
+    return null;
+  }
+  if (typeof title !== "object" || !TITLE_SOURCES.includes(title.source)) {
+    return "Template title has an unknown source.";
+  }
+  if (!TITLE_WHENS.includes(title.when)) {
+    return "Template title must be set always or only when empty.";
+  }
+  return null;
+};
+
+// Display text of a title setting, e.g. "Template article title, only when empty".
+export const formatTitleSetting = (title: TemplateTitle | null): string => {
+  if (title === null) {
+    return "Keeps the current title";
+  }
+  return `Template article title, ${title.when === "always" ? "always" : "only when empty"}`;
+};
 
 export const getTemplateRelations = (template: HasRelations): Array<TemplateRelation> =>
   Array.isArray(template?.relations) ? template.relations : [];
@@ -795,7 +847,39 @@ export const formatTemplateReplacements = (template: Template): string => {
   return `Replaces: ${replacements.map((replacement) => replacement.search).join(", ")}.`;
 };
 
-// Validates the text replacements. Returns an error message, or null when valid.
+export type ReplacementValue = { search: string; value: string | null };
+
+const escapeRegex = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Regex matching `search` as a whole word, where letters, digits, underscore and hyphen are word
+// characters. Keep in sync with buildWordRegex in template-utils.js.
+const buildWordRegex = (search: string): RegExp => {
+  const escaped = escapeRegex(search);
+  try {
+    return new RegExp(`(^|[^\\p{L}\\p{N}_-])(${escaped})(?=$|[^\\p{L}\\p{N}_-])`, "gu");
+  } catch {
+    return new RegExp(`(^|[^\\w\\u00C0-\\uFFFF-])(${escaped})(?=$|[^\\w\\u00C0-\\uFFFF-])`, "g");
+  }
+};
+
+// Replaces every whole-word occurrence of each { search, value } in text; null values are left
+// as they are. Keep in sync with applyReplacements in template-utils.js.
+export const applyReplacements = (text: string, values: ReadonlyArray<ReplacementValue>): string => {
+  if (!text) {
+    return text;
+  }
+  let result = text;
+  for (const replacement of values) {
+    if (!replacement.search || replacement.value == null) {
+      continue;
+    }
+    const value = replacement.value;
+    result = result.replace(buildWordRegex(replacement.search), (_match, prefix: string) => prefix + value);
+  }
+  return result;
+};
+
+
 // Keep in sync with validateReplacements in backend.js.
 export const validateReplacements = (template: Template): string | null => {
   const seen = new Set<string>();
@@ -1346,6 +1430,7 @@ export const validateTemplate = (template: Template): Array<TemplateValidationEr
   add("hierarchy", validateTemplateOptions(template));
   add("effects", validateReplacements(template));
   add("effects", validateRelations(template));
+  add("effects", validateTemplateTitle(template));
   // Checked last, so that the first error of templates stored before these checks is unchanged.
   errors.push(...validateArticleOnlyTemplate(template));
   if (template.hierarchical && isArticleOnly(template)) {
@@ -1517,6 +1602,10 @@ export const formatTemplateEffectTokens = (
 ): Array<string> => {
   const tokens: Array<string> = [];
   const forTicket = target === "ticket";
+  const title = getTemplateTitle(template);
+  if (title !== null) {
+    tokens.push(title.when === "always" ? "Sets title" : "Sets title if empty");
+  }
   const fields = forTicket ? getTemplateFields(template) : [];
   const fixedFields = fields.filter((field) => field.mode === "fixed");
   if (fixedFields.length > 0) {

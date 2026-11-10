@@ -1,5 +1,6 @@
 import Banner from "@jetbrains/ring-ui-built/components/banner/banner";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
+import Checkbox from "@jetbrains/ring-ui-built/components/checkbox/checkbox";
 import { H3 } from "@jetbrains/ring-ui-built/components/heading/heading";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import Panel from "@jetbrains/ring-ui-built/components/panel/panel";
@@ -43,7 +44,9 @@ import {
   getChangedConditionValues,
   getReplacementPreconditions,
   hasMissingRequiredInput,
+  previewTitle,
   type ReplacementPrecondition,
+  type TitleChoice,
   type ReplacementPreconditions,
   type MultiFieldValues,
 } from "../apply-template";
@@ -433,6 +436,69 @@ const getFormContent = (template: Template, forArticle: boolean) => {
   };
 };
 
+interface TitleSectionProps {
+  title?: TitleChoice | null;
+  template: Template;
+  texts: ReplacementTexts;
+  currentFieldPresentations?: Record<string, string | null>;
+  chosenFieldValues?: FieldValues;
+  noun: "ticket" | "article";
+}
+
+// The title the template sets. An existing title is only replaced when the user checks the box;
+// the current and new titles are shown side by side, with the one that will not be used muted.
+const TitleSection: React.FunctionComponent<TitleSectionProps> = ({
+  title,
+  template,
+  texts,
+  currentFieldPresentations,
+  chosenFieldValues,
+  noun,
+}) => {
+  if (!title) {
+    return null;
+  }
+  const newTitle = previewTitle(
+    title.plan.newTitle,
+    template,
+    texts,
+    currentFieldPresentations,
+    chosenFieldValues,
+  );
+  if (!title.plan.ask) {
+    return (
+      <FormSection title="Title">
+        <EffectList>
+          <EffectRow label="New title">
+            <Text size={Text.Size.M}>{newTitle}</Text>
+          </EffectRow>
+        </EffectList>
+      </FormSection>
+    );
+  }
+  return (
+    <FormSection title="Title">
+      <Checkbox
+        label={`Replace the current ${noun} title`}
+        checked={title.replace}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => title.setReplace(e.target.checked)}
+      />
+      <EffectList>
+        <EffectRow label="Current">
+          <Text size={Text.Size.M} info={title.replace}>
+            {title.plan.currentTitle}
+          </Text>
+        </EffectRow>
+        <EffectRow label="New">
+          <Text size={Text.Size.M} info={!title.replace}>
+            {newTitle}
+          </Text>
+        </EffectRow>
+      </EffectList>
+    </FormSection>
+  );
+};
+
 interface TemplateFieldsFormProps {
   pending: PendingApply;
   fieldInfos: Array<ProjectFieldInfo>;
@@ -450,6 +516,8 @@ interface TemplateFieldsFormProps {
   onBack: () => void;
   // Applying to an article: ticket fields and relations are skipped.
   forArticle?: boolean;
+  // The title the template sets (apply only); missing when it leaves the title alone.
+  title?: TitleChoice | null;
 }
 
 // Form for applying a template that needs input: lists what the template sets, with selects for
@@ -468,6 +536,7 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
   onConfirm,
   onBack,
   forArticle = false,
+  title,
 }) => {
   const onChange = useCallback(
     (fieldName: string, value: string | null) =>
@@ -500,6 +569,14 @@ export const TemplateFieldsForm: React.FunctionComponent<TemplateFieldsFormProps
             {formatApplyDescription(pending, forArticle)}
           </Text>
         </div>
+        <TitleSection
+          title={title}
+          template={template}
+          texts={texts}
+          currentFieldPresentations={currentFieldPresentations}
+          chosenFieldValues={replacementValues}
+          noun={forArticle ? "article" : "ticket"}
+        />
         {hasChanges && (
           <FormSection title={forArticle ? "Article changes" : "Ticket changes"}>
             <EffectList>

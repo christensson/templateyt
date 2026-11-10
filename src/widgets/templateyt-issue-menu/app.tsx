@@ -17,7 +17,10 @@ import {
   getApplyStatus,
   getErrorMessage,
   getReplacementPreconditions,
+  getTitlePlan,
+  makeTitleChoice,
   needsReplacementFieldInput,
+  needsTitleChoice,
   notify,
   type ApplyActionKey,
   type MultiFieldValues,
@@ -110,6 +113,8 @@ const AppComponent: React.FunctionComponent = () => {
   const [hierarchy, setHierarchy] = useState<HierarchyStep | null>(null);
   const [childValues, setChildValues] = useState<ChildFieldValues>({});
   const [submitting, setSubmitting] = useState<boolean>(false);
+  // Whether applying replaces the ticket's current title with the template's.
+  const [replaceTitle, setReplaceTitle] = useState<boolean>(false);
 
   // Loads the templates and the ticket's state; returns null if loading failed.
   const fetchTemplateInfo = useCallback(async (): Promise<IssueTemplateInfo | null> => {
@@ -176,6 +181,8 @@ const AppComponent: React.FunctionComponent = () => {
       fieldValues: FieldValues,
       texts: ReplacementTexts,
       replacementValues: FieldValues,
+      // The user's answer about replacing the current title; undefined when not asked.
+      titleChoice?: boolean,
     ): Promise<boolean> => {
       if (!checkTemplate(template, mode === "add" ? "apply" : "set fields from")) {
         return false;
@@ -189,6 +196,7 @@ const AppComponent: React.FunctionComponent = () => {
           fieldValues,
           texts,
           replacementValues,
+          mode === "add" ? titleChoice : undefined,
         );
         console.log(`${ACTION_LABELS[mode]} ${template.id} result`, result);
         if (!result.success) {
@@ -225,8 +233,11 @@ const AppComponent: React.FunctionComponent = () => {
       const askFields = needsReplacementFieldInput(
         getPreconditions(selectedTemplate, issueTemplateInfo, true),
       );
-      if (hasUserInput(selectedTemplate) || askFields) {
+      // Replacing an existing title needs the user's consent.
+      const askTitle = mode === "add" && needsTitleChoice(selectedTemplate, issueTemplateInfo);
+      if (hasUserInput(selectedTemplate) || askFields || askTitle) {
         setFailMessage("");
+        setReplaceTitle(getTitlePlan(selectedTemplate, issueTemplateInfo)?.defaultReplace ?? false);
         setReplacementFieldValues({});
         setPendingValues(
           getInitialFieldValues(selectedTemplate, issueTemplateInfo.currentFieldValues),
@@ -246,17 +257,28 @@ const AppComponent: React.FunctionComponent = () => {
     if (pending === null) {
       return;
     }
+    const askedTitle =
+      issueTemplateInfo !== null && needsTitleChoice(pending.template, issueTemplateInfo);
     const ok = await submitTemplate(
       pending.mode,
       pending.template,
       pickChosenValues(pendingValues),
       replacementTexts,
       pickChosenValues(replacementFieldValues),
+      askedTitle ? replaceTitle : undefined,
     );
     if (ok) {
       setPending(null);
     }
-  }, [pending, pendingValues, replacementTexts, replacementFieldValues, submitTemplate]);
+  }, [
+    pending,
+    pendingValues,
+    replacementTexts,
+    replacementFieldValues,
+    replaceTitle,
+    issueTemplateInfo,
+    submitTemplate,
+  ]);
 
   const confirmCreateHierarchy = useCallback(async () => {
     if (hierarchy === null || !checkTemplate(hierarchy.template, "create subtasks from")) {
@@ -380,6 +402,13 @@ const AppComponent: React.FunctionComponent = () => {
           submitting={submitting}
           onConfirm={confirmPending}
           onBack={() => setPending(null)}
+          title={makeTitleChoice(
+            pending.template,
+            issueTemplateInfo,
+            replaceTitle,
+            setReplaceTitle,
+            pending.mode,
+          )}
         />
         {failBanner}
       </div>

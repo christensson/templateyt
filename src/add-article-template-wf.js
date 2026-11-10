@@ -159,6 +159,7 @@ exports.rule = entities.Article.onChange({
 
     const articles = loadTemplateArticles(article, [...newTemplates, ...oldTemplates]);
     let newDescription = article.content ? article.content.trim() : "";
+    let newTitle = article.summary || "";
 
     // Remove any old (or new) non-modified templates.
     for (const template of oldTemplates) {
@@ -192,6 +193,9 @@ exports.rule = entities.Article.onChange({
           newDescription += "\n\n";
         }
         newDescription += templateContent;
+        // Only articles the project may use are loaded, so the title never comes from another
+        // one. There is no user to ask: an existing title is only replaced by "always" templates.
+        newTitle = utils.pickTemplateTitle(newTitle, template, articles[template.articleId], undefined);
         usedTemplateIds.push(template.id);
         log(
           `Article ${article.id}: Applied template "${template.name}" (${template.id}) from article ${template.articleId}`,
@@ -200,6 +204,9 @@ exports.rule = entities.Article.onChange({
     }
     if (newDescription) {
       article.content = newDescription;
+    }
+    if (newTitle !== (article.summary || "")) {
+      article.summary = newTitle;
     }
     article.extensionProperties.usedTemplateIds = JSON.stringify(usedTemplateIds);
   },

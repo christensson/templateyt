@@ -16,6 +16,9 @@ import {
   getApplyStatus,
   getErrorMessage,
   getReplacementPreconditions,
+  getTitlePlan,
+  makeTitleChoice,
+  needsTitleChoice,
   notify,
   type ApplyActionKey,
 } from "../../apply-template";
@@ -53,6 +56,9 @@ type ArticleTemplateInfo = {
   createdHierarchyTemplateIds: Array<string>;
   // Texts entered when the templates were applied; missing from older backends.
   replacementTexts?: StoredReplacementTexts;
+  // The article title and the titles templates set (see TitleInfo); missing from older backends.
+  currentTitle?: string;
+  templateTitles?: Record<string, string>;
 };
 
 // Why a template cannot be applied to articles (it uses ticket fields), or null.
@@ -91,6 +97,8 @@ const AppComponent: React.FunctionComponent = () => {
   const [submitting, setSubmitting] = useState<boolean>(false);
   // Answers to the options of the template whose sub-articles are being created.
   const [optionValues, setOptionValues] = useState<OptionValues>({});
+  // Whether applying replaces the article's current title with the template's.
+  const [replaceTitle, setReplaceTitle] = useState<boolean>(false);
 
   const fetchTemplateInfo = useCallback(async () => {
     try {
@@ -157,13 +165,13 @@ const AppComponent: React.FunctionComponent = () => {
   // Applies a template; continues with the sub-articles of a hierarchical template, or closes
   // the dialog.
   const submitAdd = useCallback(
-    async (template: Template, texts: ReplacementTexts): Promise<boolean> => {
+    async (template: Template, texts: ReplacementTexts, titleChoice?: boolean): Promise<boolean> => {
       if (!checkTemplate(template, "apply")) {
         return false;
       }
       setSubmitting(true);
       try {
-        const result = await addTemplateToArticle(host, template.id, texts);
+        const result = await addTemplateToArticle(host, template.id, texts, titleChoice);
         console.log(`Add template ${template.id} result`, result);
         if (!result.success) {
           setFailMessage(result.message || `Failed to apply template ${template.id}.`);
@@ -176,6 +184,8 @@ const AppComponent: React.FunctionComponent = () => {
         setFailMessage("");
         applyUsedTemplateIds(result.usedTemplateIds);
         applyStoredTexts(result.replacementTexts);
+        // The title may have changed; reload so that later steps show the current one.
+        fetchTemplateInfo();
         notify(host, `${template.name} applied.`);
         if (countChildren(template) > 0) {
           openHierarchy(template, texts, true);
@@ -190,7 +200,7 @@ const AppComponent: React.FunctionComponent = () => {
         setSubmitting(false);
       }
     },
-    [checkTemplate, applyUsedTemplateIds, applyStoredTexts, openHierarchy],
+    [checkTemplate, applyUsedTemplateIds, applyStoredTexts, openHierarchy, fetchTemplateInfo],
   );
 
   // Applies the selected template, asking for replacement texts first when it needs any.
@@ -199,24 +209,33 @@ const AppComponent: React.FunctionComponent = () => {
       setFailMessage("No template selected.");
       return;
     }
-    if (hasUserInputReplacements(selectedTemplate)) {
+    // Replacing an existing title needs the user's consent.
+    const askTitle = articleTemplateInfo !== null && needsTitleChoice(selectedTemplate, articleTemplateInfo);
+    if (hasUserInputReplacements(selectedTemplate) || askTitle) {
       setFailMessage("");
+      setReplaceTitle(
+        articleTemplateInfo === null
+          ? false
+          : getTitlePlan(selectedTemplate, articleTemplateInfo)?.defaultReplace ?? false,
+      );
       setReplacementTexts(getInitialReplacementTexts(selectedTemplate, storedTexts));
       setPendingTemplate(selectedTemplate);
       return;
     }
     submitAdd(selectedTemplate, {});
-  }, [selectedTemplate, storedTexts, submitAdd]);
+  }, [selectedTemplate, storedTexts, articleTemplateInfo, submitAdd]);
 
   const confirmPending = useCallback(async () => {
     if (pendingTemplate === null) {
       return;
     }
-    const ok = await submitAdd(pendingTemplate, replacementTexts);
+    const askedTitle =
+      articleTemplateInfo !== null && needsTitleChoice(pendingTemplate, articleTemplateInfo);
+    const ok = await submitAdd(pendingTemplate, replacementTexts, askedTitle ? replaceTitle : undefined);
     if (ok) {
       setPendingTemplate(null);
     }
-  }, [pendingTemplate, replacementTexts, submitAdd]);
+  }, [pendingTemplate, replacementTexts, replaceTitle, articleTemplateInfo, submitAdd]);
 
   const confirmCreateHierarchy = useCallback(async () => {
     if (hierarchy === null || !checkTemplate(hierarchy.template, "create sub-articles from")) {
@@ -328,6 +347,7 @@ const AppComponent: React.FunctionComponent = () => {
           onBack={() => setPendingTemplate(null)}
           textsRemembered={hasStoredReplacementTexts(pendingTemplate, storedTexts)}
           forArticle
+          title={makeTitleChoice(pendingTemplate, articleTemplateInfo, replaceTitle, setReplaceTitle)}
         />
         {failBanner}
       </div>

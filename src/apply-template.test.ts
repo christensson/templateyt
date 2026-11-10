@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import currentFixture from "../test/fixtures/templates-current.json";
-import type { Template, TemplateTarget } from "../@types/template";
+import { getTemplateReplacements, type Template, type TemplateTarget } from "../@types/template";
 import type { ProjectFieldInfo } from "../@types/project-info";
 import {
   getInitialReplacementTexts,
@@ -18,6 +18,9 @@ import {
   getApplyActions,
   getApplyGroupMap,
   getApplyStatus,
+  getTitlePlan,
+  needsTitleChoice,
+  previewTitle,
   type ApplyInfo,
   type ReplacementPreconditions,
   type ApplyStatus,
@@ -300,5 +303,51 @@ describe("formatValueListChange", () => {
     [[], [], null],
   ] as const)("%#", (added, removed, expected) => {
     expect(formatValueListChange(added, removed)).toBe(expected);
+  });
+});
+
+describe("title plan of the apply dialogs", () => {
+  const always = { ...release, title: { source: "article" as const, when: "always" as const } };
+  const titles = { [release.id]: "Release CUSTOMER" };
+
+  it("leaves templates without a title setting or without a title from the backend alone", () => {
+    const keep = { ...release, title: undefined };
+    expect(getTitlePlan(keep, { currentTitle: "Typed", templateTitles: titles })).toBeNull();
+    // Older backend, or an article the user may not read: nothing to show or ask.
+    expect(getTitlePlan(release, { currentTitle: "Typed" })).toBeNull();
+    expect(getTitlePlan(release, { currentTitle: "Typed", templateTitles: {} })).toBeNull();
+    expect(needsTitleChoice(release, { currentTitle: "Typed" })).toBe(false);
+  });
+
+  it("asks only when the title is not empty, preselected from the setting", () => {
+    expect(getTitlePlan(release, { currentTitle: "", templateTitles: titles })).toEqual({
+      currentTitle: "",
+      newTitle: "Release CUSTOMER",
+      ask: false,
+      defaultReplace: false,
+    });
+    expect(getTitlePlan(release, { currentTitle: "Typed", templateTitles: titles })?.defaultReplace).toBe(false);
+    expect(getTitlePlan(always, { currentTitle: "Typed", templateTitles: titles })?.defaultReplace).toBe(true);
+    expect(needsTitleChoice(release, { currentTitle: "Typed", templateTitles: titles })).toBe(true);
+    expect(needsTitleChoice(release, { currentTitle: "  ", templateTitles: titles })).toBe(false);
+    // Without a known current title the backend decides.
+    expect(needsTitleChoice(release, { templateTitles: titles })).toBe(false);
+  });
+
+  it("previews entered texts and field values in the new title", () => {
+    const replacements = getTemplateReplacements(release);
+    const userWord = replacements.find((r) => r.mode === "user_input")?.search ?? "";
+    const fieldReplacement = replacements.find((r) => r.mode === "field");
+    expect(previewTitle(`Release ${userWord}`, release, { [userWord]: " ACME " })).toBe("Release ACME");
+    expect(previewTitle(`Release ${userWord}`, release, {})).toBe(`Release ${userWord}`);
+    if (fieldReplacement?.mode === "field") {
+      const text = `For ${fieldReplacement.search}`;
+      expect(previewTitle(text, release, {}, { [fieldReplacement.fieldName]: "Current" })).toBe("For Current");
+      expect(
+        previewTitle(text, release, {}, { [fieldReplacement.fieldName]: "Current" }, {
+          [fieldReplacement.fieldName]: "Chosen",
+        }),
+      ).toBe("For Chosen");
+    }
   });
 });
