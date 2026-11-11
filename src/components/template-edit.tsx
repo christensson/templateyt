@@ -479,8 +479,8 @@ const HierarchyPanel: React.FunctionComponent<HierarchyPanelProps> = ({
               }}
             />
             <Text size={Text.Size.S} info>
-              A record for later reference: option answers, text replacements, entered values, and
-              which {childNouns} were created or skipped, and why.
+              A record for later reference: option answers, entered texts, and which {childNouns}
+              were created or skipped, and why. Shows no ticket field values.
             </Text>
           </LabeledValue>
           <Text size={Text.Size.S} info>

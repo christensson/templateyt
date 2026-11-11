@@ -88,8 +88,9 @@ const TemplateHelp: React.FunctionComponent<TemplateHelpProps> = ({ createNewTem
         </li>
         <li>
           A hierarchical template can add a summary comment each time its subtasks or sub-articles
-          are created. The comment records who created them, the answers to the options, the text
-          replacements, the values entered, and which subtasks were created or skipped, and why.
+          are created. The comment records who created them, the answers to the options, the texts
+          entered, and which subtasks were created or skipped, and why. It never shows ticket field
+          names or values, since everyone who can read the ticket can read the comment.
         </li>
       </ul>
     </Text>

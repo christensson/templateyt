@@ -79,7 +79,8 @@ subtasks below a ticket, or sub-articles below an article.
   automatically.
 - **Summary comment:** optionally add a comment to the ticket each time subtasks are created. It
   is a readable record of what was done: who created them, the answers to the options, the
-  placeholder values, the values entered, and which subtasks were created or skipped, and why.
+  texts entered, and which subtasks were created or skipped, and why. It shows no ticket field
+  values, so it is safe for everyone who can read the ticket.
 
 ### Link tickets
 Add links, such as *relates to* or *depends on*, from the ticket to fixed tickets, to the root

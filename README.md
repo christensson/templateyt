@@ -189,15 +189,15 @@ content as description.
   comment to the ticket or article each time subtasks or sub-articles are created, as a record
   for later reference. The comment is by the user who created them and lists:
   - the answers to all options,
-  - the text replacements and their values,
-  - the ticket fields the template sets or uses in conditions, marking those changed in the
-    *"Create subtasks"* form,
-  - the created subtasks as a nested list, with the values entered for each, and why conditional
-    ones were created,
+  - the texts entered for text replacements; words replaced from ticket fields are only listed,
+  - the created subtasks as a nested list, and why conditional ones were created,
   - the child templates that were not created, struck through and linked to their template
     article, with the conditions they needed. A skipped subtree is one line with its count.
 
-  No comment is added when nothing was created.
+  No comment is added when nothing was created. Everyone who can read the ticket can read the
+  comment, also users who may not see private fields, so it never shows ticket field names or
+  values: a condition on a field reads "a field condition", while conditions on options keep
+  their answers.
 
 ### Use templates
 

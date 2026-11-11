@@ -1,29 +1,18 @@
 // Summary comment added to the root ticket or article when a hierarchical template creates its
 // subtasks or sub-articles, if the template enables it (summaryComment). It records what was
-// done for later reference: who triggered it, the answers to the options, the text replacements,
-// the values entered and which child templates were created or skipped, and why.
+// done for later reference: who triggered it, the answers to the options, the texts entered and
+// which child templates were created or skipped, and why. It shows no ticket field values.
 // The functions here only format collected data; backend.js collects it and adds the comment.
 var utils = require("./template-utils");
 
 // Backslash-escapes characters that would change the Markdown layout of user-provided text.
 const escapeMarkdown = (text) => String(text).replace(/[\\`*_[\]<>|~]/g, "\\$&");
 
-// The display text of a root ticket field for a condition: the value being set in the same
-// request (valueOverrides, see utils.isChildTemplateAdded), else the current value; null if empty.
-const getConditionFieldText = (rootIssue, fieldName, valueOverrides) => {
-  const override = valueOverrides ? valueOverrides[fieldName] : undefined;
-  if (Array.isArray(override)) {
-    return override.length > 0 ? override.join(", ") : null;
-  }
-  if (typeof override === "string") {
-    return override === "" ? null : override;
-  }
-  if (override === null) {
-    return null;
-  }
-  const typeName = utils.getIssueFieldTypeName(rootIssue, fieldName);
-  return typeName === null ? null : utils.getFieldPresentationText(rootIssue, typeName, fieldName);
-};
+// The comment has default visibility: everyone who can read the ticket can read it, also users who
+// may not read private fields, and the scripting API cannot tell which fields are private. So it
+// never shows ticket field names or values: field conditions only count as "a field condition",
+// and replacements from fields are listed without their field and value.
+const FIELD_CONDITION = "a field condition";
 
 const formatAnswer = (value) => (value ? "Yes" : "No");
 
@@ -34,35 +23,26 @@ const getOptionLabel = (options, optionId) => {
     : "a removed option";
 };
 
-// Text of one add condition of a child template: what it requires, and when not met, the actual
-// value in parentheses, e.g. "Priority Critical (is Normal)" or "Security review Yes (answered No)".
-const formatCondition = (cond, met, context) => {
-  const { rootIssue, valueOverrides, optionValues, options } = context;
-  if (cond.when === "option_is") {
-    const label = escapeMarkdown(getOptionLabel(options, cond.optionId));
-    if (met) {
-      return `${label} is ${formatAnswer(cond.value)}`;
-    }
-    const answer = optionValues ? optionValues[cond.optionId] : undefined;
-    const actual = typeof answer === "boolean" ? `answered ${formatAnswer(answer)}` : "not answered";
-    return `${label} ${formatAnswer(cond.value)} (${actual})`;
+// Text of one add condition of a child template. Options keep their answer, e.g. "Security review
+// is Yes" or "Security review Yes (answered No)"; any field condition reads FIELD_CONDITION.
+const formatCondition = (cond, met, options, optionValues) => {
+  if (cond.when !== "option_is") {
+    return FIELD_CONDITION;
   }
-  const field = escapeMarkdown(cond.fieldName);
-  const value = escapeMarkdown(cond.fieldValue);
-  const multi = utils.isMultiValueType(utils.getIssueFieldTypeName(rootIssue, cond.fieldName));
+  const label = escapeMarkdown(getOptionLabel(options, cond.optionId));
   if (met) {
-    return multi ? `${field} includes ${value}` : `${field} is ${value}`;
+    return `${label} is ${formatAnswer(cond.value)}`;
   }
-  const text = getConditionFieldText(rootIssue, cond.fieldName, valueOverrides);
-  const actual = text === null ? "is empty" : `${multi ? "has" : "is"} ${escapeMarkdown(text)}`;
-  return multi ? `${field} includes ${value} (${actual})` : `${field} ${value} (${actual})`;
+  const answer = optionValues ? optionValues[cond.optionId] : undefined;
+  const actual = typeof answer === "boolean" ? `answered ${formatAnswer(answer)}` : "not answered";
+  return `${label} ${formatAnswer(cond.value)} (${actual})`;
 };
 
 // Why a child template was created or skipped. rootIssue is null for articles.
-// Returns { conditional, matched: [text], unmet: [text] }.
+// Returns { conditional, matched: [text], unmet: [text] }, option texts first and
+// FIELD_CONDITION at most once, last.
 const explainChildConditions = (rootIssue, child, valueOverrides, optionValues, options) => {
   const conditions = utils.getChildActiveConditions(rootIssue, child);
-  const context = { rootIssue, valueOverrides, optionValues, options };
   const matched = [];
   const unmet = [];
   for (const cond of conditions) {
@@ -70,9 +50,15 @@ const explainChildConditions = (rootIssue, child, valueOverrides, optionValues, 
       continue;
     }
     const met = utils.isChildConditionMet(rootIssue, cond, valueOverrides, optionValues);
-    (met ? matched : unmet).push(formatCondition(cond, met, context));
+    const list = met ? matched : unmet;
+    const text = formatCondition(cond, met, options, optionValues);
+    if (!list.includes(text)) {
+      list.push(text);
+    }
   }
-  return { conditional: conditions.length > 0, matched: matched, unmet: unmet };
+  const fieldLast = (list) =>
+    list.filter((text) => text !== FIELD_CONDITION).concat(list.filter((text) => text === FIELD_CONDITION));
+  return { conditional: conditions.length > 0, matched: fieldLast(matched), unmet: fieldLast(unmet) };
 };
 
 // Answers to all options of the template, for the summary: the answer used (given or default),
@@ -95,84 +81,52 @@ const describeOptions = (template, resolvedValues, chosen) =>
     };
   });
 
-// The template's text replacements with the values used: [{ search, value: string | null,
-// fieldName: string | null }]; fieldName is set for field replacements.
+// The template's text replacements: [{ search, value: string | null, fromField }]. Only texts
+// entered by the user carry their value; replacements from ticket fields are only flagged.
 const describeReplacements = (template, values) =>
   (Array.isArray(template.replacements) ? template.replacements : []).map((replacement) => {
-    const found = values.find((value) => value.search === replacement.search);
-    return {
-      search: replacement.search,
-      value: found ? found.value : null,
-      fieldName: replacement.mode === "field" ? replacement.fieldName : null,
-    };
+    const fromField = replacement.mode === "field";
+    const found = fromField ? undefined : values.find((value) => value.search === replacement.search);
+    return { search: replacement.search, value: found ? found.value : null, fromField: fromField };
   });
 
-// Root ticket fields the template sets or uses in child conditions, with their display text after
-// the hierarchy was created; changedNames are fields set in the same request.
-// Returns [{ name, value: string | null, changed }].
-const describeRootFields = (rootIssue, template, changedNames) => {
-  const names = [];
-  const add = (name) => {
-    if (typeof name === "string" && name !== "" && !names.includes(name)) {
-      names.push(name);
-    }
-  };
-  (Array.isArray(template.fields) ? template.fields : []).forEach((field) => add(field && field.fieldName));
-  utils.getChildConditionFieldNames(template).forEach(add);
-  return names
-    .filter((name) => utils.getIssueFieldTypeName(rootIssue, name) !== null)
-    .map((name) => ({
-      name: name,
-      value: utils.getFieldPresentationText(rootIssue, utils.getIssueFieldTypeName(rootIssue, name), name),
-      changed: changedNames.includes(name),
-    }));
-};
-
-// Values the user entered for a child template's user-input fields: [{ name, value }], several
-// values of one field joined. assignments are the child's resolved field assignments.
-const describeEnteredValues = (child, assignments) => {
-  const userFields = (Array.isArray(child.fields) ? child.fields : [])
-    .filter((field) => field && field.mode === "user_input")
-    .map((field) => field.fieldName);
-  const result = [];
-  for (const assignment of Array.isArray(assignments) ? assignments : []) {
-    if (!userFields.includes(assignment.fieldName) || assignment.value == null) {
-      continue;
-    }
-    const text = utils.getFieldValuePresentation(assignment.typeName, assignment.value);
-    const existing = result.find((entry) => entry.name === assignment.fieldName);
-    if (existing) {
-      existing.value += `, ${text}`;
-    } else {
-      result.push({ name: assignment.fieldName, value: String(text) });
-    }
-  }
-  return result;
-};
-
 const plural = (count, singular, pluralText) => `${count} ${count === 1 ? singular : pluralText}`;
+
+// Why a skipped child template was not created: the option conditions it needed, then a field
+// condition, e.g. "needs Security review Yes (answered No) or a field condition".
+const formatUnmet = (unmet) => {
+  if (unmet.length === 0) {
+    return "";
+  }
+  if (unmet.length === 1 && unmet[0] === FIELD_CONDITION) {
+    return ": field condition not met";
+  }
+  return `: needs ${unmet.join(" or ")}`;
+};
+
+// Why a conditional child template was created: the matched options, else a field condition. Any
+// matched condition creates it, so the options (which say more) are enough.
+const formatMatched = (matched) => {
+  const optionTexts = matched.filter((text) => text !== FIELD_CONDITION);
+  if (optionTexts.length > 0) {
+    return `, created because ${optionTexts.join(" and ")}`;
+  }
+  return matched.length > 0 ? ", created by a field condition" : "";
+};
 
 const formatNode = (node, nouns, depth) => {
   const indent = "  ".repeat(depth);
   if (node.created === null) {
     const subtree =
       node.skippedCount > 0 ? ` (with its ${plural(node.skippedCount, nouns.one, nouns.many)})` : "";
-    const needs = node.unmet.length > 0 ? `: needs ${node.unmet.join(" or ")}` : "";
     // Identified by its template article, linked: there is no ticket or article to point to.
     const label = node.articleTitle
       ? `[~~${escapeMarkdown(node.articleTitle)}~~](${node.articleUrl})`
       : `~~${node.articleId}~~`;
-    return [`${indent}- ${label} not created${subtree}${needs}`];
+    return [`${indent}- ${label} not created${subtree}${formatUnmet(node.unmet)}`];
   }
-  let line = `${indent}- ${node.created.id} "${escapeMarkdown(node.created.summary)}"`;
-  if (node.conditional && node.matched.length > 0) {
-    line += `, created because ${node.matched.join(" and ")}`;
-  }
-  if (node.created.entered.length > 0) {
-    line += `. Entered: ${node.created.entered
-      .map((entry) => `${escapeMarkdown(entry.name)}: ${escapeMarkdown(entry.value)}`)
-      .join(", ")}`;
-  }
+  const reason = node.conditional ? formatMatched(node.matched) : "";
+  const line = `${indent}- ${node.created.id} "${escapeMarkdown(node.created.summary)}"${reason}`;
   return [line, ...node.children.flatMap((child) => formatNode(child, nouns, depth + 1))];
 };
 
@@ -183,10 +137,9 @@ const section = (title, lines) => (lines.length > 0 ? [`**${title}**`, ...lines]
 
 // The Markdown text of the summary comment.
 // summary: { target: "ticket" | "article", templateName, userName, total (number of child
-// templates), options (describeOptions), replacements (describeReplacements), rootFields
-// (describeRootFields; tickets only), nodes: [{ name, articleId, articleTitle, articleUrl,
-// created: { id, summary, entered }
-// | null, conditional, matched, unmet, skippedCount, children }] }.
+// templates), options (describeOptions), replacements (describeReplacements), nodes: [{ name,
+// articleId, articleTitle, articleUrl, created: { id, summary } | null, conditional, matched,
+// unmet, skippedCount, children }] }.
 const buildHierarchySummary = (summary) => {
   const forTicket = summary.target === "ticket";
   const nouns = forTicket
@@ -205,28 +158,22 @@ const buildHierarchySummary = (summary) => {
     }
     return `- ${escapeMarkdown(option.label)}: ${formatAnswer(option.answer)}${option.isDefault ? " (default)" : ""}`;
   });
-  const replacements = summary.replacements.map((replacement) => {
-    const word = `\`${replacement.search}\``;
-    if (replacement.value === null) {
-      return `- ${word}: not replaced`;
-    }
-    const source =
-      replacement.fieldName === null ? "entered" : `from field ${escapeMarkdown(replacement.fieldName)}`;
-    return `- ${word}: ${escapeMarkdown(replacement.value)} (${source})`;
-  });
-  const rootFields = forTicket
-    ? (summary.rootFields || []).map(
-      (field) =>
-        `- ${escapeMarkdown(field.name)}: ${field.value === null ? "empty" : escapeMarkdown(field.value)}${
-          field.changed ? " (changed when creating subtasks)" : ""
-        }`,
-    )
-    : [];
+  const entered = summary.replacements
+    .filter((replacement) => !replacement.fromField)
+    .map((replacement) =>
+      replacement.value === null
+        ? `- \`${replacement.search}\`: not replaced`
+        : `- \`${replacement.search}\`: ${escapeMarkdown(replacement.value)} (entered)`,
+    );
+  const fromFields = summary.replacements
+    .filter((replacement) => replacement.fromField)
+    .map((replacement) => `\`${replacement.search}\``);
+  const replacements =
+    fromFields.length > 0 ? [...entered, `- ${fromFields.join(", ")}: from ticket fields`] : entered;
   const blocks = [
     header,
     section("Options", options),
     section("Text replacements", replacements),
-    section("Ticket fields", rootFields),
     section(nouns.title, summary.nodes.flatMap((node) => formatNode(node, nouns, 0))),
   ].filter((block) => block.length > 0);
   return blocks.map((block) => block.join("\n")).join("\n\n");
@@ -237,7 +184,5 @@ module.exports = {
   explainChildConditions,
   describeOptions,
   describeReplacements,
-  describeRootFields,
-  describeEnteredValues,
   buildHierarchySummary,
 };

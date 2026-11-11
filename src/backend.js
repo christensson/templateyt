@@ -741,10 +741,10 @@ const skippedNode = (child, why, replacementValues, user) => {
 };
 
 // Record of a child template that was created as entity, for the summary comment.
-const createdNode = (child, why, entity, entered, children) => ({
+const createdNode = (child, why, entity, children) => ({
   name: child.name,
   articleId: child.articleId,
-  created: { id: entity.id, summary: entity.summary || "", entered: entered },
+  created: { id: entity.id, summary: entity.summary || "" },
   conditional: why.conditional,
   matched: why.matched,
   unmet: why.unmet,
@@ -754,7 +754,7 @@ const createdNode = (child, why, entity, entered, children) => ({
 
 // Adds the summary comment of a created hierarchy to the root ticket or article when the template
 // enables it and anything was created. Runs in the same transaction as the creation.
-// data: { target, nodes, replacementValues, optionValues, rootFields }.
+// data: { target, nodes, replacementValues, optionValues }.
 const addSummaryComment = (ctx, entity, template, body, data) => {
   if (!utils.hasSummaryComment(template) || !data.nodes.some((node) => node.created !== null)) {
     return;
@@ -767,7 +767,6 @@ const addSummaryComment = (ctx, entity, template, body, data) => {
     total: utils.flattenChildTemplates(template.children).length,
     options: summary.describeOptions(template, data.optionValues, body.optionValues),
     replacements: summary.describeReplacements(template, data.replacementValues),
-    rootFields: data.rootFields,
     nodes: data.nodes,
   });
   entity.addComment(text, user);
@@ -1385,8 +1384,7 @@ exports.httpHandler = {
               rootNames.concat(inheritedNames, child.fields.map((field) => field.fieldName)),
             );
             const childNodes = createChildren(ticket, managedNames, child.children);
-            const entered = summary.describeEnteredValues(child, prepared.assignments);
-            nodes.push(createdNode(child, why, ticket, entered, childNodes));
+            nodes.push(createdNode(child, why, ticket, childNodes));
           }
           return nodes;
         };
@@ -1399,11 +1397,6 @@ exports.httpHandler = {
           nodes: nodes,
           replacementValues: replacements.values,
           optionValues: options.values,
-          rootFields: summary.describeRootFields(
-            issue,
-            template,
-            conditionInputs.assignments.concat(fieldInputs.assignments).map((a) => a.fieldName),
-          ),
         });
         utils.markHierarchyCreated(issue, template.id);
         utils.storeReplacementTexts(issue, template, body.replacementTexts);
@@ -1692,7 +1685,7 @@ exports.httpHandler = {
             utils.applyTags(created, prepared.tagNames);
             createdArticleIds.push(created.id);
             const childNodes = createChildren(created, child.children);
-            nodes.push(createdNode(child, why, created, [], childNodes));
+            nodes.push(createdNode(child, why, created, childNodes));
           }
           return nodes;
         };
@@ -1703,7 +1696,6 @@ exports.httpHandler = {
           nodes: nodes,
           replacementValues: replacements.values,
           optionValues: options.values,
-          rootFields: [],
         });
         utils.markHierarchyCreated(article, template.id);
         utils.storeReplacementTexts(article, template, body.replacementTexts);

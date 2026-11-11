@@ -23,6 +23,7 @@ type FieldValue = { name: string; presentation: string; login?: string; fullName
 type ProjectField = {
   name: string;
   typeName: string;
+  isPublic?: boolean;
   findValueByName?: (name: string) => FieldValue | null;
   findValueByLogin?: (login: string) => FieldValue | null;
 };
@@ -60,9 +61,10 @@ const fakeSet = (): FakeSet => {
   });
 };
 
-const enumField = (name: string, typeName = "enum[1]"): ProjectField => ({
+const enumField = (name: string, typeName = "enum[1]", isPublic = true): ProjectField => ({
   name,
   typeName,
+  isPublic,
   findValueByName: (value) => ({ name: value, presentation: value }),
 });
 
@@ -73,7 +75,20 @@ const USERS: Record<string, FieldValue> = {
 const PROJECT_FIELDS: Array<ProjectField> = [
   enumField("Priority"),
   enumField("Customer"),
-  { name: "Assignee", typeName: "user[1]", findValueByLogin: (login) => USERS[login] ?? null },
+  {
+    name: "Assignee",
+    typeName: "user[1]",
+    isPublic: true,
+    findValueByLogin: (login) => USERS[login] ?? null,
+  },
+  // Private fields: readers without "Read private fields" must not learn their names or values.
+  enumField("Budget", "enum[1]", false),
+  {
+    name: "Reviewer",
+    typeName: "user[1]",
+    isPublic: false,
+    findValueByLogin: (login) => USERS[login] ?? null,
+  },
 ];
 
 const makeProject = (templates: Array<unknown>) => ({
@@ -204,9 +219,13 @@ const stubTemplateArticles = (project: FakeProject) => {
   };
 };
 
-const createTicketHierarchy = (summaryComment: boolean | undefined, body: Record<string, unknown> = {}) => {
+const createTicketHierarchy = (
+  summaryComment: boolean | undefined,
+  body: Record<string, unknown> = {},
+  template: unknown = releaseTemplate("issue", summaryComment),
+) => {
   nextId = 10;
-  const project = makeProject([releaseTemplate("issue", summaryComment)]);
+  const project = makeProject([template]);
   stubTemplateArticles(project);
   const created: Array<ReturnType<typeof makeIssue>> = [];
   stub.Issue = Object.assign(
@@ -220,6 +239,7 @@ const createTicketHierarchy = (summaryComment: boolean | undefined, body: Record
   const issue = makeIssue(project, "Release 2.1", {
     Priority: { name: "Normal", presentation: "Normal" },
     Customer: { name: "ACME", presentation: "ACME" },
+    Budget: { name: "High", presentation: "High" },
   });
   issue.extensionProperties.usedTemplateIds = JSON.stringify(["t"]);
   const json = callEndpoint(
@@ -248,20 +268,17 @@ const TICKET_SUMMARY = [
   "",
   "**Text replacements**",
   "- `VERSION`: 2.1 (entered)",
-  "- `CUSTOMER`: ACME (from field Customer)",
-  "",
-  "**Ticket fields**",
-  "- Priority: Critical (changed when creating subtasks)",
+  "- `CUSTOMER`: from ticket fields",
   "",
   "**Subtasks**",
-  '- DEMO-12 "Build 2.1". Entered: Assignee: Jane Doe',
-  '  - DEMO-13 "Smoke test 2.1", created because Priority is Critical',
+  '- DEMO-12 "Build 2.1"',
+  '  - DEMO-13 "Smoke test 2.1", created by a field condition',
   "  - [~~Article 4~~](/articles/DEMO-A-4) not created (with its 2 subtasks): needs Security review Yes (answered No)",
   '- DEMO-14 "Release notes for ACME"',
 ].join("\n");
 
 describe("summary comment on tickets", () => {
-  it("records options, replacements, fields and the created and skipped subtasks", () => {
+  it("records options, entered texts and the created and skipped subtasks", () => {
     const { issue, json } = createTicketHierarchy(true);
     expect(json.success).toBe(true);
     expect(issue.comments).toHaveLength(1);
@@ -284,6 +301,61 @@ describe("summary comment on tickets", () => {
     expect(json.success).toBe(false);
     expect(issue.comments).toHaveLength(0);
     expect(created).toHaveLength(0);
+  });
+});
+
+describe("summary comment and ticket fields", () => {
+  // The comment is readable by everyone who can read the ticket, and the scripting API cannot
+  // tell which fields are private. This template sets, inserts, asks for and branches on public
+  // and private fields.
+  const fieldTemplate = () => ({
+    ...releaseTemplate("issue", true),
+    fields: [{ fieldName: "Budget", mode: "fixed", fieldValue: "High" }],
+    options: [],
+    replacements: [
+      { search: "VERSION", mode: "user_input" },
+      { search: "COST", mode: "field", fieldName: "Budget" },
+      { search: "CUSTOMER", mode: "field", fieldName: "Customer" },
+    ],
+    children: [
+      child("c2", "Build", {
+        fields: [
+          { fieldName: "Reviewer", mode: "user_input" },
+          { fieldName: "Assignee", mode: "user_input" },
+        ],
+      }),
+      child("c3", "Big budget review", {
+        addConditions: [{ when: "field_is", fieldName: "Budget", fieldValue: "High" }],
+      }),
+      child("c4", "QA regression run", {
+        addConditions: [
+          { when: "field_is", fieldName: "Budget", fieldValue: "Low" },
+          { when: "field_is", fieldName: "Priority", fieldValue: "Critical" },
+        ],
+      }),
+    ],
+  });
+
+  it("never shows a ticket field name or value", () => {
+    const { issue, json } = createTicketHierarchy(
+      true,
+      {
+        childFieldValues: { c2: { Reviewer: "jdoe", Assignee: "jdoe" } },
+        conditionFieldValues: {},
+        optionValues: {},
+      },
+      fieldTemplate(),
+    );
+    expect(json.success).toBe(true);
+    const text = issue.comments[0].text;
+    // The header names the triggering user, who is also the value chosen for Assignee.
+    const body = text.split("\n").slice(1).join("\n");
+    expect(body).not.toMatch(/Budget|Reviewer|Assignee|Priority|Customer|High|Low|Normal|Critical|ACME|Jane Doe/);
+    expect(text).toContain("- `VERSION`: 2.1 (entered)\n- `COST`, `CUSTOMER`: from ticket fields");
+    expect(text).toContain('- DEMO-12 "Build"\n');
+    expect(text).toContain('- DEMO-13 "Big budget review", created by a field condition');
+    // Several field conditions read as one.
+    expect(text).toContain("- [~~Article 4~~](/articles/DEMO-A-4) not created: field condition not met");
   });
 });
 
@@ -342,12 +414,11 @@ describe("buildHierarchySummary", () => {
     total: 1,
     options: [],
     replacements: [],
-    rootFields: [],
     nodes: [
       {
         name: "Child",
         articleId: "DEMO-A-2",
-        created: { id: "DEMO-2", summary: "Child", entered: [] },
+        created: { id: "DEMO-2", summary: "Child" },
         conditional: false,
         matched: [],
         unmet: [],
@@ -355,6 +426,15 @@ describe("buildHierarchySummary", () => {
         children: [],
       },
     ],
+  };
+  const skipped = {
+    ...base.nodes[0],
+    name: "Extra review",
+    articleId: "DEMO-A-3",
+    articleTitle: "Extra *review*",
+    articleUrl: "https://yt.example.com/articles/DEMO-A-3",
+    created: null,
+    conditional: true,
   };
 
   it("leaves out empty sections", () => {
@@ -376,35 +456,54 @@ describe("buildHierarchySummary", () => {
     const text = summaryModule.buildHierarchySummary({
       ...base,
       templateName: "My *template*",
-      replacements: [{ search: "WORD", value: "a_b", fieldName: null }],
-      nodes: [{ ...base.nodes[0], created: { id: "DEMO-2", summary: "Fix [x]", entered: [] } }],
+      replacements: [{ search: "WORD", value: "a_b", fromField: false }],
+      nodes: [{ ...base.nodes[0], created: { id: "DEMO-2", summary: "Fix [x]" } }],
     });
     expect(text).toContain("*My \\*template\\**");
     expect(text).toContain("- `WORD`: a\\_b (entered)");
     expect(text).toContain('- DEMO-2 "Fix \\[x\\]"');
   });
 
-  it("lists every condition of a skipped child template, joined with or", () => {
+  it("lists entered texts first and words from ticket fields on one line", () => {
     const text = summaryModule.buildHierarchySummary({
       ...base,
-      total: 2,
-      nodes: [
-        base.nodes[0],
-        {
-          ...base.nodes[0],
-          name: "Extra review",
-          articleId: "DEMO-A-3",
-          articleTitle: "Extra *review*",
-          articleUrl: "https://yt.example.com/articles/DEMO-A-3",
-          created: null,
-          conditional: true,
-          unmet: ["Priority Critical (is empty)", "Components includes UI (has Backend, Docs)"],
-        },
+      replacements: [
+        { search: "A", value: null, fromField: true },
+        { search: "B", value: "typed", fromField: false },
+        { search: "C", value: null, fromField: false },
+        { search: "D", value: null, fromField: true },
       ],
     });
     expect(text).toContain(
-      "- [~~Extra \\*review\\*~~](https://yt.example.com/articles/DEMO-A-3) not created: needs Priority Critical (is empty) or Components includes UI (has Backend, Docs)",
+      ["**Text replacements**", "- `B`: typed (entered)", "- `C`: not replaced", "- `A`, `D`: from ticket fields"].join(
+        "\n",
+      ),
     );
+  });
+
+  it.each([
+    [["a field condition"], "not created: field condition not met"],
+    [["Security review Yes (answered No)"], "not created: needs Security review Yes (answered No)"],
+    [
+      ["Security review Yes (answered No)", "a field condition"],
+      "not created: needs Security review Yes (answered No) or a field condition",
+    ],
+  ])("explains a skipped child template from %j", (unmet, expected) => {
+    const text = summaryModule.buildHierarchySummary({ ...base, total: 2, nodes: [base.nodes[0], { ...skipped, unmet }] });
+    expect(text).toContain(`- [~~Extra \\*review\\*~~](https://yt.example.com/articles/DEMO-A-3) ${expected}`);
+  });
+
+  it.each([
+    [["a field condition"], ", created by a field condition"],
+    [["Security review is Yes"], ", created because Security review is Yes"],
+    // Any matched condition creates it: the option says more than the field condition.
+    [["Security review is Yes", "a field condition"], ", created because Security review is Yes"],
+  ])("explains a created conditional child template from %j", (matched, expected) => {
+    const text = summaryModule.buildHierarchySummary({
+      ...base,
+      nodes: [{ ...base.nodes[0], conditional: true, matched }],
+    });
+    expect(text).toContain(`- DEMO-2 "Child"${expected}`);
   });
 });
 
@@ -427,7 +526,7 @@ describe("explainChildConditions", () => {
   const options = [{ id: "o1", label: "Security review", default: null }];
   const cond = (fieldName: string, fieldValue: string) => ({ when: "field_is", fieldName, fieldValue });
 
-  it("says what each condition needs and the actual value", () => {
+  it("keeps option answers and reads any field condition as one field condition, last", () => {
     const conditional = {
       addConditions: [
         cond("Priority", "Critical"),
@@ -438,19 +537,18 @@ describe("explainChildConditions", () => {
     expect(summaryModule.explainChildConditions(root, conditional, {}, {}, options)).toEqual({
       conditional: true,
       matched: [],
-      unmet: [
-        "Priority Critical (is Normal)",
-        "Components includes UI (has Backend, Docs)",
-        "Security review Yes (not answered)",
-      ],
+      unmet: ["Security review Yes (not answered)", "a field condition"],
     });
     expect(
-      summaryModule.explainChildConditions(root, conditional, { Priority: null, Components: ["UI"] }, { o1: false }, options),
+      summaryModule.explainChildConditions(root, conditional, { Components: ["UI"] }, { o1: false }, options),
     ).toEqual({
       conditional: true,
-      matched: ["Components includes UI"],
-      unmet: ["Priority Critical (is empty)", "Security review Yes (answered No)"],
+      matched: ["a field condition"],
+      unmet: ["Security review Yes (answered No)", "a field condition"],
     });
+    expect(summaryModule.explainChildConditions(root, conditional, {}, { o1: true }, options).matched).toEqual([
+      "Security review is Yes",
+    ]);
   });
 
   it("treats child templates without conditions, and field conditions on articles, as unconditional", () => {
