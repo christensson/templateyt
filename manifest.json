@@ -2,13 +2,13 @@
   "$schema": "https://json.schemastore.org/youtrack-app.json",
   "name": "templateyt",
   "title": "Ticket Templates",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Ticket and article templates that set content and fields, are applied on conditions or on demand, and can be hierarchical.",
   "vendor": {
     "name": "Marcus Christensson",
     "url": "https://github.com/christensson/templateyt"
   },
-  "changeNotes": "Version 0.4.0:<br/>- Templates can set the title of the ticket or article they are applied to, from the title of the template article: always, or only when the title is empty. When applied from the Apply template dialog to a ticket or article that has a title, the user is asked whether to replace it. Text replacements are applied to the new title. Templates saved by earlier versions keep the title.<br/>- Hierarchical templates can add a summary comment each time subtasks or sub-articles are created, recording who created them, the option answers, the texts entered, and which subtasks were created or skipped, and why. It shows no ticket field values. Off by default.",
+  "changeNotes": "Version 0.4.1:<br/>- Templates can set the title of the ticket or article they are applied to, from the title of the template article: always, or only when the title is empty. When applied from the Apply template dialog to a ticket or article that has a title, the user is asked whether to replace it. Text replacements are applied to the new title. Templates saved by earlier versions keep the title.<br/>- Hierarchical templates can add a summary comment each time subtasks or sub-articles are created, recording who created them, the option answers, the texts entered, and which subtasks were created or skipped, and why. It shows no ticket field values. Off by default.",
   "minYouTrackVersion": "2026.1.0",
   "icon": "icon-small.svg",
   "widgets": [
